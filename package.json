@@ -1,0 +1,10 @@
+{
+  "name": "melleka-team-command-center",
+  "private": true,
+  "workspaces": ["server", "client"],
+  "scripts": {
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "build": "cd client && bun run build && cd ../server && bun run build"
+  }
+}
