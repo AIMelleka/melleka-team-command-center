@@ -8,6 +8,16 @@ import { appendMemory, writeMemory } from "./memory.js";
 const execAsync = promisify(exec);
 
 const MELLEKA_PROJECT = process.env.MELLEKA_PROJECT_DIR || "";
+const TEAM_TIMEZONE = "America/New_York";
+
+/** Format an ISO timestamp to a human-readable string in the team's timezone */
+function formatTZ(isoStr: string): string {
+  return new Date(isoStr).toLocaleString("en-US", {
+    timeZone: TEAM_TIMEZONE,
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
 
 /** Registered callbacks that fire when cron jobs change, so the scheduler can reload */
 export const cronReloadCallbacks: Array<() => void> = [];
@@ -248,6 +258,16 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ["name"],
     },
   },
+  {
+    name: "get_current_date",
+    description:
+      "Get the current date and time in the team's timezone (America/New_York). Use this before constructing any date ranges for API calls to ensure accuracy.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
 ];
 
 export async function executeTool(
@@ -434,7 +454,7 @@ export async function executeTool(
         return data
           .map(
             (j) =>
-              `• **${j.name}** [${j.enabled ? "active" : "paused"}]\n  Schedule: ${j.cron_expr}\n  Task: ${j.task}\n  Last run: ${j.last_run || "never"}`
+              `• **${j.name}** [${j.enabled ? "active" : "paused"}]\n  Schedule: ${j.cron_expr} (${TEAM_TIMEZONE})\n  Task: ${j.task}\n  Last run: ${j.last_run ? formatTZ(j.last_run) : "never"}`
           )
           .join("\n\n");
       }
@@ -450,6 +470,24 @@ export async function executeTool(
         if (error) return `Error deleting job: ${error.message}`;
         cronReloadCallbacks.forEach((cb) => cb());
         return count ? `Cron job "${jobName}" deleted.` : `No job named "${jobName}" found.`;
+      }
+
+      case "get_current_date": {
+        const now = new Date();
+        const full = now.toLocaleString("en-US", {
+          timeZone: TEAM_TIMEZONE,
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          second: "2-digit",
+          timeZoneName: "short",
+        });
+        const isoDate = now.toLocaleDateString("en-CA", { timeZone: TEAM_TIMEZONE });
+        const dayOfWeek = now.toLocaleDateString("en-US", { timeZone: TEAM_TIMEZONE, weekday: "long" });
+        return `Current date/time: ${full}\nISO date: ${isoDate}\nDay of week: ${dayOfWeek}\nTimezone: ${TEAM_TIMEZONE} (Eastern Time)\n\nUse the ISO date (${isoDate}) as "today" when calculating date ranges for API calls.`;
       }
 
       default:

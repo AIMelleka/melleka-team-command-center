@@ -58,18 +58,25 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       content: message,
     });
 
-    // Load conversation history (last 40 messages)
+    // Load conversation history (last 40 messages) with timestamps
     const { data: history } = await supabase
       .from("team_messages")
-      .select("role, content")
+      .select("role, content, created_at")
       .eq("conversation_id", convId)
       .order("created_at", { ascending: true })
       .limit(40);
 
-    const messages: Anthropic.MessageParam[] = (history ?? []).map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    }));
+    const messages: Anthropic.MessageParam[] = (history ?? []).map((m) => {
+      const ts = new Date(m.created_at).toLocaleString("en-US", {
+        timeZone: "America/New_York",
+        dateStyle: "short",
+        timeStyle: "short",
+      });
+      return {
+        role: m.role as "user" | "assistant",
+        content: `[${ts}] ${m.content}`,
+      };
+    });
 
     // Stream response from Claude
     const fullResponse = await streamChat(memberName, messages, res);

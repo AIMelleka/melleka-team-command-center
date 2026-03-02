@@ -17,13 +17,44 @@ async function loadClaudeMd(): Promise<string> {
   }
 }
 
+const TEAM_TIMEZONE = "America/New_York";
+
+function getCurrentDateTime(): string {
+  const now = new Date();
+  return now.toLocaleString("en-US", {
+    timeZone: TEAM_TIMEZONE,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}
+
+function getCurrentDateISO(): string {
+  const now = new Date();
+  // Get YYYY-MM-DD in the team's timezone
+  return now.toLocaleDateString("en-CA", { timeZone: TEAM_TIMEZONE });
+}
+
 function buildSystemPrompt(name: string, memory: string, claudeMd: string): string {
   const slug = name.toLowerCase().replace(/\s+/g, "-");
   const scratchDir = `/tmp/${slug}`;
   const melleka = MELLEKA_PROJECT ? `\n## Melleka Project (${MELLEKA_PROJECT}):\n${claudeMd}` : "";
+  const nowFormatted = getCurrentDateTime();
+  const todayISO = getCurrentDateISO();
 
   return `You are Claude, the AI assistant and developer for the Melleka team.
 You are currently helping: **${name}**
+
+## Current Date & Time:
+**${nowFormatted}**
+Today's date (ISO): ${todayISO}
+Timezone: ${TEAM_TIMEZONE} (Eastern Time)
+
+IMPORTANT: Always use this date when calculating date ranges for API calls, reports, or any time-sensitive operations. When a user says "last 7 days", calculate from today's date (${todayISO}). When they say "this month", use the current month and year. Never guess or hallucinate dates.
 
 ## Your memory of ${name}:
 ${memory || "(no memory yet — this is a new team member)"}
@@ -44,6 +75,7 @@ Example: write HTML to \`${scratchDir}/site/index.html\`, then call deploy_site 
 - **list_cron_jobs** / **delete_cron_job** — manage scheduled tasks
 - **save_memory** / **append_memory** — persist notes about this person across sessions
 - **create_agent** — queue background tasks
+- **get_current_date** — get the exact current date/time (use before building any date ranges for API calls)
 
 ## Guidelines:
 - Greet the team member by name at the start of new conversations

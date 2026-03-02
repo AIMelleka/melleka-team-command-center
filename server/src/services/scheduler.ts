@@ -100,10 +100,28 @@ async function runJob(job: CronJob): Promise<void> {
       content: userMessage,
     });
 
-    // Run Claude (no streaming needed)
-    const response = await runChatBackground(job.member_name, [
-      { role: "user", content: userMessage },
-    ]);
+    // Load conversation history so Claude has context from previous runs
+    const { data: history } = await supabase
+      .from("team_messages")
+      .select("role, content, created_at")
+      .eq("conversation_id", convId)
+      .order("created_at", { ascending: true })
+      .limit(30);
+
+    const messages = (history ?? []).map((m) => {
+      const ts = new Date(m.created_at).toLocaleString("en-US", {
+        timeZone: "America/New_York",
+        dateStyle: "short",
+        timeStyle: "short",
+      });
+      return {
+        role: m.role as "user" | "assistant",
+        content: `[${ts}] ${m.content}`,
+      };
+    });
+
+    // Run Claude with full history (not just the single message)
+    const response = await runChatBackground(job.member_name, messages);
 
     // Append Claude's response and mark unread
     await supabase.from("team_messages").insert({

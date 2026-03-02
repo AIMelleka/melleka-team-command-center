@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 
 const LOCAL_TEAM_DIR = process.env.LOCAL_TEAM_DIR ?? "/Users/aimelleka/Clients/ai/melleka/team";
+const TEAM_TIMEZONE = "America/New_York";
 
 export async function getMemberDir(name: string): Promise<string> {
   const dir = path.join(LOCAL_TEAM_DIR, name.toLowerCase().replace(/\s+/g, "-"));
@@ -37,7 +38,8 @@ export async function writeMemory(name: string, content: string): Promise<void> 
 
 export async function appendMemory(name: string, note: string): Promise<void> {
   const existing = await readMemory(name);
-  const timestamp = new Date().toISOString().split("T")[0];
+  // Get YYYY-MM-DD in team timezone (not UTC)
+  const timestamp = new Date().toLocaleDateString("en-CA", { timeZone: TEAM_TIMEZONE });
   const updated = existing
     ? `${existing}\n\n[${timestamp}] ${note}`
     : `[${timestamp}] ${note}`;
