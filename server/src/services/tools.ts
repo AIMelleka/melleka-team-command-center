@@ -4,6 +4,7 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import { appendMemory, writeMemory } from "./memory.js";
+import { getSecret, requireSecret } from "./secrets.js";
 
 const execAsync = promisify(exec);
 
@@ -31,14 +32,9 @@ function memberTmpDir(memberName: string): string {
 
 /** Refresh a Google OAuth2 access token and return it */
 async function refreshGoogleToken(): Promise<string> {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN;
-  if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error(
-      "Google Ads credentials not configured. Need GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN on the server."
-    );
-  }
+  const clientId = await requireSecret("GOOGLE_CLIENT_ID", "Google Client ID");
+  const clientSecret = await requireSecret("GOOGLE_CLIENT_SECRET", "Google Client Secret");
+  const refreshToken = await requireSecret("GOOGLE_ADS_REFRESH_TOKEN", "Google Ads Refresh Token");
   const resp = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -469,10 +465,7 @@ export async function executeTool(
       case "deploy_site": {
         const dir = toolInput.directory as string;
         const projectName = toolInput.project_name as string | undefined;
-        const token = process.env.VERCEL_TOKEN;
-        if (!token) {
-          return `Error: VERCEL_TOKEN is not configured on the server. Please ask the admin to add it.`;
-        }
+        const token = await requireSecret("VERCEL_TOKEN", "Vercel Token");
         // Build the vercel deploy command
         const nameFlag = projectName ? `--name "${projectName}"` : "";
         const cmd = `vercel deploy --yes --token ${token} ${nameFlag}`.trim();
@@ -522,17 +515,12 @@ export async function executeTool(
       }
 
       case "send_email": {
-        const apiKey = process.env.RESEND_API_KEY;
-        if (!apiKey) {
-          return `Error: RESEND_API_KEY is not configured. Ask the admin to add it to the server environment variables. Sign up free at resend.com to get one.`;
-        }
+        const apiKey = await requireSecret("RESEND_API_KEY", "Resend API Key");
         const to = toolInput.to as string;
         const subject = toolInput.subject as string;
         const htmlBody = toolInput.body as string;
-        const from =
-          (toolInput.from as string) ||
-          process.env.FROM_EMAIL ||
-          "Melleka Team Hub <onboarding@resend.dev>";
+        const defaultFrom = await getSecret("FROM_EMAIL") || "Melleka Team Hub <onboarding@resend.dev>";
+        const from = (toolInput.from as string) || defaultFrom;
         const toArray = to.split(",").map((e) => e.trim());
         // Auto-wrap plain text in a basic HTML template
         const html = htmlBody.includes("<") ? htmlBody : `<p>${htmlBody.replace(/\n/g, "<br>")}</p>`;
@@ -600,11 +588,8 @@ export async function executeTool(
       case "google_ads_query": {
         const customerId = (toolInput.customer_id as string).replace(/-/g, "");
         const query = toolInput.query as string;
-        const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
-        const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID;
-        if (!developerToken) {
-          return "Error: GOOGLE_ADS_DEVELOPER_TOKEN not configured on the server.";
-        }
+        const developerToken = await requireSecret("GOOGLE_ADS_DEVELOPER_TOKEN", "Google Ads Developer Token");
+        const loginCustomerId = await getSecret("GOOGLE_ADS_LOGIN_CUSTOMER_ID");
         const accessToken = await refreshGoogleToken();
         const headers: Record<string, string> = {
           Authorization: `Bearer ${accessToken}`,
@@ -627,12 +612,9 @@ export async function executeTool(
       }
 
       case "list_google_ads_accounts": {
-        const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
-        if (!developerToken) {
-          return "Error: GOOGLE_ADS_DEVELOPER_TOKEN not configured on the server.";
-        }
+        const developerToken = await requireSecret("GOOGLE_ADS_DEVELOPER_TOKEN", "Google Ads Developer Token");
         const accessToken = await refreshGoogleToken();
-        const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID;
+        const loginCustomerId = await getSecret("GOOGLE_ADS_LOGIN_CUSTOMER_ID");
         const headers: Record<string, string> = {
           Authorization: `Bearer ${accessToken}`,
           "developer-token": developerToken,
@@ -675,10 +657,7 @@ export async function executeTool(
       }
 
       case "supermetrics_query": {
-        const apiKey = process.env.SUPERMETRICS_API_KEY;
-        if (!apiKey) {
-          return "Error: SUPERMETRICS_API_KEY not configured on the server.";
-        }
+        const apiKey = await requireSecret("SUPERMETRICS_API_KEY", "Supermetrics API Key");
         const queryParams: Record<string, unknown> = {
           api_key: apiKey,
           ds_id: toolInput.ds_id as string,
@@ -705,10 +684,7 @@ export async function executeTool(
       }
 
       case "supermetrics_accounts": {
-        const apiKey = process.env.SUPERMETRICS_API_KEY;
-        if (!apiKey) {
-          return "Error: SUPERMETRICS_API_KEY not configured on the server.";
-        }
+        const apiKey = await requireSecret("SUPERMETRICS_API_KEY", "Supermetrics API Key");
         const dsId = toolInput.ds_id as string;
         const resp = await fetch(
           `https://api.supermetrics.com/enterprise/v2/query/accounts/json?json=${encodeURIComponent(JSON.stringify({ api_key: apiKey, ds_id: dsId }))}`,

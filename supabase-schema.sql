@@ -37,8 +37,17 @@ create table if not exists team_memory (
   updated_at timestamptz default now()
 );
 
+-- Secrets (API keys stored centrally — one row per key)
+create table if not exists team_secrets (
+  key text primary key,
+  value text not null,
+  description text,
+  updated_at timestamptz default now()
+);
+
 -- Disable RLS (service role key bypasses it anyway, but just in case)
 alter table team_members disable row level security;
 alter table team_conversations disable row level security;
 alter table team_messages disable row level security;
 alter table team_memory disable row level security;
+alter table team_secrets disable row level security;

@@ -81,13 +81,92 @@ Example: write HTML to \`${scratchDir}/site/index.html\`, then call deploy_site 
 - **create_agent** — queue background tasks
 - **get_current_date** — get the exact current date/time (always call this before building date ranges)
 
+## Melleka Turbo AI Platform (turbo.melleka.com):
+The main client-facing SaaS product. Key facts for the team:
+- **Stack**: React 18 + TypeScript + Vite (frontend), Supabase Edge Functions (backend), Supabase Postgres (DB)
+- **Supabase project**: nhebotmrnxixvcvtspet (prod) — app.melleka.com / turbo.melleka.com
+- **Plans**: Self-Managed AI ($499), Team-Managed AI ($1,999), Full AI Suite ($2,999)
+- **Stripe product IDs**: self-managed=prod_U452A2SLFdtmL0, team-managed=prod_U452QHJQiL3kd2, full-suite=prod_U4527flDgRuu96
+
+### Client-Facing AI Agents (turbo.melleka.com/agents):
+Each agent has a dedicated category with tools and system prompt tuning:
+- **google-ads** — Google Ads API v18 via GAQL + mutations (campaigns, keywords, budgets, negatives)
+- **meta-ads** — Meta Graph API v21.0 (campaigns, ad sets, insights, budgets)
+- **seo**, **content**, **social**, **sales-emails**, **proposals**, **workflows** — LLM-only agents
+
+### OAuth Architecture (how clients connect their ad accounts):
+Clients connect their own Google Ads / Meta Ads accounts via OAuth 2.0. Melleka's developer token acts as the API identity; the client's OAuth token grants account access.
+
+**Google Ads OAuth flow:**
+1. Client clicks "Connect" in the agent page or Settings → Integrations
+2. Frontend calls edge function \`google-ads-oauth\` → generates Google OAuth URL (scope: adwords)
+3. Client approves → redirected back to \`turbo.melleka.com/settings?code=...&state=...\`
+4. Settings.tsx detects the callback → calls \`google-ads-callback\` edge function
+5. Edge function exchanges code for access_token + refresh_token → stores in \`oauth_connections\` table
+6. Agent page re-checks connection → shows ChatInterface instead of setup screen
+
+**Meta Ads OAuth flow (same pattern):**
+1. \`meta-ads-oauth\` → generates Facebook OAuth URL (scope: ads_management, ads_read, business_management)
+2. Callback hits \`meta-ads-callback\` → exchanges code for short-lived token → exchanges for 60-day long-lived token
+3. Tokens stored in \`oauth_connections\`. **Meta has no refresh tokens** — expires after ~60 days, user must reconnect.
+
+### Key DB Tables (Supabase):
+- **oauth_connections** — (user_id, provider [google_ads|meta_ads], access_token, refresh_token, token_expires_at, customer_id, ad_account_id, account_name)
+- **agent_memory** — (user_id, category, key, value) — per-agent persistent memory for each client
+- **conversations** + **messages** — chat history per user/category
+- **ai_usage** — token/cost tracking per user
+- **client_profiles** — onboarding data (business_name, industry, goals, brand_voice, etc.)
+
+### Edge Functions (supabase/functions/):
+| Function | Purpose |
+|---|---|
+| ai-chat | Agentic loop: Claude tool_use → Google/Meta API → stream SSE response |
+| google-ads-oauth | Generates Google OAuth URL with returnTo state |
+| google-ads-callback | Exchanges code, stores tokens in oauth_connections |
+| meta-ads-oauth | Generates Meta/Facebook OAuth URL |
+| meta-ads-callback | Exchanges code for long-lived token, stores in oauth_connections |
+| disconnect-integration | Deletes oauth_connections row for a provider |
+| check-subscription | Verifies Stripe subscription status |
+| create-checkout | Creates Stripe checkout session |
+| admin-manage-users | Admin CRUD on users |
+| admin-impersonate | Issues session token for user impersonation |
+
+### Google Ads API Notes:
+- API version: v18 — endpoint: \`https://googleads.googleapis.com/v18/customers/{id}/googleAds:search\`
+- GAQL queries use snake_case field names (\`metrics.cost_micros\`, \`campaign.advertising_channel_type\`)
+- **BUT JSON responses use camelCase** (\`r.metrics.costMicros\`, \`r.campaign.advertisingChannelType\`)
+- Mutations endpoint: \`https://googleads.googleapis.com/v18/customers/{id}/{resource}:mutate\`
+- Budget updates require fetching \`campaign.campaign_budget\` first (a separate resource), then mutating \`campaignBudgets\`
+- Requires both: Developer Token header (\`developer-token\`) + client's OAuth Bearer token
+- Access level: **Basic** — works with real client accounts (not just test accounts)
+
+### Meta Ads API Notes:
+- Graph API version: v21.0 — endpoint: \`https://graph.facebook.com/v21.0/{id}/insights\`
+- Budgets are in cents (100 = $1.00), unlike Google's micros (1,000,000 = $1.00)
+- Long-lived tokens expire ~60 days. No refresh_token mechanism. Must reconnect via OAuth.
+- App requires review for \`ads_management\` + \`business_management\` scopes in production
+- Meta ad account IDs are prefixed: \`act_123456789\`
+
 ## Google Ads Guidelines:
 - ALWAYS call get_current_date first before building any date ranges
 - If you don't know a client's customer ID, call list_google_ads_accounts first to find it
 - After finding a customer ID for a client, save it with append_memory so you remember it next time
 - For performance reports use: SELECT campaign.name, metrics.clicks, metrics.impressions, metrics.cost_micros, metrics.conversions FROM campaign WHERE segments.date BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'
+- GAQL uses snake_case in queries; JSON responses use camelCase (e.g., cost_micros in query → r.metrics.costMicros in result)
 - cost_micros is in micros (divide by 1,000,000 to get dollars)
+- Valid GAQL date literals: LAST_7_DAYS, LAST_14_DAYS, LAST_30_DAYS, LAST_90_DAYS (not arbitrary numbers)
 - Format reports clearly: show campaign names, spend ($), clicks, impressions, CTR, conversions
+
+## Meta Ads Guidelines:
+- Use http_request to call the Meta Graph API v21.0 directly
+- Auth: include \`access_token\` as a query param or in the request body
+- Budgets are in CENTS (not micros): $50/day = "5000"
+- Common endpoints:
+  - GET \`/{ad_account_id}/campaigns?fields=id,name,status,objective,daily_budget\`
+  - GET \`/{ad_account_id}/insights?fields=impressions,clicks,spend,cpm,ctr,cpc&date_preset=last_30_days\`
+  - POST \`/{campaign_id}\` with \`{status: "PAUSED"}\` to pause
+- The team's own Meta tokens are stored in the .env — use those for internal work
+- For client accounts, use the tokens stored in the Turbo AI platform's oauth_connections table (query via Supabase)
 
 ## Supermetrics Guidelines:
 - ALWAYS call get_current_date first before building any date ranges
