@@ -29,6 +29,33 @@ function memberTmpDir(memberName: string): string {
   return `/tmp/${slug}`;
 }
 
+/** Refresh a Google OAuth2 access token and return it */
+async function refreshGoogleToken(): Promise<string> {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN;
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error(
+      "Google Ads credentials not configured. Need GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN on the server."
+    );
+  }
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      refresh_token: refreshToken,
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+    }),
+  });
+  const data = await resp.json() as { access_token?: string; error?: string; error_description?: string };
+  if (!data.access_token) {
+    throw new Error(`Token refresh failed: ${data.error} — ${data.error_description}`);
+  }
+  return data.access_token;
+}
+
 /** Ensure a directory exists */
 async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
@@ -259,6 +286,37 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "google_ads_query",
+    description:
+      "Query Google Ads data using GAQL (Google Ads Query Language). Use this to pull campaign performance, keywords, ad groups, conversions, spend, clicks, impressions, etc. for any client account.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        customer_id: {
+          type: "string",
+          description:
+            "Google Ads customer account ID (digits only, e.g. '1234567890'). Use list_google_ads_accounts first if you don't know it.",
+        },
+        query: {
+          type: "string",
+          description:
+            "GAQL query string. Example: SELECT campaign.name, metrics.clicks, metrics.cost_micros, metrics.impressions FROM campaign WHERE segments.date BETWEEN '2026-02-23' AND '2026-03-01' ORDER BY metrics.cost_micros DESC",
+        },
+      },
+      required: ["customer_id", "query"],
+    },
+  },
+  {
+    name: "list_google_ads_accounts",
+    description:
+      "List all Google Ads accounts accessible with the configured credentials. Use this to find a client's customer ID before running a query.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
     name: "get_current_date",
     description:
       "Get the current date and time in the team's timezone (America/New_York). Use this before constructing any date ranges for API calls to ensure accuracy.",
@@ -470,6 +528,83 @@ export async function executeTool(
         if (error) return `Error deleting job: ${error.message}`;
         cronReloadCallbacks.forEach((cb) => cb());
         return count ? `Cron job "${jobName}" deleted.` : `No job named "${jobName}" found.`;
+      }
+
+      case "google_ads_query": {
+        const customerId = (toolInput.customer_id as string).replace(/-/g, "");
+        const query = toolInput.query as string;
+        const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+        const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID;
+        if (!developerToken) {
+          return "Error: GOOGLE_ADS_DEVELOPER_TOKEN not configured on the server.";
+        }
+        const accessToken = await refreshGoogleToken();
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": developerToken,
+          "Content-Type": "application/json",
+        };
+        if (loginCustomerId) headers["login-customer-id"] = loginCustomerId.replace(/-/g, "");
+
+        const resp = await fetch(
+          `https://googleads.googleapis.com/v18/customers/${customerId}/googleAds:search`,
+          { method: "POST", headers, body: JSON.stringify({ query }) }
+        );
+        const data = await resp.json() as { results?: unknown[]; error?: unknown };
+        if (!resp.ok) {
+          return `Google Ads API error (${resp.status}): ${JSON.stringify(data).slice(0, 3000)}`;
+        }
+        const results = data.results ?? [];
+        if (results.length === 0) return "Query returned no results.";
+        return JSON.stringify(results, null, 2).slice(0, 12000);
+      }
+
+      case "list_google_ads_accounts": {
+        const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+        if (!developerToken) {
+          return "Error: GOOGLE_ADS_DEVELOPER_TOKEN not configured on the server.";
+        }
+        const accessToken = await refreshGoogleToken();
+        const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID;
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": developerToken,
+        };
+        if (loginCustomerId) headers["login-customer-id"] = loginCustomerId.replace(/-/g, "");
+
+        const resp = await fetch(
+          "https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
+          { headers }
+        );
+        const data = await resp.json() as { resourceNames?: string[]; error?: unknown };
+        if (!resp.ok) return `Error listing accounts: ${JSON.stringify(data).slice(0, 2000)}`;
+
+        const ids = (data.resourceNames ?? []).map((r) => r.replace("customers/", ""));
+        if (ids.length === 0) return "No accessible Google Ads accounts found.";
+
+        // Fetch account names in one batched query using the first ID as the seed
+        // (for MCC accounts, use the login customer ID)
+        const seedId = (loginCustomerId ?? ids[0]).replace(/-/g, "");
+        const nameResp = await fetch(
+          `https://googleads.googleapis.com/v18/customers/${seedId}/googleAds:search`,
+          {
+            method: "POST",
+            headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query: `SELECT customer_client.id, customer_client.descriptive_name, customer_client.level FROM customer_client WHERE customer_client.level <= 1`,
+            }),
+          }
+        );
+        const nameData = await nameResp.json() as { results?: Array<{ customerClient: { id: string; descriptiveName: string; level: number } }> };
+        if (nameResp.ok && nameData.results?.length) {
+          const accounts = nameData.results
+            .filter((r) => r.customerClient?.level === 1)
+            .map((r) => `• ${r.customerClient.descriptiveName} — ID: ${r.customerClient.id}`)
+            .join("\n");
+          return `Google Ads client accounts:\n${accounts}\n\nUse the ID with google_ads_query.`;
+        }
+
+        return `Accessible account IDs:\n${ids.map((id) => `• ${id}`).join("\n")}\n\nUse google_ads_query with one of these IDs.`;
       }
 
       case "get_current_date": {

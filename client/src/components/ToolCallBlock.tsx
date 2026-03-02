@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight, Terminal, FileText, Search, Brain, FolderOpen, Code, Globe, Mail, Clock, List, Trash2, Zap } from "lucide-react";
+import { ChevronDown, ChevronRight, Terminal, FileText, Search, Brain, FolderOpen, Code, Globe, Mail, Clock, List, Trash2, Zap, BarChart2 } from "lucide-react";
 
 interface ToolCallBlockProps {
   name: string;
@@ -14,6 +14,8 @@ const TOOL_ICONS: Record<string, React.ReactNode> = {
   list_files: <FolderOpen size={13} />,
   search_code: <Search size={13} />,
   deploy_site: <Globe size={13} />,
+  google_ads_query: <BarChart2 size={13} />,
+  list_google_ads_accounts: <BarChart2 size={13} />,
   http_request: <Zap size={13} />,
   send_email: <Mail size={13} />,
   create_cron_job: <Clock size={13} />,
