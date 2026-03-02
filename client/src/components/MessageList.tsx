@@ -111,7 +111,7 @@ export function MessageList({ messages, memberName }: MessageListProps) {
         </div>
         <p className="text-lg font-semibold text-text">Ready, {memberName}</p>
         <p className="text-sm text-center max-w-sm">
-          Ask me anything — I can read and edit code, run commands, search the codebase, and remember what you tell me.
+          Ask me anything — I can write and deploy websites, send emails, hit any API, schedule recurring tasks, run commands, read/write files, and remember everything about you.
         </p>
       </div>
     );

@@ -126,6 +126,16 @@ export function Chat({ memberName, onLogout }: ChatProps) {
             currentConvId = event.conversationId;
             setActiveId(event.conversationId);
           }
+        } else if (event.type === "error" && event.message) {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== assistantMsgId) return m;
+              return {
+                ...m,
+                parts: [...m.parts, { type: "text" as const, content: `\n\n⚠️ Error: ${event.message}` }],
+              };
+            })
+          );
         }
       },
       () => {
