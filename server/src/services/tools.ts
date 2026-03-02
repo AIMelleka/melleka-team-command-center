@@ -317,6 +317,73 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "supermetrics_query",
+    description:
+      "Query marketing data from any platform via Supermetrics (Google Analytics, Google Ads, Facebook/Meta Ads, Instagram, LinkedIn, etc.). Returns metrics like impressions, clicks, spend, conversions, sessions, etc.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        ds_id: {
+          type: "string",
+          description:
+            "Data source ID. Common values: GA4 (Google Analytics 4), AW (Google Ads), FA (Facebook Ads), IG (Instagram Insights), LI (LinkedIn Ads), TW (Twitter/X Ads), MA (Mailchimp), BI (Bing/Microsoft Ads), SC (Search Console).",
+        },
+        ds_accounts: {
+          type: "string",
+          description:
+            "Account IDs to query, comma-separated. Use 'list.all_accounts' to query all connected accounts. Example: '567890' or '567890, 1358618'.",
+        },
+        fields: {
+          type: "string",
+          description:
+            "Comma-separated list of dimensions and metrics. Examples: 'Date, campaign, impressions, clicks, cost, conversions' for ads, 'Date, sessions, pageviews, users, bounceRate' for analytics.",
+        },
+        date_range_type: {
+          type: "string",
+          description:
+            "Preset date range. Examples: 'last_7_days', 'last_30_days', 'last_month', 'this_month_inc', 'this_year_inc', 'custom'. Use 'custom' with start_date/end_date for specific ranges.",
+        },
+        start_date: {
+          type: "string",
+          description: "Start date in YYYY-MM-DD format. Required when date_range_type is 'custom'.",
+        },
+        end_date: {
+          type: "string",
+          description: "End date in YYYY-MM-DD format (or 'today'). Required when date_range_type is 'custom'.",
+        },
+        filter: {
+          type: "string",
+          description: "Optional filter expression. Example: 'impressions > 0 AND cost > 0'.",
+        },
+        order_rows: {
+          type: "string",
+          description: "Optional sort order. Example: 'cost desc, clicks desc'.",
+        },
+        max_rows: {
+          type: "number",
+          description: "Max rows to return. Defaults to 1000.",
+        },
+      },
+      required: ["ds_id", "fields"],
+    },
+  },
+  {
+    name: "supermetrics_accounts",
+    description:
+      "List available accounts for a Supermetrics data source. Use this to find account IDs before running a supermetrics_query.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        ds_id: {
+          type: "string",
+          description:
+            "Data source ID to list accounts for. Examples: GA4, AW, FA, IG, LI, SC.",
+        },
+      },
+      required: ["ds_id"],
+    },
+  },
+  {
     name: "get_current_date",
     description:
       "Get the current date and time in the team's timezone (America/New_York). Use this before constructing any date ranges for API calls to ensure accuracy.",
@@ -605,6 +672,53 @@ export async function executeTool(
         }
 
         return `Accessible account IDs:\n${ids.map((id) => `• ${id}`).join("\n")}\n\nUse google_ads_query with one of these IDs.`;
+      }
+
+      case "supermetrics_query": {
+        const apiKey = process.env.SUPERMETRICS_API_KEY;
+        if (!apiKey) {
+          return "Error: SUPERMETRICS_API_KEY not configured on the server.";
+        }
+        const queryParams: Record<string, unknown> = {
+          api_key: apiKey,
+          ds_id: toolInput.ds_id as string,
+          fields: toolInput.fields as string,
+        };
+        if (toolInput.ds_accounts) queryParams.ds_accounts = toolInput.ds_accounts as string;
+        if (toolInput.date_range_type) queryParams.date_range_type = toolInput.date_range_type as string;
+        if (toolInput.start_date) queryParams.start_date = toolInput.start_date as string;
+        if (toolInput.end_date) queryParams.end_date = toolInput.end_date as string;
+        if (toolInput.filter) queryParams.filter = toolInput.filter as string;
+        if (toolInput.order_rows) queryParams.order_rows = toolInput.order_rows as string;
+        if (toolInput.max_rows) queryParams.max_rows = toolInput.max_rows as number;
+
+        const resp = await fetch(
+          `https://api.supermetrics.com/enterprise/v2/query/data/json?json=${encodeURIComponent(JSON.stringify(queryParams))}`,
+          { method: "GET" }
+        );
+        const data = await resp.json() as Record<string, unknown>;
+        if (!resp.ok) {
+          return `Supermetrics API error (${resp.status}): ${JSON.stringify(data).slice(0, 3000)}`;
+        }
+        const result = JSON.stringify(data, null, 2);
+        return result.length > 12000 ? result.slice(0, 12000) + "\n[...truncated]" : result;
+      }
+
+      case "supermetrics_accounts": {
+        const apiKey = process.env.SUPERMETRICS_API_KEY;
+        if (!apiKey) {
+          return "Error: SUPERMETRICS_API_KEY not configured on the server.";
+        }
+        const dsId = toolInput.ds_id as string;
+        const resp = await fetch(
+          `https://api.supermetrics.com/enterprise/v2/query/accounts/json?json=${encodeURIComponent(JSON.stringify({ api_key: apiKey, ds_id: dsId }))}`,
+          { method: "GET" }
+        );
+        const data = await resp.json() as Record<string, unknown>;
+        if (!resp.ok) {
+          return `Supermetrics API error (${resp.status}): ${JSON.stringify(data).slice(0, 3000)}`;
+        }
+        return JSON.stringify(data, null, 2).slice(0, 8000);
       }
 
       case "get_current_date": {
