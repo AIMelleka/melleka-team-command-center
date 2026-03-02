@@ -27,6 +27,14 @@ export interface Conversation {
   title: string;
   created_at: string;
   updated_at: string;
+  is_cron?: boolean;
+  has_unread?: boolean;
+}
+
+export async function fetchNotifications(): Promise<{ count: number; conversations: Conversation[] }> {
+  const res = await fetch(`${BASE}/notifications`, { headers: headers() });
+  if (!res.ok) return { count: 0, conversations: [] };
+  return res.json();
 }
 
 export interface Message {

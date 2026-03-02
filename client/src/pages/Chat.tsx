@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Sidebar } from "../components/Sidebar.tsx";
 import { MessageList, type UIMessage, type MessagePart } from "../components/MessageList.tsx";
 import { InputBar } from "../components/InputBar.tsx";
@@ -7,12 +7,13 @@ import {
   fetchMessages,
   deleteConversation,
   fetchMemory,
+  fetchNotifications,
   streamMessage,
   type Conversation,
   type SSEEvent,
 } from "../lib/api.ts";
 import { clearAuth } from "../lib/auth.ts";
-import { X } from "lucide-react";
+import { X, Bell } from "lucide-react";
 
 interface ChatProps {
   memberName: string;
@@ -28,6 +29,9 @@ export function Chat({ memberName, onLogout }: ChatProps) {
   const [stopFn, setStopFn] = useState<(() => void) | null>(null);
   const [memory, setMemory] = useState<string | null>(null);
   const [showMemory, setShowMemory] = useState(false);
+  const [unreadConvs, setUnreadConvs] = useState<Conversation[]>([]);
+  const [showBell, setShowBell] = useState(false);
+  const bellRef = useRef<HTMLDivElement>(null);
 
   const loadConversations = useCallback(async () => {
     const data = await fetchConversations().catch(() => []);
@@ -35,6 +39,31 @@ export function Chat({ memberName, onLogout }: ChatProps) {
   }, []);
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
+
+  // Poll for unread cron notifications every 30s
+  const pollNotifications = useCallback(async () => {
+    const data = await fetchNotifications().catch(() => ({ count: 0, conversations: [] }));
+    setUnreadConvs(data.conversations);
+    // Also refresh conversation list so sidebar badges update
+    if (data.count > 0) loadConversations();
+  }, [loadConversations]);
+
+  useEffect(() => {
+    pollNotifications();
+    const interval = setInterval(pollNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [pollNotifications]);
+
+  // Close bell dropdown when clicking outside
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (bellRef.current && !bellRef.current.contains(e.target as Node)) {
+        setShowBell(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   async function selectConversation(id: string) {
     setActiveId(id);
@@ -62,6 +91,14 @@ export function Chat({ memberName, onLogout }: ChatProps) {
   function handleLogout() {
     clearAuth();
     onLogout();
+  }
+
+  async function openUnreadConv(conv: Conversation) {
+    setShowBell(false);
+    await selectConversation(conv.id);
+    // Optimistically clear the badge for this conversation
+    setUnreadConvs((prev) => prev.filter((c) => c.id !== conv.id));
+    await loadConversations();
   }
 
   async function handleViewMemory() {
@@ -175,9 +212,49 @@ export function Chat({ memberName, onLogout }: ChatProps) {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
         <header className="h-12 border-b border-border flex items-center px-4 gap-3 flex-shrink-0 bg-surface">
-          <span className="text-sm text-muted">
+          <span className="text-sm text-muted flex-1">
             {activeId ? conversations.find((c) => c.id === activeId)?.title ?? "Conversation" : "New Conversation"}
           </span>
+
+          {/* Notification bell */}
+          <div ref={bellRef} className="relative">
+            <button
+              onClick={() => setShowBell((v) => !v)}
+              className="relative p-1.5 rounded-lg hover:bg-surface-2 transition-colors text-muted hover:text-text"
+              title="Scheduled task updates"
+            >
+              <Bell size={16} />
+              {unreadConvs.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center animate-pulse">
+                  {unreadConvs.length}
+                </span>
+              )}
+            </button>
+
+            {showBell && (
+              <div className="absolute right-0 top-full mt-2 w-72 bg-surface border border-border rounded-xl shadow-2xl z-50 overflow-hidden">
+                <div className="px-3 py-2.5 border-b border-border">
+                  <p className="text-xs font-semibold text-text">Scheduled Task Updates</p>
+                </div>
+                {unreadConvs.length === 0 ? (
+                  <p className="text-xs text-muted text-center py-6">All caught up!</p>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto">
+                    {unreadConvs.map((conv) => (
+                      <button
+                        key={conv.id}
+                        onClick={() => openUnreadConv(conv)}
+                        className="w-full text-left px-3 py-2.5 hover:bg-surface-2 transition-colors border-b border-border last:border-0"
+                      >
+                        <p className="text-xs font-medium text-text truncate">{conv.title}</p>
+                        <p className="text-[10px] text-muted mt-0.5">New results available</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </header>
 
         <MessageList messages={messages} memberName={memberName} />

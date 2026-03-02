@@ -8,7 +8,7 @@ const router = Router();
 router.get("/", requireAuth, async (req: AuthRequest, res) => {
   const { data } = await supabase
     .from("team_conversations")
-    .select("id, title, created_at, updated_at")
+    .select("id, title, created_at, updated_at, is_cron, has_unread")
     .eq("member_name", req.memberName!.toLowerCase())
     .order("updated_at", { ascending: false })
     .limit(50);
@@ -20,7 +20,7 @@ router.get("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
   // Verify ownership
   const { data: conv } = await supabase
     .from("team_conversations")
-    .select("id, member_name")
+    .select("id, member_name, is_cron")
     .eq("id", req.params.id)
     .single();
 
@@ -34,6 +34,14 @@ router.get("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
     .select("id, role, content, tool_name, created_at")
     .eq("conversation_id", req.params.id)
     .order("created_at", { ascending: true });
+
+  // Clear unread when the conversation is opened
+  if (conv.is_cron) {
+    await supabase
+      .from("team_conversations")
+      .update({ has_unread: false })
+      .eq("id", req.params.id);
+  }
 
   res.json(messages ?? []);
 });

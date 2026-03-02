@@ -73,9 +73,14 @@ export function Sidebar({
           >
             <MessageSquare size={13} className="text-muted flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-text truncate leading-tight">{conv.title || "Untitled"}</p>
+              <p className={`text-xs truncate leading-tight ${conv.has_unread ? "text-white font-semibold" : "text-text"}`}>
+                {conv.title || "Untitled"}
+              </p>
               <p className="text-[10px] text-muted mt-0.5">{timeAgo(conv.updated_at)}</p>
             </div>
+            {conv.has_unread && (
+              <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-1 animate-pulse" />
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(conv.id); }}
               className="opacity-0 group-hover:opacity-100 text-muted hover:text-error transition-all flex-shrink-0"

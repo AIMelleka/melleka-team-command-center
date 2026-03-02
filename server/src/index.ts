@@ -8,6 +8,7 @@ import chatRouter from "./routes/chat.js";
 import conversationsRouter from "./routes/conversations.js";
 import memoryRouter from "./routes/memory.js";
 import { startScheduler } from "./services/scheduler.js";
+import notificationsRouter from "./routes/notifications.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -24,6 +25,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/conversations", conversationsRouter);
 app.use("/api/memory", memoryRouter);
+app.use("/api/notifications", notificationsRouter);
 
 // Serve built client in production
 const clientDist = path.join(__dirname, "../../client/dist");
