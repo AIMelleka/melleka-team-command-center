@@ -7,6 +7,7 @@ import authRouter from "./routes/auth.js";
 import chatRouter from "./routes/chat.js";
 import conversationsRouter from "./routes/conversations.js";
 import memoryRouter from "./routes/memory.js";
+import { startScheduler } from "./services/scheduler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -33,4 +34,6 @@ app.get("*", (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Melleka Team Hub running on http://localhost:${PORT}`);
+  // Start background cron scheduler
+  startScheduler().catch(console.error);
 });

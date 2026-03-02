@@ -8,6 +8,9 @@ import { appendMemory, writeMemory } from "./memory.js";
 const execAsync = promisify(exec);
 
 const MELLEKA_PROJECT = process.env.MELLEKA_PROJECT_DIR || "";
+
+/** Registered callbacks that fire when cron jobs change, so the scheduler can reload */
+export const cronReloadCallbacks: Array<() => void> = [];
 const LOCAL_TEAM_DIR = process.env.LOCAL_TEAM_DIR || "/tmp/team";
 
 /** Member's dedicated scratch space — always writable */
@@ -151,6 +154,100 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ["task"],
     },
   },
+  {
+    name: "http_request",
+    description:
+      "Make an HTTP request to any URL (REST APIs, Google Ads, Slack, Stripe, etc.). Returns status + response body.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "Full URL to request." },
+        method: {
+          type: "string",
+          description: "HTTP method: GET, POST, PUT, PATCH, DELETE. Defaults to GET.",
+        },
+        headers: {
+          type: "object",
+          description: "Request headers as key-value pairs (e.g. Authorization, Content-Type).",
+        },
+        body: {
+          type: "object",
+          description: "Request body (will be JSON-serialized). Optional.",
+        },
+        body_string: {
+          type: "string",
+          description: "Raw request body string (use instead of body when you need exact format).",
+        },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "send_email",
+    description:
+      "Send an email to any recipient. Uses Resend. Requires RESEND_API_KEY to be configured.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        to: { type: "string", description: "Recipient email address (or comma-separated list)." },
+        subject: { type: "string", description: "Email subject line." },
+        body: {
+          type: "string",
+          description: "Email body. HTML is supported (e.g. <p>Hello</p>). Plain text also works.",
+        },
+        from: {
+          type: "string",
+          description: "Sender name and email. Defaults to 'Melleka Team Hub <onboarding@resend.dev>'.",
+        },
+      },
+      required: ["to", "subject", "body"],
+    },
+  },
+  {
+    name: "create_cron_job",
+    description:
+      "Schedule a recurring task that Claude will execute automatically. Examples: daily reports, weekly summaries, reminder emails.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: {
+          type: "string",
+          description: "Short name for this job (e.g. 'daily-ads-report').",
+        },
+        cron_expr: {
+          type: "string",
+          description:
+            "Cron expression: '0 9 * * 1-5' = 9am weekdays, '0 8 * * 1' = 8am Mondays, '0 */4 * * *' = every 4 hours.",
+        },
+        task: {
+          type: "string",
+          description:
+            "What Claude should do when this job runs. Write it as a clear instruction, e.g. 'Pull our Google Ads report for the last 7 days and email it to aimelleka@melleka.io'.",
+        },
+      },
+      required: ["name", "cron_expr", "task"],
+    },
+  },
+  {
+    name: "list_cron_jobs",
+    description: "List all scheduled cron jobs for this team member.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "delete_cron_job",
+    description: "Delete a scheduled cron job by name.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Name of the cron job to delete." },
+      },
+      required: ["name"],
+    },
+  },
 ];
 
 export async function executeTool(
@@ -257,6 +354,102 @@ export async function executeTool(
         const task = toolInput.task as string;
         const context = toolInput.context as string | undefined;
         return `Sub-agent task queued: "${task}"${context ? `\nContext: ${context.slice(0, 200)}` : ""}.\nNote: Background agents run asynchronously — results will be saved to your work folder.`;
+      }
+
+      case "http_request": {
+        const url = toolInput.url as string;
+        const method = ((toolInput.method as string) || "GET").toUpperCase();
+        const headers = (toolInput.headers as Record<string, string>) || {};
+        const body = toolInput.body;
+        const bodyString = toolInput.body_string as string | undefined;
+        const reqBody = bodyString ?? (body ? JSON.stringify(body) : undefined);
+        if (!headers["Content-Type"] && reqBody) {
+          headers["Content-Type"] = "application/json";
+        }
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: reqBody,
+        });
+        const text = await response.text();
+        const truncated = text.length > 8000 ? text.slice(0, 8000) + "\n[...truncated]" : text;
+        return `Status: ${response.status} ${response.statusText}\n\n${truncated}`;
+      }
+
+      case "send_email": {
+        const apiKey = process.env.RESEND_API_KEY;
+        if (!apiKey) {
+          return `Error: RESEND_API_KEY is not configured. Ask the admin to add it to the server environment variables. Sign up free at resend.com to get one.`;
+        }
+        const to = toolInput.to as string;
+        const subject = toolInput.subject as string;
+        const htmlBody = toolInput.body as string;
+        const from =
+          (toolInput.from as string) ||
+          process.env.FROM_EMAIL ||
+          "Melleka Team Hub <onboarding@resend.dev>";
+        const toArray = to.split(",").map((e) => e.trim());
+        // Auto-wrap plain text in a basic HTML template
+        const html = htmlBody.includes("<") ? htmlBody : `<p>${htmlBody.replace(/\n/g, "<br>")}</p>`;
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ from, to: toArray, subject, html }),
+        });
+        const result = await response.json() as Record<string, unknown>;
+        if (response.ok) {
+          return `Email sent successfully! ID: ${result.id}`;
+        }
+        return `Error sending email (${response.status}): ${JSON.stringify(result)}`;
+      }
+
+      case "create_cron_job": {
+        const { supabase } = await import("./supabase.js");
+        const jobName = toolInput.name as string;
+        const cronExpr = toolInput.cron_expr as string;
+        const task = toolInput.task as string;
+        const lowerName = memberName.toLowerCase();
+        // Upsert (update if same name exists for this member)
+        const { error } = await supabase.from("team_cron_jobs").upsert(
+          { member_name: lowerName, name: jobName, cron_expr: cronExpr, task, enabled: true },
+          { onConflict: "member_name,name" }
+        );
+        if (error) return `Error saving cron job: ${error.message}`;
+        // Notify scheduler to reload
+        cronReloadCallbacks.forEach((cb) => cb());
+        return `Cron job "${jobName}" scheduled!\nSchedule: ${cronExpr}\nTask: ${task}\n\nIt will run automatically on the server. Use list_cron_jobs to see all your scheduled tasks.`;
+      }
+
+      case "list_cron_jobs": {
+        const { supabase } = await import("./supabase.js");
+        const { data } = await supabase
+          .from("team_cron_jobs")
+          .select("name, cron_expr, task, enabled, last_run, created_at")
+          .eq("member_name", memberName.toLowerCase())
+          .order("created_at");
+        if (!data || data.length === 0) return "No scheduled cron jobs yet.";
+        return data
+          .map(
+            (j) =>
+              `• **${j.name}** [${j.enabled ? "active" : "paused"}]\n  Schedule: ${j.cron_expr}\n  Task: ${j.task}\n  Last run: ${j.last_run || "never"}`
+          )
+          .join("\n\n");
+      }
+
+      case "delete_cron_job": {
+        const { supabase } = await import("./supabase.js");
+        const jobName = toolInput.name as string;
+        const { error, count } = await supabase
+          .from("team_cron_jobs")
+          .delete({ count: "exact" })
+          .eq("member_name", memberName.toLowerCase())
+          .eq("name", jobName);
+        if (error) return `Error deleting job: ${error.message}`;
+        cronReloadCallbacks.forEach((cb) => cb());
+        return count ? `Cron job "${jobName}" deleted.` : `No job named "${jobName}" found.`;
       }
 
       default:
