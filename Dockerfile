@@ -18,8 +18,9 @@ RUN npx tsc
 FROM node:20-alpine
 WORKDIR /app
 
-# Install ripgrep for search_code tool
+# Install ripgrep for search_code tool and vercel CLI for deploy_site tool
 RUN apk add --no-cache ripgrep
+RUN npm install -g vercel
 
 # Copy server
 COPY --from=server-builder /app/server/dist ./server/dist
