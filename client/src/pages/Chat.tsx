@@ -25,6 +25,7 @@ export function Chat({ memberName, onLogout }: ChatProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [stopFn, setStopFn] = useState<(() => void) | null>(null);
   const [memory, setMemory] = useState<string | null>(null);
@@ -109,10 +110,21 @@ export function Chat({ memberName, onLogout }: ChatProps) {
 
   function sendMessage() {
     const text = input.trim();
-    if (!text || loading) return;
+    const currentFiles = [...files];
+    if ((!text && currentFiles.length === 0) || loading) return;
 
     setInput("");
+    setFiles([]);
     setLoading(true);
+
+    // Build display text for the user message bubble
+    let displayText = text;
+    if (currentFiles.length > 0) {
+      const fileNames = currentFiles.map((f) => f.name).join(", ");
+      displayText = text
+        ? `${text}\n\n[Attached: ${fileNames}]`
+        : `[Attached: ${fileNames}]`;
+    }
 
     // Add user message to UI
     const userMsgId = `u-${Date.now()}`;
@@ -120,7 +132,7 @@ export function Chat({ memberName, onLogout }: ChatProps) {
 
     setMessages((prev) => [
       ...prev,
-      { id: userMsgId, role: "user", parts: [{ type: "text", content: text }] },
+      { id: userMsgId, role: "user", parts: [{ type: "text", content: displayText }] },
       { id: assistantMsgId, role: "assistant", parts: [], streaming: true },
     ]);
 
@@ -182,7 +194,8 @@ export function Chat({ memberName, onLogout }: ChatProps) {
           prev.map((m) => (m.id === assistantMsgId ? { ...m, streaming: false } : m))
         );
         loadConversations();
-      }
+      },
+      currentFiles.length > 0 ? currentFiles : undefined
     );
 
     setStopFn(() => stop);
@@ -265,6 +278,8 @@ export function Chat({ memberName, onLogout }: ChatProps) {
           onSend={sendMessage}
           onStop={stopStreaming}
           loading={loading}
+          files={files}
+          onFilesChange={setFiles}
         />
       </div>
 

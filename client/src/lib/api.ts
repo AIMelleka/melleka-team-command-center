@@ -85,14 +85,34 @@ export function streamMessage(
   message: string,
   conversationId: string | null,
   onEvent: (event: SSEEvent) => void,
-  onDone: () => void
+  onDone: () => void,
+  files?: File[]
 ): () => void {
   const controller = new AbortController();
 
+  // Build request — use FormData when files are attached, JSON otherwise
+  let body: BodyInit;
+  let fetchHeaders: Record<string, string>;
+
+  if (files && files.length > 0) {
+    const formData = new FormData();
+    formData.append("message", message);
+    if (conversationId) formData.append("conversationId", conversationId);
+    for (const file of files) {
+      formData.append("files", file);
+    }
+    body = formData;
+    // Let browser set Content-Type with multipart boundary
+    fetchHeaders = { Authorization: `Bearer ${getToken()}` };
+  } else {
+    body = JSON.stringify({ message, conversationId });
+    fetchHeaders = headers();
+  }
+
   fetch(`${BASE}/chat`, {
     method: "POST",
-    headers: headers(),
-    body: JSON.stringify({ message, conversationId }),
+    headers: fetchHeaders,
+    body,
     signal: controller.signal,
   })
     .then(async (res) => {
