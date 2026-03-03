@@ -31,7 +31,17 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // Disable proxy buffering (nginx/Railway)
   res.flushHeaders();
+
+  // Send keepalive pings every 15s to prevent Railway/proxy timeout
+  const keepalive = setInterval(() => {
+    try { res.write(": keepalive\n\n"); } catch { /* connection gone */ }
+  }, 15000);
+
+  // Track if client disconnected so we still save the response
+  let clientDisconnected = false;
+  res.on("close", () => { clientDisconnected = true; });
 
   let convId = conversationId;
 
@@ -130,20 +140,31 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
     // Stream response from Claude
     const fullResponse = await streamChat(memberName, messages, res);
 
-    // Save assistant response
-    await supabase.from("team_messages").insert({
-      conversation_id: convId,
-      role: "assistant",
-      content: fullResponse,
-    });
+    // Always save assistant response (even if client disconnected mid-stream)
+    if (fullResponse.trim()) {
+      await supabase.from("team_messages").insert({
+        conversation_id: convId,
+        role: "assistant",
+        content: fullResponse,
+      });
+    }
 
-    res.write(`data: ${JSON.stringify({ type: "done", conversationId: convId })}\n\n`);
+    if (!clientDisconnected) {
+      res.write(`data: ${JSON.stringify({ type: "done", conversationId: convId })}\n\n`);
+    }
   } catch (err) {
-    res.write(
-      `data: ${JSON.stringify({ type: "error", message: String(err) })}\n\n`
-    );
+    // Still try to save partial response context
+    console.error(`Chat error for ${memberName}:`, err);
+    if (!clientDisconnected) {
+      try {
+        res.write(
+          `data: ${JSON.stringify({ type: "error", message: String(err) })}\n\n`
+        );
+      } catch { /* response already gone */ }
+    }
   } finally {
-    res.end();
+    clearInterval(keepalive);
+    if (!clientDisconnected) res.end();
   }
 });
 

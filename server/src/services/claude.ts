@@ -248,6 +248,14 @@ Clients connect their own Google Ads / Meta Ads accounts via OAuth 2.0. Melleka'
 /** SSE writer function type — null = background (no streaming) */
 type SseWriter = ((event: Record<string, unknown>) => void) | null;
 
+/** Safe writer that catches errors when client disconnects */
+function safeWrite(write: SseWriter): SseWriter {
+  if (!write) return null;
+  return (event) => {
+    try { write(event); } catch { /* client disconnected, continue processing */ }
+  };
+}
+
 /** Core agentic loop. Pass a writer for SSE streaming, or null for background runs. */
 async function runChat(
   memberName: string,
@@ -349,7 +357,7 @@ export async function streamChat(
   messages: Anthropic.MessageParam[],
   res: Response
 ): Promise<string> {
-  const write: SseWriter = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+  const write: SseWriter = safeWrite((event) => res.write(`data: ${JSON.stringify(event)}\n\n`));
   return runChat(memberName, messages, write);
 }
 

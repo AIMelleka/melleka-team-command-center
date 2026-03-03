@@ -34,8 +34,12 @@ app.get("*", (_req, res) => {
   res.sendFile(path.join(clientDist, "index.html"));
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Melleka Team Hub running on http://localhost:${PORT}`);
   // Start background cron scheduler
   startScheduler().catch(console.error);
 });
+
+// Disable server timeout for SSE connections (agentic loops can take 10+ minutes)
+server.timeout = 0;
+server.keepAliveTimeout = 0;
