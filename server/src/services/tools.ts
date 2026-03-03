@@ -3,6 +3,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { appendMemory, writeMemory } from "./memory.js";
 import { getSecret, requireSecret } from "./secrets.js";
 
@@ -55,6 +56,76 @@ async function refreshGoogleToken(): Promise<string> {
 /** Ensure a directory exists */
 async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
+}
+
+/** Get a Supabase client for the specified project */
+async function getSupabaseClient(project?: string): Promise<SupabaseClient> {
+  if (!project || project === "team") {
+    const { supabase } = await import("./supabase.js");
+    return supabase;
+  }
+  const prefix = project === "turbo" ? "TURBO" : "GENIE";
+  const url = await requireSecret(`${prefix}_SUPABASE_URL`, `${prefix} Supabase URL`);
+  const key = await requireSecret(`${prefix}_SUPABASE_SERVICE_ROLE_KEY`, `${prefix} Supabase Service Role Key`);
+  return createClient(url, key);
+}
+
+/** Apply filters to a Supabase query builder */
+function applyFilters(query: ReturnType<SupabaseClient["from"]>, filters?: Array<{ column: string; op: string; value: unknown }>) {
+  let q = query as unknown as ReturnType<ReturnType<SupabaseClient["from"]>["select"]>;
+  if (!filters) return q;
+  for (const f of filters) {
+    switch (f.op) {
+      case "eq": q = q.eq(f.column, f.value) as typeof q; break;
+      case "neq": q = q.neq(f.column, f.value) as typeof q; break;
+      case "gt": q = q.gt(f.column, f.value) as typeof q; break;
+      case "gte": q = q.gte(f.column, f.value) as typeof q; break;
+      case "lt": q = q.lt(f.column, f.value) as typeof q; break;
+      case "lte": q = q.lte(f.column, f.value) as typeof q; break;
+      case "like": q = q.like(f.column, f.value as string) as typeof q; break;
+      case "ilike": q = q.ilike(f.column, f.value as string) as typeof q; break;
+      case "in": q = q.in(f.column, f.value as unknown[]) as typeof q; break;
+      case "is": q = q.is(f.column, f.value as null) as typeof q; break;
+      default: q = q.eq(f.column, f.value) as typeof q;
+    }
+  }
+  return q;
+}
+
+/** Get a Google access token for Sheets API using a service account */
+async function getGoogleSheetsAccessToken(): Promise<string> {
+  const saJson = await requireSecret("GOOGLE_SERVICE_ACCOUNT_JSON", "Google Service Account JSON");
+  const sa = JSON.parse(saJson) as { client_email: string; private_key: string; token_uri: string };
+
+  // Build JWT
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+  const now = Math.floor(Date.now() / 1000);
+  const payload = Buffer.from(JSON.stringify({
+    iss: sa.client_email,
+    scope: "https://www.googleapis.com/auth/spreadsheets",
+    aud: sa.token_uri || "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  })).toString("base64url");
+
+  const { createSign } = await import("crypto");
+  const sign = createSign("RSA-SHA256");
+  sign.update(`${header}.${payload}`);
+  const signature = sign.sign(sa.private_key, "base64url");
+
+  const jwt = `${header}.${payload}.${signature}`;
+
+  const resp = await fetch(sa.token_uri || "https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
+  });
+  const data = await resp.json() as { access_token?: string; error?: string };
+  if (!data.access_token) throw new Error(`Google auth failed: ${data.error}`);
+  return data.access_token;
 }
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
@@ -380,6 +451,182 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "supabase_query",
+    description:
+      "Query any Supabase table directly. Supports selecting specific columns, filtering, ordering, and limiting. Use this to pull data from team_conversations, team_messages, team_memory, oauth_connections, agent_memory, or any other table.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        table: { type: "string", description: "Table name to query (e.g. 'team_conversations', 'oauth_connections', 'profiles')." },
+        select: { type: "string", description: "Columns to select (e.g. '*' or 'id, name, created_at'). Defaults to '*'." },
+        filters: {
+          type: "array",
+          description: "Array of filter objects. Each has: column, op (eq, neq, gt, gte, lt, lte, like, ilike, in, is), value.",
+          items: {
+            type: "object",
+            properties: {
+              column: { type: "string" },
+              op: { type: "string" },
+              value: {},
+            },
+          },
+        },
+        order: { type: "string", description: "Column to order by (e.g. 'created_at'). Append '.desc' for descending (e.g. 'created_at.desc')." },
+        limit: { type: "number", description: "Max rows to return. Defaults to 100." },
+        project: {
+          type: "string",
+          description: "Which Supabase project: 'team' (default, this app), 'turbo' (Turbo AI platform), or 'genie' (Genie Hub). Requires the project's SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in team_secrets.",
+        },
+      },
+      required: ["table"],
+    },
+  },
+  {
+    name: "supabase_insert",
+    description:
+      "Insert one or more rows into any Supabase table. Returns the inserted rows.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        table: { type: "string", description: "Table name to insert into." },
+        rows: {
+          type: "array",
+          description: "Array of row objects to insert. Each object's keys are column names.",
+          items: { type: "object" },
+        },
+        project: {
+          type: "string",
+          description: "Which Supabase project: 'team' (default), 'turbo', or 'genie'.",
+        },
+      },
+      required: ["table", "rows"],
+    },
+  },
+  {
+    name: "supabase_update",
+    description:
+      "Update rows in any Supabase table matching the given filters. Returns the updated rows.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        table: { type: "string", description: "Table name to update." },
+        values: {
+          type: "object",
+          description: "Object of column-value pairs to set on matching rows.",
+        },
+        filters: {
+          type: "array",
+          description: "Array of filter objects (same as supabase_query). At least one filter is required to prevent accidental full-table updates.",
+          items: {
+            type: "object",
+            properties: {
+              column: { type: "string" },
+              op: { type: "string" },
+              value: {},
+            },
+          },
+        },
+        project: {
+          type: "string",
+          description: "Which Supabase project: 'team' (default), 'turbo', or 'genie'.",
+        },
+      },
+      required: ["table", "values", "filters"],
+    },
+  },
+  {
+    name: "slack_post",
+    description:
+      "Post a message to a Slack channel. Requires SLACK_BOT_TOKEN in team_secrets.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        channel: { type: "string", description: "Slack channel ID or name (e.g. '#general' or 'C01234ABCDE')." },
+        text: { type: "string", description: "Message text. Supports Slack mrkdwn formatting (*bold*, _italic_, `code`, etc.)." },
+        thread_ts: { type: "string", description: "Optional thread timestamp to reply in a thread." },
+      },
+      required: ["channel", "text"],
+    },
+  },
+  {
+    name: "slack_history",
+    description:
+      "Read message history from a Slack channel. Returns the most recent messages.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        channel: { type: "string", description: "Slack channel ID (e.g. 'C01234ABCDE'). Use slack_list_channels to find IDs." },
+        limit: { type: "number", description: "Number of messages to return (default 20, max 100)." },
+      },
+      required: ["channel"],
+    },
+  },
+  {
+    name: "slack_list_channels",
+    description:
+      "List all Slack channels the bot has access to. Use this to find channel IDs for slack_post and slack_history.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "google_sheets_read",
+    description:
+      "Read data from a Google Sheets spreadsheet. Requires GOOGLE_SERVICE_ACCOUNT_JSON in team_secrets.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        spreadsheet_id: { type: "string", description: "The spreadsheet ID from the Google Sheets URL (the part between /d/ and /edit)." },
+        range: { type: "string", description: "Cell range in A1 notation (e.g. 'Sheet1!A1:D10' or 'Sheet1'). Defaults to first sheet." },
+      },
+      required: ["spreadsheet_id"],
+    },
+  },
+  {
+    name: "google_sheets_write",
+    description:
+      "Write data to a Google Sheets spreadsheet. Requires GOOGLE_SERVICE_ACCOUNT_JSON in team_secrets.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        spreadsheet_id: { type: "string", description: "The spreadsheet ID." },
+        range: { type: "string", description: "Cell range in A1 notation (e.g. 'Sheet1!A1')." },
+        values: {
+          type: "array",
+          description: "2D array of values. Each inner array is a row. Example: [['Name', 'Email'], ['Alice', 'alice@example.com']]",
+          items: { type: "array", items: {} },
+        },
+        append: { type: "boolean", description: "If true, appends rows after existing data instead of overwriting. Defaults to false." },
+      },
+      required: ["spreadsheet_id", "range", "values"],
+    },
+  },
+  {
+    name: "semrush_query",
+    description:
+      "Query SEMrush for SEO data: domain overview, organic keywords, backlinks, keyword research, competitor analysis, etc.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        type: {
+          type: "string",
+          description:
+            "Report type. Common values: 'domain_organic' (organic keywords), 'domain_adwords' (paid keywords), 'domain_overview' (domain summary), 'url_organic' (URL keywords), 'backlinks_overview' (backlinks), 'phrase_organic' (keyword difficulty), 'phrase_related' (related keywords), 'phrase_questions' (question keywords).",
+        },
+        domain: { type: "string", description: "Domain to analyze (e.g. 'melleka.com'). Required for domain_* reports." },
+        phrase: { type: "string", description: "Keyword phrase. Required for phrase_* reports." },
+        url: { type: "string", description: "URL to analyze. Required for url_* reports." },
+        database: { type: "string", description: "Country database. Default 'us'. Options: 'us', 'uk', 'ca', 'au', 'de', 'fr', etc." },
+        display_limit: { type: "number", description: "Max results to return. Default 10." },
+        display_sort: { type: "string", description: "Sort field. Example: 'tr_desc' (traffic desc), 'po_asc' (position asc)." },
+        export_columns: { type: "string", description: "Comma-separated columns to include. Varies by report type. Example for domain_organic: 'Ph,Po,Nq,Cp,Ur,Tr'." },
+      },
+      required: ["type"],
+    },
+  },
+  {
     name: "get_current_date",
     description:
       "Get the current date and time in the team's timezone (America/New_York). Use this before constructing any date ranges for API calls to ensure accuracy.",
@@ -695,6 +942,172 @@ export async function executeTool(
           return `Supermetrics API error (${resp.status}): ${JSON.stringify(data).slice(0, 3000)}`;
         }
         return JSON.stringify(data, null, 2).slice(0, 8000);
+      }
+
+      case "supabase_query": {
+        const client = await getSupabaseClient(toolInput.project as string | undefined);
+        const table = toolInput.table as string;
+        const select = (toolInput.select as string) || "*";
+        const limit = (toolInput.limit as number) || 100;
+        const filters = toolInput.filters as Array<{ column: string; op: string; value: unknown }> | undefined;
+        const orderRaw = toolInput.order as string | undefined;
+
+        let query = client.from(table).select(select);
+        query = applyFilters(query as unknown as ReturnType<SupabaseClient["from"]>, filters) as typeof query;
+        if (orderRaw) {
+          const desc = orderRaw.endsWith(".desc");
+          const col = orderRaw.replace(/\.(asc|desc)$/, "");
+          query = query.order(col, { ascending: !desc });
+        }
+        query = query.limit(limit);
+
+        const { data, error } = await query;
+        if (error) return `Supabase query error: ${error.message}`;
+        if (!data || (data as unknown[]).length === 0) return "Query returned no results.";
+        const result = JSON.stringify(data, null, 2);
+        return result.length > 12000 ? result.slice(0, 12000) + "\n[...truncated]" : result;
+      }
+
+      case "supabase_insert": {
+        const client = await getSupabaseClient(toolInput.project as string | undefined);
+        const table = toolInput.table as string;
+        const rows = toolInput.rows as Record<string, unknown>[];
+        const { data, error } = await client.from(table).insert(rows).select();
+        if (error) return `Supabase insert error: ${error.message}`;
+        return `Inserted ${(data as unknown[])?.length ?? rows.length} row(s).\n${JSON.stringify(data, null, 2).slice(0, 4000)}`;
+      }
+
+      case "supabase_update": {
+        const client = await getSupabaseClient(toolInput.project as string | undefined);
+        const table = toolInput.table as string;
+        const values = toolInput.values as Record<string, unknown>;
+        const filters = toolInput.filters as Array<{ column: string; op: string; value: unknown }>;
+        if (!filters || filters.length === 0) return "Error: At least one filter is required to prevent accidental full-table updates.";
+        // Build update query, applying filters manually to avoid complex type juggling
+        let q: unknown = client.from(table).update(values);
+        for (const f of filters) {
+          (q as Record<string, (...args: unknown[]) => unknown>)[f.op === "eq" ? "eq" : f.op === "neq" ? "neq" : f.op === "gt" ? "gt" : f.op === "gte" ? "gte" : f.op === "lt" ? "lt" : f.op === "lte" ? "lte" : "eq"](f.column, f.value);
+        }
+        const { data, error } = await (q as ReturnType<ReturnType<SupabaseClient["from"]>["select"]>).select();
+        if (error) return `Supabase update error: ${(error as { message: string }).message}`;
+        return `Updated ${(data as unknown[])?.length ?? 0} row(s).\n${JSON.stringify(data, null, 2).slice(0, 4000)}`;
+      }
+
+      case "slack_post": {
+        const token = await requireSecret("SLACK_BOT_TOKEN", "Slack Bot Token");
+        const channel = toolInput.channel as string;
+        const text = toolInput.text as string;
+        const threadTs = toolInput.thread_ts as string | undefined;
+        const body: Record<string, string> = { channel, text };
+        if (threadTs) body.thread_ts = threadTs;
+        const resp = await fetch("https://slack.com/api/chat.postMessage", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json() as { ok: boolean; error?: string; ts?: string; channel?: string };
+        if (!data.ok) return `Slack error: ${data.error}`;
+        return `Message posted to ${data.channel} (ts: ${data.ts})`;
+      }
+
+      case "slack_history": {
+        const token = await requireSecret("SLACK_BOT_TOKEN", "Slack Bot Token");
+        const channel = toolInput.channel as string;
+        const limit = Math.min((toolInput.limit as number) || 20, 100);
+        const resp = await fetch(`https://slack.com/api/conversations.history?channel=${channel}&limit=${limit}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await resp.json() as { ok: boolean; error?: string; messages?: Array<{ user?: string; text: string; ts: string }> };
+        if (!data.ok) return `Slack error: ${data.error}`;
+        if (!data.messages?.length) return "No messages found.";
+        return data.messages
+          .reverse()
+          .map((m) => `[${new Date(parseFloat(m.ts) * 1000).toLocaleString("en-US", { timeZone: TEAM_TIMEZONE, dateStyle: "short", timeStyle: "short" })}] ${m.user ?? "bot"}: ${m.text}`)
+          .join("\n");
+      }
+
+      case "slack_list_channels": {
+        const token = await requireSecret("SLACK_BOT_TOKEN", "Slack Bot Token");
+        const resp = await fetch("https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=200", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await resp.json() as { ok: boolean; error?: string; channels?: Array<{ id: string; name: string; is_member: boolean; num_members: number }> };
+        if (!data.ok) return `Slack error: ${data.error}`;
+        if (!data.channels?.length) return "No channels found.";
+        return data.channels
+          .map((c) => `• #${c.name} — ID: ${c.id} ${c.is_member ? "(joined)" : ""} (${c.num_members} members)`)
+          .join("\n");
+      }
+
+      case "google_sheets_read": {
+        const accessToken = await getGoogleSheetsAccessToken();
+        const spreadsheetId = toolInput.spreadsheet_id as string;
+        const range = (toolInput.range as string) || "Sheet1";
+        const resp = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        const data = await resp.json() as { values?: unknown[][]; error?: { message: string } };
+        if (!resp.ok) return `Google Sheets error: ${(data.error as { message: string })?.message ?? resp.statusText}`;
+        if (!data.values?.length) return "No data found in the specified range.";
+        // Format as a readable table
+        const result = data.values.map((row) => row.join("\t")).join("\n");
+        return result.length > 12000 ? result.slice(0, 12000) + "\n[...truncated]" : result;
+      }
+
+      case "google_sheets_write": {
+        const accessToken = await getGoogleSheetsAccessToken();
+        const spreadsheetId = toolInput.spreadsheet_id as string;
+        const range = toolInput.range as string;
+        const values = toolInput.values as unknown[][];
+        const append = toolInput.append as boolean;
+
+        const url = append
+          ? `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`
+          : `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
+
+        const resp = await fetch(url, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ range, values }),
+        });
+        const data = await resp.json() as { updatedCells?: number; updates?: { updatedCells?: number }; error?: { message: string } };
+        if (!resp.ok) return `Google Sheets error: ${(data.error as { message: string })?.message ?? resp.statusText}`;
+        const cells = data.updatedCells ?? data.updates?.updatedCells ?? 0;
+        return `Successfully ${append ? "appended" : "wrote"} ${values.length} row(s) (${cells} cells) to ${range}.`;
+      }
+
+      case "semrush_query": {
+        const apiKey = await requireSecret("SEMRUSH_API_KEY", "SEMrush API Key");
+        const reportType = toolInput.type as string;
+        const params = new URLSearchParams({
+          type: reportType,
+          key: apiKey,
+          export_columns: (toolInput.export_columns as string) || "",
+          database: (toolInput.database as string) || "us",
+          display_limit: String((toolInput.display_limit as number) || 10),
+        });
+        if (toolInput.domain) params.set("domain", toolInput.domain as string);
+        if (toolInput.phrase) params.set("phrase", toolInput.phrase as string);
+        if (toolInput.url) params.set("url", toolInput.url as string);
+        if (toolInput.display_sort) params.set("display_sort", toolInput.display_sort as string);
+        // Remove empty params
+        for (const [k, v] of params) { if (!v) params.delete(k); }
+
+        const resp = await fetch(`https://api.semrush.com/?${params.toString()}`);
+        const text = await resp.text();
+        if (!resp.ok) return `SEMrush API error (${resp.status}): ${text.slice(0, 2000)}`;
+        if (text.startsWith("ERROR")) return `SEMrush error: ${text}`;
+        // SEMrush returns semicolon-delimited CSV — convert to readable format
+        const lines = text.trim().split("\n");
+        if (lines.length <= 1) return text.trim() || "No results found.";
+        const headers = lines[0].split(";");
+        const rows = lines.slice(1).map((line) => {
+          const cols = line.split(";");
+          return headers.map((h, i) => `${h}: ${cols[i] ?? ""}`).join(" | ");
+        });
+        const result = rows.join("\n");
+        return result.length > 12000 ? result.slice(0, 12000) + "\n[...truncated]" : result;
       }
 
       case "get_current_date": {
