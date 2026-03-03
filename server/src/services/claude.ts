@@ -270,7 +270,7 @@ async function runChat(
   for (let iteration = 0; iteration < 20; iteration++) {
     const stream = await client.messages.stream({
       model: "claude-opus-4-6",
-      max_tokens: 8192,
+      max_tokens: 16384,
       system: systemPrompt,
       tools: TOOL_DEFINITIONS,
       messages: currentMessages,
@@ -321,26 +321,45 @@ async function runChat(
 
     currentMessages.push({ role: "assistant", content: assistantBlocks });
 
+    // Check if there are tool_use blocks to execute
+    const toolBlocks = assistantBlocks.filter((b) => b.type === "tool_use") as Anthropic.ToolUseBlock[];
+
+    if (stopReason === "max_tokens" && toolBlocks.length > 0) {
+      // Hit token limit mid-tool-call — the last tool_use likely has truncated input
+      // Remove the incomplete tool_use (last one) and tell Claude to retry with smaller output
+      const incompleteBlock = toolBlocks[toolBlocks.length - 1];
+      write?.({ type: "text", delta: "\n\n(Output was too large — retrying with chunked approach...)\n" });
+      fullResponse += "\n\n(Output was too large — retrying with chunked approach...)\n";
+      currentMessages.push({
+        role: "user",
+        content: [{
+          type: "tool_result",
+          tool_use_id: incompleteBlock.id,
+          content: "ERROR: Your response was cut off because it exceeded the token limit. The file content was too large for a single tool call. Please break it into smaller chunks: write the file in multiple parts using write_file, or use run_command with heredoc/echo to write sections. Try again with a shorter approach.",
+          is_error: true,
+        }],
+      });
+      continue;
+    }
+
     if (stopReason !== "tool_use") break;
 
     const toolResultContent: Anthropic.ToolResultBlockParam[] = [];
 
-    for (const block of assistantBlocks) {
-      if (block.type !== "tool_use") continue;
-      const toolBlock = block as Anthropic.ToolUseBlock;
-      const toolInput = toolBlock.input as Record<string, unknown>;
+    for (const block of toolBlocks) {
+      const toolInput = block.input as Record<string, unknown>;
 
       let parsedInput = toolInput;
       if (typeof currentToolInput === "string" && currentToolInput) {
         try { parsedInput = JSON.parse(currentToolInput); } catch { /* use as-is */ }
       }
 
-      const result = await executeTool(toolBlock.name, parsedInput, memberName);
-      write?.({ type: "tool_result", name: toolBlock.name, output: result.slice(0, 500) });
+      const result = await executeTool(block.name, parsedInput, memberName);
+      write?.({ type: "tool_result", name: block.name, output: result.slice(0, 500) });
 
       toolResultContent.push({
         type: "tool_result",
-        tool_use_id: toolBlock.id,
+        tool_use_id: block.id,
         content: result,
       });
     }
