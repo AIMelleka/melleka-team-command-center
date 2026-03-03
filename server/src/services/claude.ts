@@ -277,8 +277,8 @@ async function runChat(
     });
 
     let currentToolUseId: string | null = null;
-    let currentToolName: string | null = null;
-    let currentToolInput = "";
+    // Track raw JSON input per tool_use ID so parallel tool calls don't clobber each other
+    const toolInputBuffers = new Map<string, string>();
     const assistantBlocks: Anthropic.ContentBlock[] = [];
     let stopReason: string | null = null;
 
@@ -286,15 +286,14 @@ async function runChat(
       if (event.type === "content_block_start") {
         if (event.content_block.type === "tool_use") {
           currentToolUseId = event.content_block.id;
-          currentToolName = event.content_block.name;
-          currentToolInput = "";
+          toolInputBuffers.set(currentToolUseId, "");
           assistantBlocks.push({
             type: "tool_use",
             id: currentToolUseId,
-            name: currentToolName,
+            name: event.content_block.name,
             input: {},
           } as Anthropic.ToolUseBlock);
-          write?.({ type: "tool_start", name: currentToolName });
+          write?.({ type: "tool_start", name: event.content_block.name });
         } else if (event.content_block.type === "text") {
           assistantBlocks.push({ type: "text", text: "", citations: [] } as Anthropic.TextBlock);
         }
@@ -305,13 +304,14 @@ async function runChat(
           const lastBlock = assistantBlocks[assistantBlocks.length - 1];
           if (lastBlock?.type === "text") lastBlock.text += delta;
           write?.({ type: "text", delta });
-        } else if (event.delta.type === "input_json_delta") {
-          currentToolInput += event.delta.partial_json;
+        } else if (event.delta.type === "input_json_delta" && currentToolUseId) {
+          const buf = (toolInputBuffers.get(currentToolUseId) ?? "") + event.delta.partial_json;
+          toolInputBuffers.set(currentToolUseId, buf);
           const toolBlock = assistantBlocks.find(
             (b) => b.type === "tool_use" && (b as Anthropic.ToolUseBlock).id === currentToolUseId
           ) as Anthropic.ToolUseBlock | undefined;
           if (toolBlock) {
-            try { toolBlock.input = JSON.parse(currentToolInput); } catch { /* partial */ }
+            try { toolBlock.input = JSON.parse(buf); } catch { /* partial JSON, will complete */ }
           }
         }
       } else if (event.type === "message_delta") {
@@ -347,11 +347,13 @@ async function runChat(
     const toolResultContent: Anthropic.ToolResultBlockParam[] = [];
 
     for (const block of toolBlocks) {
-      const toolInput = block.input as Record<string, unknown>;
-
-      let parsedInput = toolInput;
-      if (typeof currentToolInput === "string" && currentToolInput) {
-        try { parsedInput = JSON.parse(currentToolInput); } catch { /* use as-is */ }
+      // Use the fully parsed input from the per-tool buffer (not the shared variable)
+      const rawBuf = toolInputBuffers.get(block.id) ?? "";
+      let parsedInput: Record<string, unknown>;
+      try {
+        parsedInput = rawBuf ? JSON.parse(rawBuf) : (block.input as Record<string, unknown>);
+      } catch {
+        parsedInput = block.input as Record<string, unknown>;
       }
 
       const result = await executeTool(block.name, parsedInput, memberName);
