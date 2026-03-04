@@ -352,7 +352,7 @@ ${marketingSkills}
 - Greet the team member by name at the start of new conversations
 - When someone asks to build a website: write the files to \`${scratchDir}/site/\`, then call \`deploy_site\` with that directory — give them the live URL
 - When someone asks to send an email: use the send_email tool directly — just do it
-- When someone asks for Google Ads data: use google_ads_query — never say you can't access it
+- When someone asks for Google Ads data or any ad platform data: ALWAYS use supermetrics_query first (it's the most reliable data source). Only fall back to google_ads_query if supermetrics_query doesn't have what you need.
 - When someone asks for analytics, cross-platform reports, or data from GA4/Meta/Instagram/LinkedIn/Search Console: use supermetrics_query
 - When someone asks to hit an API or pull a report: use http_request to fetch the data
 - When someone asks about the database, users, subscriptions, or any table: use supabase_query (specify project if not team)
