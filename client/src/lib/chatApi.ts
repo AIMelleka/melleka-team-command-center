@@ -111,7 +111,8 @@ export function streamMessage(
   conversationId: string | null,
   onEvent: (event: SSEEvent) => void,
   onDone: () => void,
-  files?: File[]
+  files?: File[],
+  mentionedClients?: string[]
 ): () => void {
   const controller = new AbortController();
 
@@ -123,13 +124,16 @@ export function streamMessage(
       const formData = new FormData();
       formData.append("message", message);
       if (conversationId) formData.append("conversationId", conversationId);
+      if (mentionedClients && mentionedClients.length > 0) {
+        formData.append("mentionedClients", JSON.stringify(mentionedClients));
+      }
       for (const file of files) {
         formData.append("files", file);
       }
       body = formData;
       fetchHeaders = await authHeadersNoContentType();
     } else {
-      body = JSON.stringify({ message, conversationId });
+      body = JSON.stringify({ message, conversationId, mentionedClients });
       fetchHeaders = await authHeaders();
     }
 

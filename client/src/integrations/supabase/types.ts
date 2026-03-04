@@ -456,6 +456,7 @@ export type Database = {
           industry: string | null
           is_active: boolean
           last_reviewed_at: string | null
+          looker_url: string | null
           multi_account_enabled: boolean
           primary_conversion_goal: string
           site_audit_url: string | null
@@ -472,6 +473,7 @@ export type Database = {
           industry?: string | null
           is_active?: boolean
           last_reviewed_at?: string | null
+          looker_url?: string | null
           multi_account_enabled?: boolean
           primary_conversion_goal?: string
           site_audit_url?: string | null
@@ -488,6 +490,7 @@ export type Database = {
           industry?: string | null
           is_active?: boolean
           last_reviewed_at?: string | null
+          looker_url?: string | null
           multi_account_enabled?: boolean
           primary_conversion_goal?: string
           site_audit_url?: string | null

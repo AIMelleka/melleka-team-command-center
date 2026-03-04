@@ -112,8 +112,6 @@ const DEFAULT_NOTION_DATABASE_ID = '9e7cd72f-e62c-4514-9456-5f51cbcfe981';
 // Your connected Google Sheet for client data
 const CONNECTED_SPREADSHEET_ID = '1nKskjFVwoaBS6DTnZx0xz5mze0L0auDH9HisDWZz_b0';
 
-// Looker Studio directory sheet
-const LOOKER_DIRECTORY_SPREADSHEET_ID = '1t43DRbgSo7pOqKh2DIt7xSsKrN6JgLgLSWAJe92SDQI';
 
 // Cache for sheet tabs and looker directory
 let sheetTabsCache: string[] | null = null;
@@ -217,30 +215,21 @@ const ClientUpdate = () => {
 
   const loadLookerDirectory = async () => {
     if (lookerDirectoryCache) return lookerDirectoryCache;
-    
-    try {
-      const { data, error } = await supabase.functions.invoke('fetch-google-sheet', {
-        body: { 
-          spreadsheetId: LOOKER_DIRECTORY_SPREADSHEET_ID,
-          sheetName: 'Sheet1',
-        },
-      });
 
+    try {
+      const { data, error } = await supabase
+        .from('managed_clients')
+        .select('client_name, looker_url')
+        .eq('is_active', true);
       if (error) throw error;
 
       const directory: Record<string, string> = {};
-      if (data.rows && data.rows.length > 0) {
-        for (const row of data.rows) {
-          const name = row['Clients Name'] || row['Client Name'] || row['Client'] || '';
-          const url = row['Looker Studio URL'] || row['Looker Studio'] || row['Dashboard URL'] || '';
-          
-          if (name && url && url.includes('lookerstudio.google.com')) {
-            directory[name.toLowerCase().trim()] = url;
-            const baseName = name.split(' - ')[0].trim().toLowerCase();
-            if (baseName !== name.toLowerCase().trim()) {
-              directory[baseName] = url;
-            }
-          }
+      for (const mc of data || []) {
+        if ((mc as any).looker_url) {
+          const normalizedName = mc.client_name.toLowerCase().trim();
+          directory[normalizedName] = (mc as any).looker_url;
+          const baseName = mc.client_name.split(' - ')[0].trim().toLowerCase();
+          if (baseName !== normalizedName) directory[baseName] = (mc as any).looker_url;
         }
       }
 

@@ -8,8 +8,6 @@ import { Loader2, Users, AlertCircle, CheckCircle2, AlertTriangle, XCircle, Refr
 import { supabase } from '@/integrations/supabase/client';
 import { differenceInDays, differenceInHours, formatDistanceToNow } from 'date-fns';
 
-// Use the Looker Directory sheet as the source of truth for clients
-const CLIENT_DIRECTORY_SPREADSHEET_ID = '1t43DRbgSo7pOqKh2DIt7xSsKrN6JgLgLSWAJe92SDQI';
 
 // Cache duration - re-scrape after 24 hours
 const CACHE_HOURS = 24;
@@ -142,54 +140,36 @@ export function ClientHealthSidebar({ onSelectClient, selectedClient, filterClie
     }
   }, []);
 
-  // Load clients and Looker URLs from the directory sheet
+  // Load clients from managed_clients table
   const loadClientsFromDirectory = useCallback(async () => {
     try {
-      const { data, error } = await supabase.functions.invoke('fetch-google-sheet', {
-        body: { spreadsheetId: CLIENT_DIRECTORY_SPREADSHEET_ID, sheetName: 'Sheet1' },
-      });
+      const { data, error } = await supabase
+        .from('managed_clients')
+        .select('client_name, domain, looker_url, site_audit_url, ga4_property_id')
+        .eq('is_active', true);
       if (error) throw error;
 
       const clientsMap: Map<string, { name: string; lookerUrl?: string; siteAuditUrl?: string; domain?: string; ga4PropertyId?: string; configCompleteness: number; missingConfigs: string[] }> = new Map();
-      
-      if (data?.rows?.length > 0) {
-        for (const row of data.rows as SheetRow[]) {
-          const name = row['Clients Name'] || row['Client Name'] || row['Client'] || row['Name'] || '';
-          const url = row['Looker Studio URL'] || row['Looker Studio'] || row['Dashboard URL'] || '';
-          const siteAudit = row['SITE AUDIT'] || row['Site Audit'] || '';
-          const domainRaw = (row as any)['URL Domain'] || (row as any)['Domain'] || (row as any)['Website'] || '';
-          const ga4Raw = (row as any)['GA4 Property ID'] || (row as any)['GA4 ID'] || (row as any)['GA4'] || '';
-          
-          if (name && name.trim()) {
-            const cleanName = name.trim();
-            const urlStr = (url || '').toString().trim();
-            const siteAuditStr = (siteAudit || '').toString().trim();
-            const hasLooker = urlStr.toLowerCase().includes('lookerstudio.google.com');
-            const hasSiteAudit = siteAuditStr.toLowerCase().includes('myinsights.io');
-            const domain = domainRaw ? domainRaw.toString().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].trim() : undefined;
-            const ga4PropertyId = ga4Raw ? ga4Raw.toString().replace(/[^0-9]/g, '') : undefined;
-            
-            // Calculate config completeness
-            const missingConfigs: string[] = [];
-            if (!domain) missingConfigs.push('domain');
-            if (!hasLooker) missingConfigs.push('looker_url');
-            if (!hasSiteAudit) missingConfigs.push('site_audit_url');
-            if (!ga4PropertyId) missingConfigs.push('ga4_property_id');
-            const configCompleteness = Math.round(((4 - missingConfigs.length) / 4) * 100);
-            
-            clientsMap.set(normalizeClientKey(cleanName), {
-              name: cleanName,
-              lookerUrl: hasLooker ? urlStr : undefined,
-              siteAuditUrl: hasSiteAudit ? siteAuditStr : undefined,
-              domain,
-              ga4PropertyId,
-              configCompleteness,
-              missingConfigs,
-            });
-          }
-        }
+
+      for (const mc of data || []) {
+        const missingConfigs: string[] = [];
+        if (!mc.domain) missingConfigs.push('domain');
+        if (!(mc as any).looker_url) missingConfigs.push('looker_url');
+        if (!mc.site_audit_url) missingConfigs.push('site_audit_url');
+        if (!mc.ga4_property_id) missingConfigs.push('ga4_property_id');
+        const configCompleteness = Math.round(((4 - missingConfigs.length) / 4) * 100);
+
+        clientsMap.set(normalizeClientKey(mc.client_name), {
+          name: mc.client_name,
+          lookerUrl: (mc as any).looker_url || undefined,
+          siteAuditUrl: mc.site_audit_url || undefined,
+          domain: mc.domain || undefined,
+          ga4PropertyId: mc.ga4_property_id || undefined,
+          configCompleteness,
+          missingConfigs,
+        });
       }
-      
+
       return clientsMap;
     } catch (error) {
       console.error('Error loading client directory:', error);

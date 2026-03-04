@@ -60,11 +60,12 @@ async function ensureDir(dir: string): Promise<void> {
 
 /** Get a Supabase client for the specified project */
 async function getSupabaseClient(project?: string): Promise<SupabaseClient> {
-  if (!project || project === "team") {
+  // All tables (team + command center) now live in one project
+  if (!project || project === "team" || project === "genie") {
     const { supabase } = await import("./supabase.js");
     return supabase;
   }
-  const prefix = project === "turbo" ? "TURBO" : "GENIE";
+  const prefix = project === "turbo" ? "TURBO" : project.toUpperCase();
   const url = await requireSecret(`${prefix}_SUPABASE_URL`, `${prefix} Supabase URL`);
   const key = await requireSecret(`${prefix}_SUPABASE_SERVICE_ROLE_KEY`, `${prefix} Supabase Service Role Key`);
   return createClient(url, key);
@@ -475,7 +476,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         limit: { type: "number", description: "Max rows to return. Defaults to 100." },
         project: {
           type: "string",
-          description: "Which Supabase project: 'team' (default, this app), 'turbo' (Turbo AI platform), or 'genie' (Genie Hub). Requires the project's SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in team_secrets.",
+          description: "Which Supabase project: 'team' (default — includes all command center tables), or 'turbo' (Turbo AI platform). 'genie' is an alias for 'team'.",
         },
       },
       required: ["table"],
@@ -496,7 +497,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         },
         project: {
           type: "string",
-          description: "Which Supabase project: 'team' (default), 'turbo', or 'genie'.",
+          description: "Which Supabase project: 'team' (default — includes command center tables), or 'turbo'. 'genie' is an alias for 'team'.",
         },
       },
       required: ["table", "rows"],
@@ -528,7 +529,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         },
         project: {
           type: "string",
-          description: "Which Supabase project: 'team' (default), 'turbo', or 'genie'.",
+          description: "Which Supabase project: 'team' (default — includes command center tables), or 'turbo'. 'genie' is an alias for 'team'.",
         },
       },
       required: ["table", "values", "filters"],
@@ -634,6 +635,152 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       type: "object" as const,
       properties: {},
       required: [],
+    },
+  },
+  {
+    name: "google_ads_mutate",
+    description:
+      "Mutate Google Ads resources — create, update, or remove campaigns, budgets, ad groups, ads, keywords, and more. Uses the Google Ads API v18 mutate endpoint with proper authentication (developer token + OAuth). Common operations:\n" +
+      "- Pause/enable campaign: resource='campaigns', operations=[{update:{resourceName:'customers/{cid}/campaigns/{id}', status:'PAUSED'}, updateMask:'status'}]\n" +
+      "- Update budget: resource='campaignBudgets', operations=[{update:{resourceName:'customers/{cid}/campaignBudgets/{bid}', amountMicros:'50000000'}, updateMask:'amount_micros'}]\n" +
+      "- Add negative keyword: resource='campaignCriteria', operations=[{create:{campaign:'customers/{cid}/campaigns/{id}', negative:true, keyword:{text:'free',matchType:'BROAD'}}}]\n" +
+      "- Create campaign: resource='campaigns', operations=[{create:{name:'New Campaign', advertisingChannelType:'SEARCH', status:'PAUSED', campaignBudget:'customers/{cid}/campaignBudgets/{bid}'}}]\n" +
+      "IMPORTANT: To update a budget, first query the campaign to get the campaign_budget resource name, then mutate campaignBudgets (not campaigns).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        customer_id: {
+          type: "string",
+          description: "Google Ads customer account ID (digits only, e.g. '1234567890').",
+        },
+        resource: {
+          type: "string",
+          description:
+            "Resource type to mutate. Common values: 'campaigns', 'campaignBudgets', 'adGroups', 'adGroupAds', 'adGroupCriteria', 'campaignCriteria', 'assets', 'adGroupAssets'. See Google Ads API v18 docs for full list.",
+        },
+        operations: {
+          type: "array",
+          description:
+            "Array of mutation operations. Each operation must have exactly one of: 'create' (new resource object), 'update' (existing resource with resourceName + changed fields), or 'remove' (resource name string to delete). For 'update', also include 'updateMask' with comma-separated field names to update (snake_case).",
+          items: {
+            type: "object",
+            properties: {
+              create: { type: "object", description: "New resource to create." },
+              update: { type: "object", description: "Existing resource to update. Must include 'resourceName'." },
+              updateMask: { type: "string", description: "Comma-separated snake_case field names to update. Required for update operations. Example: 'status' or 'amount_micros' or 'name,status'." },
+              remove: { type: "string", description: "Resource name to delete. Example: 'customers/123/campaigns/456'." },
+            },
+          },
+        },
+      },
+      required: ["customer_id", "resource", "operations"],
+    },
+  },
+  {
+    name: "meta_ads_manage",
+    description:
+      "Read or write Meta (Facebook/Instagram) Ads data via the Graph API v21.0. Authentication: pass the client's access_token (from oauth_connections table), or omit it to auto-lookup the first available token.\n\n" +
+      "READ examples:\n" +
+      "- List campaigns: method='GET', endpoint='/{ad_account_id}/campaigns', params={fields:'id,name,status,objective,daily_budget,lifetime_budget'}\n" +
+      "- Get insights: method='GET', endpoint='/{ad_account_id}/insights', params={fields:'impressions,clicks,spend,cpm,ctr,cpc,actions', date_preset:'last_30d'}\n" +
+      "- List ad sets: method='GET', endpoint='/{campaign_id}/adsets', params={fields:'id,name,status,daily_budget,targeting'}\n\n" +
+      "WRITE examples:\n" +
+      "- Pause campaign: method='POST', endpoint='/{campaign_id}', params={status:'PAUSED'}\n" +
+      "- Update budget: method='POST', endpoint='/{campaign_id}', params={daily_budget:'5000'} (budgets in CENTS: $50 = '5000')\n" +
+      "- Create campaign: method='POST', endpoint='/{ad_account_id}/campaigns', params={name:'New Campaign', objective:'OUTCOME_LEADS', status:'PAUSED', special_ad_categories:'[]'}\n" +
+      "- Create ad set: method='POST', endpoint='/{campaign_id}/adsets', params={name:'Ad Set 1', daily_budget:'5000', billing_event:'IMPRESSIONS', optimization_goal:'LEAD_GENERATION', targeting:'{...}', start_time:'...'}\n\n" +
+      "IMPORTANT: Ad account IDs must be prefixed with 'act_' (e.g. 'act_123456789'). Budgets are in CENTS ($50/day = '5000').",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        method: {
+          type: "string",
+          description: "HTTP method: GET, POST, or DELETE. Default: GET.",
+        },
+        endpoint: {
+          type: "string",
+          description: "Graph API endpoint path (without base URL). Examples: '/act_123456789/campaigns', '/12345678/insights', '/12345678' (for updating a campaign by ID).",
+        },
+        params: {
+          type: "object",
+          description:
+            "Parameters to send. For GET requests, these become query params. For POST requests, these become form body fields. Always include 'fields' for GET requests to specify which data to return.",
+        },
+        access_token: {
+          type: "string",
+          description: "Optional. The client's Meta access token from oauth_connections. If omitted, auto-queries oauth_connections for the first available meta_ads token.",
+        },
+      },
+      required: ["endpoint"],
+    },
+  },
+  {
+    name: "get_client_accounts",
+    description:
+      "Look up a client's linked ad accounts, GA4 property, domain, and other metadata from the command center database. " +
+      "Returns all account mappings (Google Ads, Meta Ads, TikTok, Bing, LinkedIn) plus client profile info. " +
+      "If client_name is omitted, returns ALL active clients with their linked accounts. " +
+      "ALWAYS call this before any Google Ads, Meta Ads, Supermetrics, or GA4 operation to avoid asking the user for account IDs.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        client_name: {
+          type: "string",
+          description: "Client name (case-insensitive). Omit to get all active clients with their accounts.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "ga4_query",
+    description:
+      "Query Google Analytics 4 data using the GA4 Data API v1. Requires a GA4 property ID (get it from get_client_accounts). " +
+      "Returns metrics (sessions, conversions, bounceRate, etc.) broken down by dimensions (date, source/medium, page, device, etc.).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        property_id: {
+          type: "string",
+          description: "GA4 property ID — just the numeric part (e.g. '123456789') or full format 'properties/123456789'.",
+        },
+        metrics: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Metrics to retrieve. Examples: 'sessions', 'totalUsers', 'newUsers', 'bounceRate', 'averageSessionDuration', " +
+            "'screenPageViews', 'conversions', 'eventCount', 'totalRevenue', 'ecommercePurchases'. At least 1 required.",
+        },
+        dimensions: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Dimensions to group by. Examples: 'date', 'sessionSource', 'sessionMedium', 'sessionSourceMedium', " +
+            "'pagePath', 'pageTitle', 'deviceCategory', 'country', 'city', 'sessionCampaignName', 'landingPage'. Optional.",
+        },
+        start_date: {
+          type: "string",
+          description: "Start date (YYYY-MM-DD) or relative: 'today', 'yesterday', '7daysAgo', '30daysAgo', '90daysAgo'.",
+        },
+        end_date: {
+          type: "string",
+          description: "End date (YYYY-MM-DD) or relative: 'today', 'yesterday'. Defaults to 'today'.",
+        },
+        dimension_filter: {
+          type: "object",
+          description: "Optional filter on a dimension. Example: {fieldName:'sessionSourceMedium', stringFilter:{matchType:'CONTAINS', value:'google'}}",
+        },
+        order_bys: {
+          type: "array",
+          items: { type: "object" },
+          description: "Optional ordering. Example: [{metric:{metricName:'sessions'}, desc:true}]",
+        },
+        limit: {
+          type: "number",
+          description: "Max rows to return. Default 100.",
+        },
+      },
+      required: ["property_id", "metrics", "start_date"],
     },
   },
 ];
@@ -751,14 +898,26 @@ export async function executeTool(
         if (!headers["Content-Type"] && reqBody) {
           headers["Content-Type"] = "application/json";
         }
-        const response = await fetch(url, {
-          method,
-          headers,
-          body: reqBody,
-        });
-        const text = await response.text();
-        const truncated = text.length > 8000 ? text.slice(0, 8000) + "\n[...truncated]" : text;
-        return `Status: ${response.status} ${response.statusText}\n\n${truncated}`;
+        const abortCtrl = new AbortController();
+        const timeoutId = setTimeout(() => abortCtrl.abort(), 30000);
+        try {
+          const response = await fetch(url, {
+            method,
+            headers,
+            body: reqBody,
+            signal: abortCtrl.signal,
+          });
+          clearTimeout(timeoutId);
+          const text = await response.text();
+          const truncated = text.length > 8000 ? text.slice(0, 8000) + "\n[...truncated]" : text;
+          return `Status: ${response.status} ${response.statusText}\n\n${truncated}`;
+        } catch (err: any) {
+          clearTimeout(timeoutId);
+          if (err.name === "AbortError") {
+            return `Error: HTTP request to ${url} timed out after 30 seconds. The server did not respond in time.`;
+          }
+          return `Error: HTTP request failed — ${err.message}`;
+        }
       }
 
       case "send_email": {
@@ -1126,6 +1285,284 @@ export async function executeTool(
         const isoDate = now.toLocaleDateString("en-CA", { timeZone: TEAM_TIMEZONE });
         const dayOfWeek = now.toLocaleDateString("en-US", { timeZone: TEAM_TIMEZONE, weekday: "long" });
         return `Current date/time: ${full}\nISO date: ${isoDate}\nDay of week: ${dayOfWeek}\nTimezone: ${TEAM_TIMEZONE} (Eastern Time)\n\nUse the ISO date (${isoDate}) as "today" when calculating date ranges for API calls.`;
+      }
+
+      case "google_ads_mutate": {
+        const customerId = (toolInput.customer_id as string).replace(/-/g, "");
+        const resource = toolInput.resource as string;
+        const operations = toolInput.operations as Array<Record<string, unknown>>;
+
+        if (!customerId || !resource || !operations?.length) {
+          return "Error: customer_id, resource, and operations (non-empty array) are all required.";
+        }
+
+        const developerToken = await requireSecret("GOOGLE_ADS_DEVELOPER_TOKEN", "Google Ads Developer Token");
+        const loginCustomerId = await getSecret("GOOGLE_ADS_LOGIN_CUSTOMER_ID");
+        const accessToken = await refreshGoogleToken();
+
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": developerToken,
+          "Content-Type": "application/json",
+        };
+        if (loginCustomerId) headers["login-customer-id"] = loginCustomerId.replace(/-/g, "");
+
+        // Build the mutation request body
+        const mutateBody: Record<string, unknown> = {
+          operations: operations.map((op) => {
+            const mutateOp: Record<string, unknown> = {};
+            if (op.create) mutateOp.create = op.create;
+            if (op.update) mutateOp.update = op.update;
+            if (op.remove) mutateOp.remove = op.remove;
+            if (op.updateMask) mutateOp.updateMask = op.updateMask;
+            return mutateOp;
+          }),
+        };
+
+        const resp = await fetch(
+          `https://googleads.googleapis.com/v18/customers/${customerId}/${resource}:mutate`,
+          { method: "POST", headers, body: JSON.stringify(mutateBody) }
+        );
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          const errStr = JSON.stringify(data, null, 2);
+          return `Google Ads mutation error (${resp.status}):\n${errStr.slice(0, 4000)}`;
+        }
+
+        const resultStr = JSON.stringify(data, null, 2);
+        return `Mutation successful!\n${resultStr.slice(0, 8000)}`;
+      }
+
+      case "meta_ads_manage": {
+        const method = ((toolInput.method as string) || "GET").toUpperCase();
+        const endpoint = toolInput.endpoint as string;
+        const params = (toolInput.params as Record<string, string>) || {};
+        let token = toolInput.access_token as string | undefined;
+
+        if (!endpoint) return "Error: endpoint is required.";
+
+        // If no token provided, try oauth_connections for a valid meta_ads token
+        if (!token) {
+          const client = await getSupabaseClient();
+          const { data: oauthRow } = await client
+            .from("oauth_connections")
+            .select("access_token")
+            .eq("provider", "meta_ads")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          token = oauthRow?.access_token ?? undefined;
+          if (!token) {
+            return "Error: No Meta access token available. Either pass access_token parameter or ensure a client has connected their Meta Ads account via OAuth (oauth_connections table).";
+          }
+        }
+
+        const baseUrl = "https://graph.facebook.com/v21.0";
+
+        if (method === "GET") {
+          // Build query string
+          const qs = new URLSearchParams({ ...params, access_token: token });
+          const url = `${baseUrl}${endpoint}?${qs.toString()}`;
+          const resp = await fetch(url);
+          const data = await resp.json();
+
+          if (!resp.ok) {
+            return `Meta API error (${resp.status}): ${JSON.stringify(data, null, 2).slice(0, 4000)}`;
+          }
+
+          const resultStr = JSON.stringify(data, null, 2);
+          return resultStr.length > 12000 ? resultStr.slice(0, 12000) + "\n[...truncated]" : resultStr;
+        } else if (method === "POST") {
+          // POST with form body
+          const formParams = new URLSearchParams({ ...params, access_token: token });
+          const resp = await fetch(`${baseUrl}${endpoint}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formParams.toString(),
+          });
+          const data = await resp.json();
+
+          if (!resp.ok) {
+            return `Meta API error (${resp.status}): ${JSON.stringify(data, null, 2).slice(0, 4000)}`;
+          }
+
+          return `Success!\n${JSON.stringify(data, null, 2).slice(0, 8000)}`;
+        } else if (method === "DELETE") {
+          const qs = new URLSearchParams({ access_token: token });
+          const resp = await fetch(`${baseUrl}${endpoint}?${qs.toString()}`, { method: "DELETE" });
+          const data = await resp.json();
+
+          if (!resp.ok) {
+            return `Meta API error (${resp.status}): ${JSON.stringify(data, null, 2).slice(0, 4000)}`;
+          }
+
+          return `Deleted successfully.\n${JSON.stringify(data, null, 2)}`;
+        } else {
+          return `Error: Unsupported method '${method}'. Use GET, POST, or DELETE.`;
+        }
+      }
+
+      case "get_client_accounts": {
+        const clientName = toolInput.client_name as string | undefined;
+        const client = await getSupabaseClient();
+
+        // Fetch clients
+        let clientQuery = client
+          .from("managed_clients")
+          .select("client_name, domain, ga4_property_id, industry, tier, is_active, primary_conversion_goal");
+        if (clientName) {
+          clientQuery = clientQuery.ilike("client_name", clientName);
+        } else {
+          clientQuery = clientQuery.eq("is_active", true);
+        }
+        const { data: clients, error: cErr } = await clientQuery;
+        if (cErr) return `Error querying managed_clients: ${cErr.message}`;
+        if (!clients || clients.length === 0) {
+          return clientName
+            ? `No client found matching "${clientName}". Use supabase_query on managed_clients to see all clients.`
+            : "No active clients found in managed_clients.";
+        }
+
+        // Fetch all account mappings for these clients
+        const names = clients.map((c) => c.client_name);
+        const { data: mappings } = await client
+          .from("client_account_mappings")
+          .select("client_name, platform, account_id, account_name")
+          .in("client_name", names);
+
+        // Also fetch ppc_client_settings for any extra account IDs
+        const { data: ppcSettings } = await client
+          .from("ppc_client_settings")
+          .select("client_name, google_account_id, meta_account_id")
+          .in("client_name", names);
+
+        // Build result
+        const result = clients.map((c) => {
+          const accts = (mappings || []).filter((m) => m.client_name === c.client_name);
+          const ppc = (ppcSettings || []).find((p) => p.client_name === c.client_name);
+          const grouped: Record<string, Array<{ account_id: string; account_name: string | null }>> = {};
+          for (const a of accts) {
+            if (!grouped[a.platform]) grouped[a.platform] = [];
+            grouped[a.platform].push({ account_id: a.account_id, account_name: a.account_name });
+          }
+          return {
+            client_name: c.client_name,
+            domain: c.domain,
+            ga4_property_id: c.ga4_property_id,
+            industry: c.industry,
+            tier: c.tier,
+            primary_conversion_goal: c.primary_conversion_goal,
+            accounts: grouped,
+            ppc_settings: ppc ? { google_account_id: ppc.google_account_id, meta_account_id: ppc.meta_account_id } : null,
+          };
+        });
+
+        return JSON.stringify(clientName ? result[0] : result, null, 2);
+      }
+
+      case "ga4_query": {
+        let propertyId = toolInput.property_id as string;
+        if (!propertyId) return "Error: property_id is required.";
+        // Normalize: remove "properties/" prefix if present, we'll add it back
+        propertyId = propertyId.replace(/^properties\//, "");
+
+        const metrics = toolInput.metrics as string[];
+        const dimensions = (toolInput.dimensions as string[]) || [];
+        const startDate = toolInput.start_date as string;
+        const endDate = (toolInput.end_date as string) || "today";
+        const dimensionFilter = toolInput.dimension_filter as Record<string, unknown> | undefined;
+        const orderBys = toolInput.order_bys as Array<Record<string, unknown>> | undefined;
+        const limit = (toolInput.limit as number) || 100;
+
+        if (!metrics || metrics.length === 0) return "Error: at least one metric is required.";
+        if (!startDate) return "Error: start_date is required.";
+
+        // Get access token via service account (same as Google Sheets but with analytics scope)
+        const saJson = await requireSecret("GOOGLE_SERVICE_ACCOUNT_JSON", "Google Service Account JSON");
+        const sa = JSON.parse(saJson) as { client_email: string; private_key: string; token_uri: string };
+
+        const { createSign } = await import("crypto");
+        const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+        const now = Math.floor(Date.now() / 1000);
+        const payload = Buffer.from(JSON.stringify({
+          iss: sa.client_email,
+          scope: "https://www.googleapis.com/auth/analytics.readonly",
+          aud: sa.token_uri || "https://oauth2.googleapis.com/token",
+          iat: now,
+          exp: now + 3600,
+        })).toString("base64url");
+        const sign = createSign("RSA-SHA256");
+        sign.update(`${header}.${payload}`);
+        const signature = sign.sign(sa.private_key, "base64url");
+        const jwt = `${header}.${payload}.${signature}`;
+
+        const tokenResp = await fetch(sa.token_uri || "https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            assertion: jwt,
+          }),
+        });
+        const tokenData = await tokenResp.json() as { access_token?: string; error?: string; error_description?: string };
+        if (!tokenData.access_token) {
+          return `GA4 auth failed: ${tokenData.error} — ${tokenData.error_description || ""}. Make sure the service account has Viewer access on the GA4 property.`;
+        }
+
+        // Build the runReport request body
+        const body: Record<string, unknown> = {
+          dateRanges: [{ startDate, endDate }],
+          metrics: metrics.map((m) => ({ name: m })),
+          limit,
+        };
+        if (dimensions.length > 0) {
+          body.dimensions = dimensions.map((d) => ({ name: d }));
+        }
+        if (dimensionFilter) {
+          body.dimensionFilter = dimensionFilter;
+        }
+        if (orderBys && orderBys.length > 0) {
+          body.orderBys = orderBys;
+        }
+
+        const resp = await fetch(
+          `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${tokenData.access_token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+          }
+        );
+
+        const data = await resp.json();
+        if (!resp.ok) {
+          const errMsg = (data as { error?: { message?: string } }).error?.message || JSON.stringify(data);
+          return `GA4 API error (${resp.status}): ${errMsg}`;
+        }
+
+        // Format the response nicely
+        const rows = (data as { rows?: Array<{ dimensionValues?: Array<{ value: string }>; metricValues?: Array<{ value: string }> }> }).rows || [];
+        const dimHeaders = dimensions.length > 0 ? dimensions : [];
+        const metricHeaders = metrics;
+
+        if (rows.length === 0) {
+          return "No data returned for this query. Check the property ID, date range, and that the service account has access.";
+        }
+
+        // Build a readable table
+        const header_row = [...dimHeaders, ...metricHeaders].join(" | ");
+        const separator = [...dimHeaders, ...metricHeaders].map(() => "---").join(" | ");
+        const dataRows = rows.map((r) => {
+          const dims = (r.dimensionValues || []).map((d) => d.value);
+          const mets = (r.metricValues || []).map((m) => m.value);
+          return [...dims, ...mets].join(" | ");
+        });
+
+        return `GA4 Report (${rows.length} rows):\n\n${header_row}\n${separator}\n${dataRows.join("\n")}`;
       }
 
       default:

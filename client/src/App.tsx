@@ -39,6 +39,7 @@ const ImageGenerator = lazy(() => import("./pages/ImageGenerator"));
 const PpcOptimizer = lazy(() => import("./pages/PpcOptimizer"));
 const ClientDashboard = lazy(() => import("./pages/ClientDashboard"));
 const StrategistSettings = lazy(() => import("./pages/StrategistSettings"));
+const ClientSettings = lazy(() => import("./pages/ClientSettings"));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
@@ -235,6 +236,14 @@ const App = () => (
                   element={
                     <ProtectedRoute requireAdmin>
                       <StrategistSettings />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/client-settings"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <ClientSettings />
                     </ProtectedRoute>
                   }
                 />

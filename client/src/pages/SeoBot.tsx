@@ -10,8 +10,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { ClientHealthSidebar, type ClientHealthStatus } from '@/components/ClientHealthSidebar';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
-// Spreadsheet IDs
-const LOOKER_DIRECTORY_SPREADSHEET_ID = '1t43DRbgSo7pOqKh2DIt7xSsKrN6JgLgLSWAJe92SDQI';
 
 // Cache
 let domainDirectoryCache: Record<string, string> | null = null;
@@ -162,30 +160,22 @@ const SeoBot = () => {
 
   const loadDomainDirectory = async () => {
     if (domainDirectoryCache) return;
-    
+
     try {
-      const { data, error } = await supabase.functions.invoke('fetch-google-sheet', {
-        body: { spreadsheetId: LOOKER_DIRECTORY_SPREADSHEET_ID, sheetName: 'Sheet1' },
-      });
+      const { data, error } = await supabase
+        .from('managed_clients')
+        .select('client_name, domain')
+        .eq('is_active', true)
+        .not('domain', 'is', null);
       if (error) throw error;
 
       const domainDir: Record<string, string> = {};
-      
-      if (data.rows?.length > 0) {
-        for (const row of data.rows) {
-          const name = row['Clients Name'] || row['Client Name'] || row['Client'] || row['Name'] || '';
-          const domain = row['URL Domain'] || row['Domain'] || row['Website'] || row['Client Domain'] || row['URL'] || '';
-          
-          if (name && domain) {
-            const normalizedName = name.toLowerCase().trim();
-            const cleanDomain = domain.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].trim();
-            if (cleanDomain) {
-              domainDir[normalizedName] = cleanDomain;
-            }
-          }
+      for (const mc of data || []) {
+        if (mc.domain) {
+          domainDir[mc.client_name.toLowerCase().trim()] = mc.domain;
         }
       }
-      
+
       domainDirectoryCache = domainDir;
     } catch (error) {
       console.error('Error loading domain directory:', error);

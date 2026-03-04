@@ -17,6 +17,14 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
     message: string;
     conversationId?: string;
   };
+  // mentionedClients may come as JSON string (FormData) or array (JSON body)
+  let mentionedClients: string[] | undefined;
+  const rawMentions = req.body.mentionedClients;
+  if (typeof rawMentions === "string") {
+    try { mentionedClients = JSON.parse(rawMentions); } catch { /* ignore */ }
+  } else if (Array.isArray(rawMentions)) {
+    mentionedClients = rawMentions;
+  }
 
   const uploadedFiles = (req.files as Express.Multer.File[]) ?? [];
   const hasText = message?.trim();
@@ -124,6 +132,50 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       };
     });
 
+    // If clients were @mentioned, pre-fetch their data and inject into the message context
+    if (mentionedClients && mentionedClients.length > 0) {
+      const { data: mcData } = await supabase
+        .from("managed_clients")
+        .select("client_name, domain, ga4_property_id, industry, tier, primary_conversion_goal")
+        .in("client_name", mentionedClients);
+
+      const { data: mappings } = await supabase
+        .from("client_account_mappings")
+        .select("client_name, platform, account_id, account_name")
+        .in("client_name", mentionedClients);
+
+      if (mcData && mcData.length > 0) {
+        const contextLines: string[] = ["[Client Context — auto-resolved from @mentions]"];
+        for (const mc of mcData) {
+          const accts = (mappings || []).filter(m => m.client_name === mc.client_name);
+          const byPlatform: Record<string, string[]> = {};
+          for (const a of accts) {
+            if (!byPlatform[a.platform]) byPlatform[a.platform] = [];
+            byPlatform[a.platform].push(`${a.account_id}${a.account_name ? ` (${a.account_name})` : ""}`);
+          }
+          const parts = [`@${mc.client_name}: domain=${mc.domain || "N/A"}`];
+          if (mc.ga4_property_id) parts.push(`ga4=${mc.ga4_property_id}`);
+          if (mc.industry) parts.push(`industry=${mc.industry}`);
+          if (mc.tier) parts.push(`tier=${mc.tier}`);
+          if (mc.primary_conversion_goal) parts.push(`goal=${mc.primary_conversion_goal}`);
+          for (const [platform, ids] of Object.entries(byPlatform)) {
+            parts.push(`${platform}_accounts=[${ids.join(", ")}]`);
+          }
+          contextLines.push(parts.join(", "));
+        }
+        contextLines.push("");
+
+        // Prepend client context to the last user message
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg?.role === "user") {
+          const prefix = contextLines.join("\n");
+          if (typeof lastMsg.content === "string") {
+            lastMsg.content = prefix + lastMsg.content;
+          }
+        }
+      }
+    }
+
     // For the current message: if there are images, replace the last user message
     // content with multi-block content (image blocks + text) for Claude vision
     if (imageBlocks.length > 0 && messages.length > 0) {
@@ -153,8 +205,19 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       res.write(`data: ${JSON.stringify({ type: "done", conversationId: convId })}\n\n`);
     }
   } catch (err) {
-    // Still try to save partial response context
     console.error(`Chat error for ${memberName}:`, err);
+    // Save partial response so conversation context isn't lost on reload
+    if (convId) {
+      try {
+        // fullResponse may not be available here since it's scoped to streamChat,
+        // but the error message itself provides context for the next conversation load
+        await supabase.from("team_messages").insert({
+          conversation_id: convId,
+          role: "assistant",
+          content: `[Response interrupted by error: ${String(err)}]\n\nPlease try again — I was working on your request when an error occurred.`,
+        });
+      } catch { /* best effort */ }
+    }
     if (!clientDisconnected) {
       try {
         res.write(

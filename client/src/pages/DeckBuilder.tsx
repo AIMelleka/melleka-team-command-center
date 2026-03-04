@@ -510,48 +510,42 @@ const DeckBuilder = () => {
     fetchRecentDecks();
   }, []);
 
-  // Fetch clients from Google Sheet + merge with client_profiles for logos
+  // Fetch clients from managed_clients + merge with client_profiles for logos
   useEffect(() => {
     const fetchClients = async () => {
       try {
-        // Fetch from Google Sheet
-        const { data, error } = await supabase.functions.invoke('fetch-google-sheet', {
-          body: { 
-            spreadsheetId: '1t43DRbgSo7pOqKh2DIt7xSsKrN6JgLgLSWAJe92SDQI',
-            sheetName: 'Sheet1'
-          }
-        });
-        if (error) throw error;
-        
+        const { data: mcData, error: mcError } = await supabase
+          .from('managed_clients')
+          .select('client_name, domain, ga4_property_id, looker_url')
+          .eq('is_active', true);
+        if (mcError) throw mcError;
+
         // Fetch client profiles for logos
         const { data: profiles } = await supabase
           .from('client_profiles')
           .select('id, client_name, logo_url, domain');
-        
+
         const profileMap = new Map<string, { id: string; logoUrl?: string; domain?: string }>();
         profiles?.forEach(p => {
-          profileMap.set(p.client_name.toLowerCase(), { 
-            id: p.id, 
-            logoUrl: p.logo_url || undefined, 
-            domain: p.domain || undefined 
+          profileMap.set(p.client_name.toLowerCase(), {
+            id: p.id,
+            logoUrl: p.logo_url || undefined,
+            domain: p.domain || undefined
           });
         });
-        
-        if (data?.rows && data.rows.length > 0) {
-          const clientList: ClientInfo[] = data.rows.map((row: Record<string, string>) => {
-            const name = row['Clients Name'] || row['Client Name'] || Object.values(row)[0] || '';
-            const profile = profileMap.get(name.toLowerCase());
-            return {
-              name,
-              domain: row['URL Domain'] || row['Domain'] || Object.values(row)[1] || '',
-              ga4PropertyId: row['GA4 ID'] || row['GA4 Property ID'] || Object.values(row)[2] || '',
-              lookerUrl: row['Looker Studio URL'] || row['Looker URL'] || Object.values(row)[3] || '',
-              logoUrl: profile?.logoUrl,
-              profileId: profile?.id,
-            };
-          }).filter((c: ClientInfo) => c.name);
-          setClients(clientList);
-        }
+
+        const clientList: ClientInfo[] = (mcData || []).map(mc => {
+          const profile = profileMap.get(mc.client_name.toLowerCase());
+          return {
+            name: mc.client_name,
+            domain: mc.domain || '',
+            ga4PropertyId: mc.ga4_property_id || '',
+            lookerUrl: (mc as any).looker_url || '',
+            logoUrl: profile?.logoUrl,
+            profileId: profile?.id,
+          };
+        }).filter((c: ClientInfo) => c.name);
+        setClients(clientList);
       } catch (err) {
         console.error('Error fetching clients:', err);
       }

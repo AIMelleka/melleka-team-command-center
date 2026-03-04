@@ -39,8 +39,6 @@ import {
   ResponsiveContainer, XAxis as RXAxis, YAxis as RYAxis, Tooltip as RTooltip,
 } from 'recharts';
 
-const LOOKER_DIRECTORY_SPREADSHEET_ID = '1t43DRbgSo7pOqKh2DIt7xSsKrN6JgLgLSWAJe92SDQI';
-
 interface ClientDirectoryEntry {
   name: string;
   domain?: string;
@@ -471,8 +469,6 @@ const ClientHealth = () => {
   const [sortBy, setSortBy] = useState<'health' | 'name' | 'seo'>('health');
   const [stratWinRateFilter, setStratWinRateFilter] = useState<number | null>(null);
 
-  const [sheetRows, setSheetRows] = useState<Record<string, string>[]>([]);
-  const [sheetHeaders, setSheetHeaders] = useState<string[]>([]);
 
   const [smAccounts, setSmAccounts] = useState<Record<string, SupermetricsAccount[]>>({});
   const [smAccountsLoaded, setSmAccountsLoaded] = useState(false);
@@ -582,9 +578,7 @@ const ClientHealth = () => {
   const [fleetAdReviews, setFleetAdReviews] = useState<Record<string, any>>({});
   const [expandedReviewId, setExpandedReviewId] = useState<string | null>(null);
 
-  // Draft account IDs for settings tab
-  const [draftGoogle, setDraftGoogle] = useState('');
-  const [draftMeta, setDraftMeta] = useState('');
+  // (Draft account IDs removed — account linking now uses AccountMappingModal exclusively)
 
   // Learning Insights
   interface LearningInsight { type: 'success' | 'failure' | 'trend'; label: string; detail: string; count?: number; }
@@ -735,12 +729,22 @@ const ClientHealth = () => {
     leads: { label: 'Leads', costLabel: 'CPL' },
     purchases: { label: 'Purchases', costLabel: 'Cost/Purchase' },
     calls: { label: 'Calls', costLabel: 'Cost/Call' },
+    forms: { label: 'Forms', costLabel: 'Cost/Form' },
+    bookings: { label: 'Bookings', costLabel: 'Cost/Booking' },
+    signups: { label: 'Sign-ups', costLabel: 'Cost/Sign-up' },
+    revenue: { label: 'Revenue', costLabel: 'ROAS' },
+    downloads: { label: 'Downloads', costLabel: 'Cost/Download' },
   };
 
   const CONVERSION_TYPE_CONFIG = [
-    { key: 'leads', label: 'Leads', icon: '📋' },
-    { key: 'purchases', label: 'Purchases', icon: '🛒' },
-    { key: 'calls', label: 'Calls', icon: '📞' },
+    { key: 'leads', label: 'Leads', icon: '📋', description: 'Form fills, contact requests, demo requests' },
+    { key: 'purchases', label: 'Purchases', icon: '🛒', description: 'E-commerce transactions, sales' },
+    { key: 'calls', label: 'Calls', icon: '📞', description: 'Phone calls, click-to-call' },
+    { key: 'forms', label: 'Forms', icon: '📝', description: 'Quote requests, applications, signups' },
+    { key: 'bookings', label: 'Bookings', icon: '📅', description: 'Appointments, consultations, reservations' },
+    { key: 'signups', label: 'Sign-ups', icon: '👤', description: 'Account creation, free trials, subscriptions' },
+    { key: 'revenue', label: 'Revenue', icon: '💰', description: 'ROAS-focused, revenue value tracking' },
+    { key: 'downloads', label: 'Downloads', icon: '📥', description: 'App installs, PDF downloads, resources' },
   ];
 
   /** Get the tracked conversion count for scoring — sums only the types that matter for this client */
@@ -924,32 +928,22 @@ const ClientHealth = () => {
   const loadClients = useCallback(async () => {
     setIsLoadingClients(true);
     try {
-      const { data: sheetData, error: sheetError } = await supabase.functions.invoke('fetch-google-sheet', {
-        body: { spreadsheetId: LOOKER_DIRECTORY_SPREADSHEET_ID, sheetName: 'Sheet1' },
-      });
-      if (sheetError) throw sheetError;
-      if (sheetData?.headers) setSheetHeaders(sheetData.headers);
-      if (sheetData?.rows) setSheetRows(sheetData.rows);
+      // Load all active clients from managed_clients (single source of truth)
+      const { data: mcData, error: mcError } = await supabase
+        .from('managed_clients')
+        .select('*')
+        .eq('is_active', true);
+      if (mcError) throw mcError;
 
       const clientsMap = new Map<string, ClientDirectoryEntry>();
-      if (sheetData?.rows?.length > 0) {
-        for (const row of sheetData.rows) {
-          const name = row['Clients Name'] || row['Client Name'] || row['Client'] || row['Name'] || '';
-          const siteAudit = row['SEO'] || row['SITE AUDIT'] || row['Site Audit'] || '';
-          const domain = row['URL Domain'] || row['Domain'] || row['Website'] || '';
-          const ga4Id = row['GA4 Property ID'] || row['GA4 ID'] || row['GA4'] || '';
-          const lookerUrl = row['Looker Studio URL'] || row['Looker Studio'] || row['Dashboard URL'] || '';
-          if (name && name.trim()) {
-            const cleanName = name.trim();
-            clientsMap.set(cleanName.toLowerCase(), {
-              name: cleanName,
-              domain: domain ? domain.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].trim() : undefined,
-              siteAuditUrl: siteAudit?.includes('myinsights.io') ? siteAudit : undefined,
-              ga4PropertyId: ga4Id ? ga4Id.toString().replace(/[^0-9]/g, '') : undefined,
-              lookerUrl: lookerUrl?.includes('lookerstudio.google.com') ? lookerUrl : undefined,
-            });
-          }
-        }
+      for (const mc of mcData || []) {
+        clientsMap.set(mc.client_name.toLowerCase(), {
+          name: mc.client_name,
+          domain: mc.domain || undefined,
+          siteAuditUrl: mc.site_audit_url || undefined,
+          ga4PropertyId: mc.ga4_property_id || undefined,
+          lookerUrl: (mc as any).looker_url || undefined,
+        });
       }
 
       const { data: siteAuditCache } = await supabase.from('site_audit_cache').select('client_name, site_errors, site_health_score, last_scraped_at');
@@ -969,13 +963,12 @@ const ClientHealth = () => {
       if (historyRows && historyRows.length > 0) {
         const prevMap = new Map<string, number>();
         const histMap = new Map<string, number[]>();
-        // Build sparkline data (ascending by date) and previous score (most recent)
         for (const row of historyRows) {
           const key = row.client_name.toLowerCase().trim();
           const arr = histMap.get(key) || [];
           arr.push(row.health_score);
           histMap.set(key, arr);
-          prevMap.set(key, row.health_score); // last one wins (most recent since sorted asc)
+          prevMap.set(key, row.health_score);
         }
         setPreviousScores(prevMap);
         setScoreHistory(histMap);
@@ -991,50 +984,22 @@ const ClientHealth = () => {
   }, [toast]);
 
   useEffect(() => {
-    if (directoryEntries.size > 0 || managedClients.length > 0) {
-      // Merge Sheet entries with managed DB clients
-      const merged = new Map(directoryEntries);
-      // Add managed clients that aren't already in the sheet, or patch missing fields
-      for (const mc of managedClients) {
-        const key = mc.client_name.toLowerCase();
-        if (!merged.has(key)) {
-          merged.set(key, {
-            name: mc.client_name,
-            domain: mc.domain || undefined,
-            siteAuditUrl: mc.site_audit_url || undefined,
-            ga4PropertyId: mc.ga4_property_id || undefined,
-          });
-        } else {
-          // Patch missing fields from managed_clients into existing sheet entry
-          const existing = merged.get(key)!;
-          if (!existing.siteAuditUrl && mc.site_audit_url) existing.siteAuditUrl = mc.site_audit_url;
-          if (!existing.domain && mc.domain) existing.domain = mc.domain;
-          if (!existing.ga4PropertyId && mc.ga4_property_id) existing.ga4PropertyId = mc.ga4_property_id;
-        }
-      }
-      // Get list of hidden (inactive) client names
-      const hiddenNames = new Set<string>();
-      // We need ALL managed_clients (including inactive) to know which to hide
-      // The managedClients state only has active ones, so we load inactive separately
-      supabase.from('managed_clients').select('client_name').eq('is_active', false).then(({ data }) => {
-        for (const row of data || []) hiddenNames.add(row.client_name.toLowerCase());
-        // Filter out hidden clients
-        for (const key of hiddenNames) merged.delete(key);
-        const healthData = buildClientsWithAdHealth(merged, siteErrorMap, siteHealthMap);
-        // Preserve existing scores when rebuilding client list
-        setClients(prev => {
-          const prevMap = new Map(prev.map(c => [c.name, c]));
-          return healthData.map(c => {
-            const existing = prevMap.get(c.name);
-            if (existing && existing.healthScore >= 0) {
-              return { ...c, healthScore: existing.healthScore, scoreBreakdown: existing.scoreBreakdown, overallHealth: existing.overallHealth };
-            }
-            return c;
-          });
+    if (directoryEntries.size > 0) {
+      // directoryEntries is already loaded from managed_clients (active only)
+      const healthData = buildClientsWithAdHealth(directoryEntries, siteErrorMap, siteHealthMap);
+      // Preserve existing scores when rebuilding client list
+      setClients(prev => {
+        const prevMap = new Map(prev.map(c => [c.name, c]));
+        return healthData.map(c => {
+          const existing = prevMap.get(c.name);
+          if (existing && existing.healthScore >= 0) {
+            return { ...c, healthScore: existing.healthScore, scoreBreakdown: existing.scoreBreakdown, overallHealth: existing.overallHealth };
+          }
+          return c;
         });
       });
     }
-  }, [directoryEntries, siteErrorMap, siteHealthMap, buildClientsWithAdHealth, managedClients]);
+  }, [directoryEntries, siteErrorMap, siteHealthMap, buildClientsWithAdHealth]);
 
   // ===== Recalculate composite scores when async data loads =====
   // 4-Signal Model: CPA vs Benchmark (35%), Conversion Trend (25%), CPA Trend (25%), AI Review Quality (15%)
@@ -1888,31 +1853,20 @@ const ClientHealth = () => {
     setIsLoadingSeo(true);
     setClientSeoData({});
 
-    // Step 1: Re-fetch the Google Sheet to get the latest SEO/audit URLs
+    // Step 1: Re-fetch site_audit_url from managed_clients
     let freshClients = [...clients];
     try {
-      const { data: sheetData, error: sheetError } = await supabase.functions.invoke('fetch-google-sheet', {
-        body: { spreadsheetId: LOOKER_DIRECTORY_SPREADSHEET_ID, sheetName: 'Sheet1' },
-      });
-      if (!sheetError && sheetData?.rows?.length > 0) {
-        // Build a lookup from sheet: name -> siteAuditUrl
-        const sheetAuditMap = new Map<string, string>();
-        for (const row of sheetData.rows) {
-          const name = (row['Clients Name'] || row['Client Name'] || row['Client'] || row['Name'] || '').trim();
-          const siteAudit = row['SEO'] || row['SITE AUDIT'] || row['Site Audit'] || '';
-          if (name && siteAudit?.includes('myinsights.io')) {
-            sheetAuditMap.set(name.toLowerCase(), siteAudit.trim());
-          }
-        }
-        // Patch clients with fresh audit URLs
-        freshClients = freshClients.map(c => {
-          const freshUrl = sheetAuditMap.get(c.name.toLowerCase());
-          return freshUrl ? { ...c, siteAuditUrl: freshUrl } : c;
-        });
-        console.log(`[SEO] Refreshed audit URLs from sheet for ${sheetAuditMap.size} clients`);
+      const { data: mcRows } = await supabase.from('managed_clients').select('client_name, site_audit_url').not('site_audit_url', 'is', null);
+      const freshAuditMap = new Map<string, string>();
+      for (const mc of mcRows || []) {
+        if (mc.site_audit_url) freshAuditMap.set(mc.client_name.toLowerCase(), mc.site_audit_url);
       }
+      freshClients = freshClients.map(c => {
+        const freshUrl = freshAuditMap.get(c.name.toLowerCase());
+        return freshUrl ? { ...c, siteAuditUrl: freshUrl } : c;
+      });
     } catch (err) {
-      console.error('[SEO] Failed to refresh sheet data:', err);
+      console.error('[SEO] Failed to refresh audit URLs:', err);
     }
 
     const clientsWithDomains = freshClients.filter(c => c.domain);
@@ -2266,13 +2220,7 @@ const ClientHealth = () => {
       .then(({ data }) => { if (data) setStratChanges(data); });
   }, [stratActiveSession]);
 
-  // Sync draft accounts when context changes
-  useEffect(() => { setDraftGoogle(googleAccountId); setDraftMeta(metaAccountId); }, [googleAccountId, metaAccountId]);
-
-  const handleSaveAccounts = async () => {
-    await saveAccounts(draftGoogle, draftMeta);
-    toast({ title: 'Accounts linked!', description: `${detailClient} — accounts saved.` });
-  };
+  // (handleSaveAccounts removed — account linking now uses AccountMappingModal exclusively)
 
   const runSeoAnalysis = async (client: ClientHealthData) => {
     if (!client.domain) return;
@@ -2461,31 +2409,33 @@ const ClientHealth = () => {
                     </div>
                   </div>
 
-                  {/* Config Completeness */}
-                  <Card>
-                    <CardContent className="pt-5 space-y-4">
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-2">Config Completeness</p>
-                        <div className="flex flex-wrap gap-2">
-                          <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border ${googleAccountId ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
-                            {googleAccountId ? <CheckCircle className="h-3 w-3" /> : <X className="h-3 w-3" />} Google Ads
-                          </span>
-                          <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border ${metaAccountId ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
-                            {metaAccountId ? <CheckCircle className="h-3 w-3" /> : <X className="h-3 w-3" />} Meta Ads
-                          </span>
-                        </div>
-                      </div>
-                      {(googleAccountName || metaAccountName) && (
-                        <div>
+                  {/* Linked Accounts Summary */}
+                  {(() => {
+                    const clientMappings = manualMappings[detailClient] || {};
+                    const platformLabels: Record<string, string> = { google_ads: 'Google Ads', meta_ads: 'Meta Ads', tiktok_ads: 'TikTok Ads', bing_ads: 'Microsoft Ads', linkedin_ads: 'LinkedIn Ads' };
+                    const platformColors: Record<string, string> = { google_ads: 'bg-blue-500/10 border-blue-500/20 text-blue-400', meta_ads: 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400', tiktok_ads: 'bg-pink-500/10 border-pink-500/20 text-pink-400', bing_ads: 'bg-teal-500/10 border-teal-500/20 text-teal-400', linkedin_ads: 'bg-sky-500/10 border-sky-500/20 text-sky-400' };
+                    const entries = Object.entries(clientMappings);
+                    return (
+                      <Card>
+                        <CardContent className="pt-5">
                           <p className="text-xs text-muted-foreground mb-2">Linked Ad Accounts</p>
-                          <div className="flex flex-wrap gap-2">
-                            {googleAccountName && <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400"><Target className="h-3 w-3" /> {googleAccountName}</span>}
-                            {metaAccountName && <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400"><Globe className="h-3 w-3" /> {metaAccountName}</span>}
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                          {entries.length === 0 ? (
+                            <p className="text-xs text-muted-foreground/60 italic">No ad accounts linked. Go to Settings to connect.</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-2">
+                              {entries.map(([platform, ids]) => (
+                                <span key={platform} className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border ${platformColors[platform] || 'bg-muted border-border text-muted-foreground'}`}>
+                                  <CheckCircle className="h-3 w-3" />
+                                  {platformLabels[platform] || platform}
+                                  {ids.length > 1 && <span className="text-[10px] opacity-70">({ids.length})</span>}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
 
                   {/* ── Ad Analytics Dashboard ── */}
                   {isLoadingAdData ? (
@@ -3352,132 +3302,183 @@ const ClientHealth = () => {
               {/* ── SETTINGS TAB ── */}
               <TabsContent value="settings">
                 <div className="space-y-6 max-w-2xl">
-                  {/* Account Mapping */}
+
+                  {/* ── Ad Platform Accounts ── */}
                   <Card>
-                    <CardHeader><CardTitle className="text-sm">Ad Account Mapping</CardTitle></CardHeader>
-                    <CardContent className="space-y-4">
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">🔵 Google Ads {googleAccountId && <Link2 className="h-2.5 w-2.5 text-emerald-400" />}</p>
-                        {googleAccounts.length > 0 ? (
-                          <Select value={draftGoogle} onValueChange={setDraftGoogle}>
-                            <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select Google account..." /></SelectTrigger>
-                            <SelectContent>{googleAccounts.map(acc => <SelectItem key={acc.id} value={acc.id} className="text-sm">{acc.name}</SelectItem>)}</SelectContent>
-                          </Select>
-                        ) : (
-                          <input value={draftGoogle} onChange={e => setDraftGoogle(e.target.value)} placeholder={contextAccountsLoading ? 'Loading…' : 'e.g. 123-456-7890'} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">🔷 Meta Ads {metaAccountId && <Link2 className="h-2.5 w-2.5 text-emerald-400" />}</p>
-                        {metaAccounts.length > 0 ? (
-                          <Select value={draftMeta} onValueChange={setDraftMeta}>
-                            <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select Meta account..." /></SelectTrigger>
-                            <SelectContent>{metaAccounts.map(acc => <SelectItem key={acc.id} value={acc.id} className="text-sm">{acc.name}</SelectItem>)}</SelectContent>
-                          </Select>
-                        ) : (
-                          <input value={draftMeta} onChange={e => setDraftMeta(e.target.value)} placeholder={contextAccountsLoading ? 'Loading…' : 'act_123456789'} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm" />
-                        )}
-                      </div>
-                      <Button size="sm" variant="outline" onClick={handleSaveAccounts} disabled={savingAccounts || (!draftGoogle && !draftMeta)} className="gap-1">
-                        {savingAccounts ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Save & Link Accounts
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Link className="h-4 w-4" /> Ad Platform Accounts
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">Link this client's ad accounts so the AI agent and reports can pull data automatically.</p>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {/* Show currently linked accounts */}
+                      {(() => {
+                        const clientMappings = manualMappings[detailClient] || {};
+                        const platformLabels: Record<string, string> = { google_ads: 'Google Ads', meta_ads: 'Meta Ads', tiktok_ads: 'TikTok Ads', bing_ads: 'Microsoft Ads', linkedin_ads: 'LinkedIn Ads' };
+                        const platformColors: Record<string, string> = { google_ads: 'bg-blue-500/15 text-blue-400', meta_ads: 'bg-indigo-500/15 text-indigo-400', tiktok_ads: 'bg-pink-500/15 text-pink-400', bing_ads: 'bg-teal-500/15 text-teal-400', linkedin_ads: 'bg-sky-500/15 text-sky-400' };
+                        const entries = Object.entries(clientMappings);
+                        if (entries.length === 0) {
+                          return <p className="text-sm text-muted-foreground italic py-2">No accounts linked yet. Click below to connect ad platforms.</p>;
+                        }
+                        return (
+                          <div className="space-y-2">
+                            {entries.map(([platform, accountIds]) => (
+                              <div key={platform} className="flex items-center gap-2">
+                                <Badge variant="outline" className={`text-xs ${platformColors[platform] || 'bg-muted text-muted-foreground'}`}>
+                                  {platformLabels[platform] || platform}
+                                </Badge>
+                                <span className="text-sm text-foreground">
+                                  {accountIds.map(id => {
+                                    const dsKey = platform === 'google_ads' ? 'AW' : platform === 'meta_ads' ? 'FA' : platform;
+                                    const name = smAccounts[dsKey]?.find(a => a.id === id)?.name;
+                                    return name || id;
+                                  }).join(', ')}
+                                </span>
+                                <CheckCircle className="h-3.5 w-3.5 text-emerald-400 ml-auto flex-shrink-0" />
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 w-full"
+                        onClick={() => setMappingClient(detailClient)}
+                      >
+                        <Settings className="h-3.5 w-3.5" />
+                        {(manualMappings[detailClient] && Object.keys(manualMappings[detailClient]).length > 0) ? 'Manage Linked Accounts' : 'Link Ad Accounts'}
                       </Button>
                     </CardContent>
                   </Card>
 
-                  {/* Industry */}
+                  {/* ── Conversion Focus ── */}
                   <Card>
-                    <CardHeader><CardTitle className="text-sm">Industry</CardTitle></CardHeader>
-                    <CardContent>
-                      <Select value={clientIndustries[detailClient] || 'General / All Industries'} onValueChange={(val) => { updateClientIndustry(detailClient, val); toast({ title: `Industry set to "${val}"` }); }}>
-                        <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                        <SelectContent className="max-h-[300px]">
-                          {[...INDUSTRY_BENCHMARKS, DEFAULT_BENCHMARK].map(b => <SelectItem key={b.industry} value={b.industry} className="text-sm">{b.industry}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </CardContent>
-                  </Card>
-
-                  {/* Primary Conversion Goal */}
-                  <Card>
-                    <CardHeader><CardTitle className="text-sm">Primary Conversion Goal</CardTitle></CardHeader>
-                    <CardContent>
-                      <p className="text-xs text-muted-foreground mb-3">What does this client consider a "win"? This controls which metric is highlighted in KPIs and the fleet table.</p>
-                      <Select value={clientConversionGoals[detailClient] || 'all'} onValueChange={(val) => { updateConversionGoal(detailClient, val); toast({ title: `Conversion goal set to "${GOAL_CONFIG[val]?.label || val}"` }); }}>
-                        <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Conversions</SelectItem>
-                          <SelectItem value="leads">Leads</SelectItem>
-                          <SelectItem value="purchases">Purchases</SelectItem>
-                          <SelectItem value="calls">Calls</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </CardContent>
-                  </Card>
-
-                  {/* Tracked Conversion Types (for scoring) */}
-                  <Card>
-                    <CardHeader><CardTitle className="text-sm">Tracked Conversion Types</CardTitle></CardHeader>
-                    <CardContent>
-                      <p className="text-xs text-muted-foreground mb-3">Which conversion types matter for this client? These are used for health scoring (CPA benchmark, trends) and highlighted in the fleet table. Untracked types are dimmed.</p>
-                      <div className="flex flex-wrap gap-2">
-                        {CONVERSION_TYPE_CONFIG.map(ct => {
-                          const tracked = clientTrackedTypes[detailClient] || ['leads', 'purchases', 'calls'];
-                          const isActive = tracked.includes(ct.key);
-                          return (
-                            <button
-                              key={ct.key}
-                              onClick={() => {
-                                const current = clientTrackedTypes[detailClient] || ['leads', 'purchases', 'calls'];
-                                const updated = isActive ? current.filter(t => t !== ct.key) : [...current, ct.key];
-                                if (updated.length === 0) { toast({ title: 'Must track at least one type', variant: 'destructive' }); return; }
-                                updateTrackedTypes(detailClient, updated);
-                                toast({ title: `${ct.label} ${isActive ? 'untracked' : 'tracked'}` });
-                              }}
-                              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-all ${isActive ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
-                            >
-                              <span>{ct.icon}</span> {ct.label}
-                            </button>
-                          );
-                        })}
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Target className="h-4 w-4" /> Conversion Focus
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">Select the conversion types this client cares about, then pick the primary goal. The AI agent, health scores, and all reporting will prioritize these.</p>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {/* Tracked types grid */}
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Track these conversion types</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {CONVERSION_TYPE_CONFIG.map(ct => {
+                            const tracked = clientTrackedTypes[detailClient] || ['leads', 'purchases', 'calls'];
+                            const isActive = tracked.includes(ct.key);
+                            const isPrimary = (clientConversionGoals[detailClient] || 'all') === ct.key;
+                            return (
+                              <button
+                                key={ct.key}
+                                onClick={() => {
+                                  const current = clientTrackedTypes[detailClient] || ['leads', 'purchases', 'calls'];
+                                  const updated = isActive ? current.filter(t => t !== ct.key) : [...current, ct.key];
+                                  if (updated.length === 0) { toast({ title: 'Must track at least one type', variant: 'destructive' }); return; }
+                                  updateTrackedTypes(detailClient, updated);
+                                  // If untracking the primary goal, reset to 'all'
+                                  if (!updated.includes(clientConversionGoals[detailClient] || '')) {
+                                    updateConversionGoal(detailClient, 'all');
+                                  }
+                                }}
+                                className={`flex items-start gap-2 p-3 rounded-lg border text-left transition-all ${
+                                  isActive
+                                    ? isPrimary
+                                      ? 'bg-primary/10 border-primary ring-1 ring-primary/30'
+                                      : 'bg-primary/5 border-primary/50'
+                                    : 'bg-muted/50 border-border text-muted-foreground hover:border-border/80'
+                                }`}
+                              >
+                                <span className="text-base mt-0.5">{ct.icon}</span>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`text-sm font-medium ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>{ct.label}</span>
+                                    {isPrimary && <Badge variant="default" className="text-[10px] px-1.5 py-0 h-4">Primary</Badge>}
+                                  </div>
+                                  <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{ct.description}</p>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </CardContent>
-                  </Card>
 
-                  {/* Tier */}
-                  <Card>
-                    <CardHeader><CardTitle className="text-sm">Client Tier</CardTitle></CardHeader>
-                    <CardContent>
-                      <div className="flex gap-2">
-                        {(['premium', 'advanced', 'basic'] as const).map(t => (
-                          <button key={t} onClick={() => { updateClientTier(detailClient, t); toast({ title: `Tier set to ${t}` }); }}
-                            className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${(clientTiers[detailClient] || 'basic') === t ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}>
-                            {t.charAt(0).toUpperCase() + t.slice(1)}
+                      {/* Primary goal selector — only shows tracked types */}
+                      <div className="pt-2 border-t border-border/50">
+                        <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Primary goal (the #1 metric)</p>
+                        <p className="text-xs text-muted-foreground mb-2">This controls which metric is highlighted in KPIs, fleet table, and what the AI agent optimizes toward.</p>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => { updateConversionGoal(detailClient, 'all'); toast({ title: 'Primary goal: All Conversions' }); }}
+                            className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all ${(clientConversionGoals[detailClient] || 'all') === 'all' ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
+                          >
+                            All Conversions
                           </button>
-                        ))}
+                          {CONVERSION_TYPE_CONFIG
+                            .filter(ct => (clientTrackedTypes[detailClient] || ['leads', 'purchases', 'calls']).includes(ct.key))
+                            .map(ct => (
+                              <button
+                                key={ct.key}
+                                onClick={() => { updateConversionGoal(detailClient, ct.key); toast({ title: `Primary goal: ${ct.label}` }); }}
+                                className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-all flex items-center gap-1 ${(clientConversionGoals[detailClient] || 'all') === ct.key ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
+                              >
+                                <span>{ct.icon}</span> {ct.label}
+                              </button>
+                            ))
+                          }
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
 
-                  {/* Multi-Account Display */}
+                  {/* ── Industry & Tier ── */}
                   <Card>
-                    <CardHeader><CardTitle className="text-sm">Multi-Account Display</CardTitle></CardHeader>
-                    <CardContent>
-                      <p className="text-xs text-muted-foreground mb-3">Enable this if the client has multiple ad accounts on the same platform. When enabled, the fleet table will show expandable sub-rows for each account.</p>
-                      <div className="flex items-center gap-3">
-                        <Switch
-                          checked={!!clientMultiAccount[detailClient]}
-                          onCheckedChange={async (checked) => {
-                            setClientMultiAccount(prev => ({ ...prev, [detailClient]: checked }));
-                            try {
-                              const { data: existing } = await supabase.from('managed_clients').select('id').eq('client_name', detailClient).maybeSingle();
-                              if (existing) {
-                                await supabase.from('managed_clients').update({ multi_account_enabled: checked } as any).eq('id', existing.id);
-                              }
-                              toast({ title: checked ? 'Multi-account display enabled' : 'Multi-account display disabled' });
-                            } catch (err) { console.error('Failed to update multi-account:', err); }
-                          }}
-                        />
-                        <span className="text-sm font-medium">{clientMultiAccount[detailClient] ? 'Enabled' : 'Disabled'}</span>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Building2 className="h-4 w-4" /> Industry & Tier
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-1.5">Industry</p>
+                        <Select value={clientIndustries[detailClient] || 'General / All Industries'} onValueChange={(val) => { updateClientIndustry(detailClient, val); toast({ title: `Industry set to "${val}"` }); }}>
+                          <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent className="max-h-[300px]">
+                            {[...INDUSTRY_BENCHMARKS, DEFAULT_BENCHMARK].map(b => <SelectItem key={b.industry} value={b.industry} className="text-sm">{b.industry}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-1.5">Service Tier</p>
+                        <div className="flex gap-2">
+                          {(['premium', 'advanced', 'basic'] as const).map(t => (
+                            <button key={t} onClick={() => { updateClientTier(detailClient, t); toast({ title: `Tier set to ${t}` }); }}
+                              className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${(clientTiers[detailClient] || 'basic') === t ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}>
+                              {t.charAt(0).toUpperCase() + t.slice(1)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-1.5">Multi-Account Display</p>
+                        <div className="flex items-center gap-3">
+                          <Switch
+                            checked={!!clientMultiAccount[detailClient]}
+                            onCheckedChange={async (checked) => {
+                              setClientMultiAccount(prev => ({ ...prev, [detailClient]: checked }));
+                              try {
+                                const { data: existing } = await supabase.from('managed_clients').select('id').eq('client_name', detailClient).maybeSingle();
+                                if (existing) {
+                                  await supabase.from('managed_clients').update({ multi_account_enabled: checked } as any).eq('id', existing.id);
+                                }
+                                toast({ title: checked ? 'Multi-account display enabled' : 'Multi-account display disabled' });
+                              } catch (err) { console.error('Failed to update multi-account:', err); }
+                            }}
+                          />
+                          <span className="text-xs text-muted-foreground">{clientMultiAccount[detailClient] ? 'Show sub-rows per account in fleet table' : 'Disabled — single row per client'}</span>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -3750,8 +3751,8 @@ const ClientHealth = () => {
               <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 hidden sm:flex" onClick={() => setShowSmDebug(true)} title="SM Status">
                 <Activity className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 hidden sm:flex" asChild title="Edit Sheet">
-                <a href={`https://docs.google.com/spreadsheets/d/${LOOKER_DIRECTORY_SPREADSHEET_ID}/edit`} target="_blank" rel="noopener noreferrer">
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 hidden sm:flex" asChild title="Manage Clients">
+                <a href="/client-settings">
                   <ExternalLink className="h-4 w-4" />
                 </a>
               </Button>
@@ -4335,18 +4336,6 @@ const ClientHealth = () => {
         </>
         )}
 
-        {/* ===== ACCOUNT MAPPING MODAL ===== */}
-        {mappingClient && (
-          <AccountMappingModal
-            clientName={mappingClient}
-            smAccounts={smAccounts}
-            onClose={() => setMappingClient(null)}
-            onSaved={() => {
-              loadManualMappings();
-              setClientTrends(prev => { const next = { ...prev }; delete next[mappingClient]; return next; });
-            }}
-          />
-        )}
         {/* ===== ADD CLIENT DIALOG ===== */}
         <Dialog open={showAddClient} onOpenChange={setShowAddClient}>
           <DialogContent className="sm:max-w-md">
@@ -4386,6 +4375,18 @@ const ClientHealth = () => {
         </Dialog>
         <SupermetricsDebugPanel open={showSmDebug} onOpenChange={setShowSmDebug} />
         </>
+        )}
+        {/* ===== ACCOUNT MAPPING MODAL (renders in both detail + fleet views) ===== */}
+        {mappingClient && (
+          <AccountMappingModal
+            clientName={mappingClient}
+            smAccounts={smAccounts}
+            onClose={() => setMappingClient(null)}
+            onSaved={() => {
+              loadManualMappings();
+              setClientTrends(prev => { const next = { ...prev }; delete next[mappingClient]; return next; });
+            }}
+          />
         )}
       </main>
     </div>

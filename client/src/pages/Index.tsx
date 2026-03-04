@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import AdminHeader from '@/components/AdminHeader';
+import { ClientMentionPopover } from '@/components/ClientMentionPopover';
 import teamPitLogo from '@/assets/team-pit-logo.png';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -124,6 +125,11 @@ const Index = () => {
   const [cronJobs, setCronJobs] = useState<CronJob[]>([]);
   const [cronFolderOpen, setCronFolderOpen] = useState(false);
 
+  // @mention state
+  const [mentionedClients, setMentionedClients] = useState<string[]>([]);
+  const [showMentionPopover, setShowMentionPopover] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+
   // Refs
   const editInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -206,6 +212,7 @@ const Index = () => {
     setMessages([]);
     setInput('');
     setFiles([]);
+    setMentionedClients([]);
     setIsStreaming(false);
     if (isMobile) setSidebarOpen(false);
     inputRef.current?.focus();
@@ -278,6 +285,9 @@ const Index = () => {
       streaming: true,
     }]);
 
+    const currentMentions = [...mentionedClients];
+    setMentionedClients([]);
+
     const abort = streamMessage(
       msgText,
       activeConvoId,
@@ -340,10 +350,11 @@ const Index = () => {
         loadConversations(); // refresh sidebar
       },
       currentFiles.length > 0 ? currentFiles : undefined,
+      currentMentions.length > 0 ? currentMentions : undefined,
     );
 
     abortRef.current = abort;
-  }, [input, files, isStreaming, activeConvoId]);
+  }, [input, files, isStreaming, activeConvoId, mentionedClients]);
 
   const stopStreaming = () => {
     if (abortRef.current) {
@@ -357,12 +368,51 @@ const Index = () => {
   // ── Input handlers ─────────────────────────────────
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
+    const value = e.target.value;
+    setInput(value);
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+
+    // Detect @mention trigger
+    const cursorPos = e.target.selectionStart ?? value.length;
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const atMatch = textBeforeCursor.match(/@([^\s@]*)$/);
+    if (atMatch) {
+      setShowMentionPopover(true);
+      setMentionQuery(atMatch[1]);
+    } else {
+      setShowMentionPopover(false);
+      setMentionQuery('');
+    }
+  };
+
+  const handleMentionSelect = (clientName: string) => {
+    const cursorPos = inputRef.current?.selectionStart ?? input.length;
+    const textBeforeCursor = input.slice(0, cursorPos);
+    const atMatch = textBeforeCursor.match(/@([^\s@]*)$/);
+    if (atMatch) {
+      const beforeAt = textBeforeCursor.slice(0, atMatch.index);
+      const afterCursor = input.slice(cursorPos);
+      const newInput = `${beforeAt}@${clientName} ${afterCursor}`;
+      setInput(newInput);
+      if (!mentionedClients.includes(clientName)) {
+        setMentionedClients(prev => [...prev, clientName]);
+      }
+    }
+    setShowMentionPopover(false);
+    setMentionQuery('');
+    inputRef.current?.focus();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // When mention popover is open, let it handle arrow keys + Enter
+    if (showMentionPopover && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Tab')) {
+      return; // popover's keydown handler (captured phase) will handle it
+    }
+    if (e.key === 'Escape' && showMentionPopover) {
+      setShowMentionPopover(false);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
@@ -451,12 +501,31 @@ const Index = () => {
 
     return msg.parts.map((part, i) => {
       switch (part.type) {
-        case 'text':
-          return part.content ? (
-            <div key={i} className="prose prose-sm prose-invert max-w-none text-foreground [&_a]:text-primary [&_a]:underline [&_strong]:text-foreground [&_h1]:text-foreground [&_h2]:text-foreground [&_h3]:text-foreground [&_li]:text-foreground [&_p]:text-foreground [&_pre]:bg-muted [&_pre]:border [&_pre]:border-border [&_code]:font-mono">
-              <MarkdownWithLinks content={part.content} />
+        case 'text': {
+          if (!part.content) return null;
+          const isError = part.content.includes('**Error:**') || part.content.includes('[Response interrupted');
+          return (
+            <div key={i}>
+              <div className="prose prose-sm prose-invert max-w-none text-foreground [&_a]:text-primary [&_a]:underline [&_strong]:text-foreground [&_h1]:text-foreground [&_h2]:text-foreground [&_h3]:text-foreground [&_li]:text-foreground [&_p]:text-foreground [&_pre]:bg-muted [&_pre]:border [&_pre]:border-border [&_code]:font-mono">
+                <MarkdownWithLinks content={part.content} />
+              </div>
+              {isError && !msg.streaming && (
+                <button
+                  onClick={() => {
+                    // Find the last user message and retry it
+                    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+                    if (lastUserMsg?.parts[0]?.content) {
+                      sendMessage(lastUserMsg.parts[0].content);
+                    }
+                  }}
+                  className="mt-2 px-3 py-1.5 text-xs bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-colors inline-flex items-center gap-1.5"
+                >
+                  <ArrowRight className="w-3 h-3" /> Retry
+                </button>
+              )}
             </div>
-          ) : null;
+          );
+        }
         case 'tool_start':
           return <ToolCallBlock key={i} name={part.toolName ?? 'unknown'} pending />;
         case 'tool_result':
@@ -662,7 +731,15 @@ const Index = () => {
                         : ''
                     }`}>
                       {msg.role === 'user' ? (
-                        <p className="text-sm whitespace-pre-wrap">{msg.parts[0]?.content}</p>
+                        <p className="text-sm whitespace-pre-wrap">
+                          {(msg.parts[0]?.content || '').split(/(@\w[\w\s]*?)(?=\s|$)/g).map((chunk, i) =>
+                            chunk.startsWith('@') ? (
+                              <span key={i} className="inline-block bg-blue-500/20 text-blue-300 rounded px-1 font-medium">{chunk}</span>
+                            ) : (
+                              <span key={i}>{chunk}</span>
+                            )
+                          )}
+                        </p>
                       ) : (
                         renderMessageParts(msg)
                       )}
@@ -676,7 +753,14 @@ const Index = () => {
 
           {/* Input area */}
           <div className="border-t border-border bg-background p-3 md:p-4">
-            <div className="max-w-3xl mx-auto">
+            <div className="max-w-3xl mx-auto relative">
+              {/* @mention popover */}
+              <ClientMentionPopover
+                visible={showMentionPopover}
+                query={mentionQuery}
+                onSelect={handleMentionSelect}
+                onClose={() => setShowMentionPopover(false)}
+              />
               <div className="bg-card border border-border rounded-2xl focus-within:ring-2 focus-within:ring-primary/50 focus-within:border-primary transition-all">
                 {/* File preview strip */}
                 {files.length > 0 && (

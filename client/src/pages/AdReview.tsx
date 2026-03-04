@@ -23,7 +23,6 @@ import { findBestMatches, type MatchResult } from '@/lib/fuzzyMatch';
 
 // Spreadsheet IDs
 const CONNECTED_SPREADSHEET_ID = '1nKskjFVwoaBS6DTnZx0xz5mze0L0auDH9HisDWZz_b0';
-const LOOKER_DIRECTORY_SPREADSHEET_ID = '1t43DRbgSo7pOqKh2DIt7xSsKrN6JgLgLSWAJe92SDQI';
 
 // Cache
 let sheetTabsCache: string[] | null = null;
@@ -341,72 +340,38 @@ const AdReview = () => {
       return { looker: lookerDirectoryCache, ga4: ga4DirectoryCache, domain: domainDirectoryCache };
     }
     try {
-      const { data, error } = await supabase.functions.invoke('fetch-google-sheet', {
-        body: { spreadsheetId: LOOKER_DIRECTORY_SPREADSHEET_ID, sheetName: 'Sheet1' },
-      });
+      const { data, error } = await supabase
+        .from('managed_clients')
+        .select('client_name, looker_url, ga4_property_id, domain')
+        .eq('is_active', true);
       if (error) throw error;
 
       const lookerDir: Record<string, string> = {};
       const ga4Dir: Record<string, string> = {};
       const domainDir: Record<string, string> = {};
-      
-      if (data.rows?.length > 0) {
-        // Log headers to help debug column mapping
-        console.log('Looker Directory headers:', data.headers);
-        
-        for (const row of data.rows) {
-          // Column A: Client Name
-          const name = row['Clients Name'] || row['Client Name'] || row['Client'] || row['Name'] || '';
-          // Column B: Looker Studio URL
-          const url = row['Looker Studio URL'] || row['Looker Studio'] || row['Dashboard URL'] || row['Looker'] || '';
-          // Column C: GA4 Property ID - check multiple possible header names
-          const ga4Id = row['GA4 Property ID'] || row['GA4 ID'] || row['GA4'] || row['Property ID'] || 
-                        row['GA4 Property'] || row['Google Analytics'] || row['Analytics ID'] || '';
-          // Column D: URL Domain
-          const domain = row['URL Domain'] || row['Domain'] || row['Website'] || row['Client Domain'] || row['URL'] || '';
-          
-          const normalizedName = name.toLowerCase().trim();
-          const baseName = name.split(' - ')[0].trim().toLowerCase();
-          
-          if (name) {
-            // Looker URLs
-            if (url?.includes('lookerstudio.google.com')) {
-              lookerDir[normalizedName] = url;
-              if (baseName !== normalizedName) {
-                lookerDir[baseName] = url;
-              }
-            }
-            
-            // GA4 Property IDs (clean to just numbers)
-            if (ga4Id) {
-              const cleanGa4Id = ga4Id.toString().replace(/[^0-9]/g, '');
-              if (cleanGa4Id) {
-                ga4Dir[normalizedName] = cleanGa4Id;
-                if (baseName !== normalizedName) {
-                  ga4Dir[baseName] = cleanGa4Id;
-                }
-                console.log(`GA4 mapped: ${normalizedName} -> ${cleanGa4Id}`);
-              }
-            }
-            
-            // Client domains
-            if (domain) {
-              const cleanDomain = domain.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].trim();
-              if (cleanDomain) {
-                domainDir[normalizedName] = cleanDomain;
-                if (baseName !== normalizedName) {
-                  domainDir[baseName] = cleanDomain;
-                }
-              }
-            }
-          }
+
+      for (const mc of data || []) {
+        const normalizedName = mc.client_name.toLowerCase().trim();
+        const baseName = mc.client_name.split(' - ')[0].trim().toLowerCase();
+
+        if ((mc as any).looker_url) {
+          lookerDir[normalizedName] = (mc as any).looker_url;
+          if (baseName !== normalizedName) lookerDir[baseName] = (mc as any).looker_url;
+        }
+        if (mc.ga4_property_id) {
+          ga4Dir[normalizedName] = mc.ga4_property_id;
+          if (baseName !== normalizedName) ga4Dir[baseName] = mc.ga4_property_id;
+        }
+        if (mc.domain) {
+          domainDir[normalizedName] = mc.domain;
+          if (baseName !== normalizedName) domainDir[baseName] = mc.domain;
         }
       }
-      
+
       lookerDirectoryCache = lookerDir;
       ga4DirectoryCache = ga4Dir;
       domainDirectoryCache = domainDir;
-      
+
       return { looker: lookerDir, ga4: ga4Dir, domain: domainDir };
     } catch (error) {
       console.error('Error loading directory:', error);

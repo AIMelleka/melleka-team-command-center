@@ -20,6 +20,7 @@ import {
   CheckCircle,
   Sparkles,
   Brain,
+  Building2,
   ExternalLink,
 } from 'lucide-react';
 import teamPitLogo from '@/assets/team-pit-logo.png';
@@ -48,6 +49,7 @@ const navItems: { path: string; label: string; icon: typeof Home; external?: boo
   { path: '/email-writer', label: 'Email Writer', icon: Mail },
   { path: '/video-generator', label: 'Video Generator', icon: Video },
   { path: '/client-update', label: 'Client Update', icon: Users },
+  { path: '/client-settings', label: 'Clients', icon: Building2 },
   { path: '/strategist-settings', label: 'Strategist', icon: Brain },
   { path: '/admin', label: 'Admin Settings', icon: Settings },
   { path: 'https://server-production-0486.up.railway.app/', label: 'Super Agent', icon: Bot, external: true },
