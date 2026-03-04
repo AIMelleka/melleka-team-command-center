@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   Search, Plus, Loader2, MessageSquare, Trash2,
   PanelLeftClose, PanelLeft, ArrowRight, Check, X,
-  Pencil, Pin, PinOff, Brain, Bell, Square, Paperclip, FileText,
+  Pencil, Brain, Bell, Square, Paperclip, FileText,
+  Clock, ChevronDown, ChevronRight, FolderClock,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import AdminHeader from '@/components/AdminHeader';
@@ -25,9 +26,11 @@ import {
   deleteConversation as apiDeleteConversation,
   fetchMemory as apiFetchMemory,
   fetchNotifications as apiFetchNotifications,
+  fetchCronJobs as apiFetchCronJobs,
   ensureTeamMember,
   type SSEEvent,
   type Conversation as ApiConversation,
+  type CronJob,
 } from '@/lib/chatApi';
 import { ToolCallBlock } from '@/components/chat/ToolCallBlock';
 
@@ -117,6 +120,10 @@ const Index = () => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [memberName, setMemberName] = useState('');
 
+  // Cron jobs
+  const [cronJobs, setCronJobs] = useState<CronJob[]>([]);
+  const [cronFolderOpen, setCronFolderOpen] = useState(false);
+
   // Refs
   const editInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -136,16 +143,18 @@ const Index = () => {
         setMemberName(name);
       } catch { /* auth will handle redirect */ }
       loadConversations();
+      loadCronJobs();
     })();
   }, []);
 
-  // Poll notifications every 30s
+  // Poll notifications + cron jobs every 30s
   useEffect(() => {
     const poll = async () => {
       try {
         const { count } = await apiFetchNotifications();
         setUnreadCount(count);
       } catch { /* ignore */ }
+      loadCronJobs();
     };
     poll();
     const interval = setInterval(poll, 30_000);
@@ -166,6 +175,13 @@ const Index = () => {
       setConversations(data);
     } catch { /* ignore */ }
     setLoadingHistory(false);
+  };
+
+  const loadCronJobs = async () => {
+    try {
+      const data = await apiFetchCronJobs();
+      setCronJobs(data);
+    } catch { /* ignore */ }
   };
 
   const selectConversation = async (convoId: string) => {
@@ -492,6 +508,51 @@ const Index = () => {
           filteredConversations.map(c => renderConversationItem(c))
         )}
       </div>
+
+      {/* Cron Jobs folder */}
+      {cronJobs.length > 0 && (
+        <div className="border-t border-border">
+          <button
+            onClick={() => setCronFolderOpen(v => !v)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors"
+          >
+            {cronFolderOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+            <FolderClock className="w-3.5 h-3.5 text-primary" />
+            <span className="text-muted-foreground font-medium uppercase tracking-wider text-[10px]">Cron Jobs</span>
+            <span className="ml-auto text-[10px] text-muted-foreground bg-muted/50 px-1.5 rounded">{cronJobs.length}</span>
+          </button>
+          {cronFolderOpen && (
+            <div className="px-2 pb-2">
+              {cronJobs.map(job => (
+                <button
+                  key={job.id}
+                  onClick={() => {
+                    if (job.conversation_id) {
+                      selectConversation(job.conversation_id);
+                    } else {
+                      toast.error('This cron job has not run yet');
+                    }
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs group flex items-center gap-2 mb-0.5 transition-colors ${
+                    activeConvoId === job.conversation_id
+                      ? 'bg-accent text-foreground'
+                      : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                  }`}
+                >
+                  <Clock className="w-3 h-3 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm">{job.name}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{job.cron_expr} &middot; {job.member_name}</p>
+                  </div>
+                  {job.last_run && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" title={`Last run: ${new Date(job.last_run).toLocaleString()}`} />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Footer: memory + notifications */}
       <div className="p-3 border-t border-border space-y-2">

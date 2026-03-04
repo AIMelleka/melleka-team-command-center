@@ -73,6 +73,24 @@ export async function fetchMemory(): Promise<string> {
   return (data as { content: string }).content;
 }
 
+export interface CronJob {
+  id: string;
+  member_name: string;
+  name: string;
+  cron_expr: string;
+  task: string;
+  enabled: boolean;
+  conversation_id: string | null;
+  last_run: string | null;
+}
+
+export async function fetchCronJobs(): Promise<CronJob[]> {
+  const h = await authHeaders();
+  const res = await fetch(`${BASE}/notifications/cron-jobs`, { headers: h });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function ensureTeamMember(): Promise<{ name: string; userId: string }> {
   const res = await fetch(`${BASE}/auth/me`, { headers: await authHeaders() });
   if (!res.ok) throw new Error("Not authenticated");

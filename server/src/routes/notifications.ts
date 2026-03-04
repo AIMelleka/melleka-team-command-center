@@ -17,4 +17,15 @@ router.get("/", requireAuth, async (req: AuthRequest, res) => {
   res.json({ count: data?.length ?? 0, conversations: data ?? [] });
 });
 
+// List ALL cron jobs across the whole team (global view)
+router.get("/cron-jobs", requireAuth, async (_req: AuthRequest, res) => {
+  const { data } = await supabase
+    .from("team_cron_jobs")
+    .select("id, member_name, name, cron_expr, task, enabled, conversation_id, last_run")
+    .eq("enabled", true)
+    .order("name", { ascending: true });
+
+  res.json(data ?? []);
+});
+
 export default router;

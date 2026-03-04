@@ -1,5 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { createClient } from "@supabase/supabase-js";
+import { supabase } from "../services/supabase.js";
+import { getMemberDir } from "../services/memory.js";
 
 // Auth validation uses the SAME Supabase project the frontend authenticates against.
 // This may differ from SUPABASE_URL (used for data storage in services/supabase.ts).
@@ -34,7 +36,15 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
       || email.split("@")[0]
       || "unknown";
 
-    req.memberName = name.toLowerCase();
+    const memberName = name.toLowerCase();
+    req.memberName = memberName;
+
+    // Ensure team member record + local folder exist (fire-and-forget)
+    Promise.resolve(
+      supabase.from("team_members").upsert({ name: memberName }, { onConflict: "name" })
+    ).catch(() => {});
+    getMemberDir(memberName).catch(() => {});
+
     next();
   } catch {
     res.status(401).json({ error: "Authentication failed" });

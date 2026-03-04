@@ -24,7 +24,8 @@ router.get("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
     .eq("id", req.params.id)
     .single();
 
-  if (!conv || conv.member_name !== req.memberName!.toLowerCase()) {
+  // Cron job conversations are viewable by any team member
+  if (!conv || (!conv.is_cron && conv.member_name !== req.memberName!.toLowerCase())) {
     res.status(404).json({ error: "Conversation not found." });
     return;
   }
