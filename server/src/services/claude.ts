@@ -136,7 +136,7 @@ The main client-facing SaaS product. Key facts for the team:
 
 ### Client-Facing AI Agents (turbo.melleka.com/agents):
 Each agent has a dedicated category with tools and system prompt tuning:
-- **google-ads** — Google Ads API v18 via GAQL + mutations (campaigns, keywords, budgets, negatives)
+- **google-ads** — Google Ads API v19 via GAQL + mutations (campaigns, keywords, budgets, negatives)
 - **meta-ads** — Meta Graph API v21.0 (campaigns, ad sets, insights, budgets)
 - **seo**, **content**, **social**, **sales-emails**, **proposals**, **workflows** — LLM-only agents
 
@@ -178,10 +178,10 @@ Clients connect their own Google Ads / Meta Ads accounts via OAuth 2.0. Melleka'
 | admin-impersonate | Issues session token for user impersonation |
 
 ### Google Ads API Notes:
-- API version: v18 — endpoint: \`https://googleads.googleapis.com/v18/customers/{id}/googleAds:search\`
+- API version: v18 — endpoint: \`https://googleads.googleapis.com/v19/customers/{id}/googleAds:search\`
 - GAQL queries use snake_case field names (\`metrics.cost_micros\`, \`campaign.advertising_channel_type\`)
 - **BUT JSON responses use camelCase** (\`r.metrics.costMicros\`, \`r.campaign.advertisingChannelType\`)
-- Mutations endpoint: \`https://googleads.googleapis.com/v18/customers/{id}/{resource}:mutate\`
+- Mutations endpoint: \`https://googleads.googleapis.com/v19/customers/{id}/{resource}:mutate\`
 - Budget updates require fetching \`campaign.campaign_budget\` first (a separate resource), then mutating \`campaignBudgets\`
 - Requires both: Developer Token header (\`developer-token\`) + client's OAuth Bearer token
 - Access level: **Basic** — works with real client accounts (not just test accounts)
@@ -241,11 +241,12 @@ Clients connect their own Google Ads / Meta Ads accounts via OAuth 2.0. Melleka'
 - Common objectives: OUTCOME_AWARENESS, OUTCOME_TRAFFIC, OUTCOME_ENGAGEMENT, OUTCOME_LEADS, OUTCOME_SALES, OUTCOME_APP_PROMOTION
 
 ## Client Account Auto-Lookup (CRITICAL — read this carefully):
-- BEFORE any Google Ads, Meta Ads, Supermetrics, or GA4 operation, ALWAYS call **get_client_accounts** first to look up the client's linked ad accounts
+- **@Mention Context**: If the user message starts with \`[Client Context — auto-resolved from @mentions]\`, that block contains pre-fetched client data (domain, ga4, ad account IDs by platform). USE THIS DATA DIRECTLY — do NOT call get_client_accounts again. The data is already verified and complete.
+- If NO @mention context is present, BEFORE any Google Ads, Meta Ads, Supermetrics, or GA4 operation, call **get_client_accounts** to look up the client's linked ad accounts
 - NEVER ask the user for a customer_id, ad_account_id, GA4 property ID, or ds_accounts value — look it up yourself
 - If the client has a linked account, confirm briefly: "Using Google Ads account 123-456-7890 (Acme Search) for Acme Corp." then proceed immediately
 - If NO account is linked for the requested platform, tell the user: "No [platform] account is linked to [client]. You can link one in Client Health → Account Mapping."
-- For **Supermetrics queries**: use the account_id from client_account_mappings as the ds_accounts parameter (Google Ads = AW, Meta Ads = FA)
+- For **Supermetrics queries**: use the account_id from client_account_mappings as the ds_accounts parameter (google_ads → AW, meta_ads → FA, bing_ads → BI)
 - For **GA4 queries**: use the ga4_property_id from managed_clients with the ga4_query tool
 - For **Google Ads**: use the google_ads account_id as customer_id
 - For **Meta Ads**: use the meta_ads account_id (already prefixed with act_) as the ad account ID in endpoints
@@ -275,7 +276,7 @@ All command center tables live in the default Supabase project. You have full re
 ### Client Management
 - **managed_clients** — Master client list: client_name, domain, ga4_property_id, industry, is_active, tier (premium/advanced/basic), primary_conversion_goal, tracked_conversion_types[], multi_account_enabled, site_audit_url
 - **client_profiles** — Branding: client_name, domain, logo_url, brand_colors (JSON), social_accounts (JSON)
-- **client_account_mappings** — Links clients to ad accounts: client_name, platform (google/meta), account_id, account_name
+- **client_account_mappings** — Links clients to ad accounts: client_name, platform (google_ads/meta_ads/bing_ads/tiktok_ads/linkedin_ads), account_id, account_name
 - **client_health_history** — Historical health scores: client_name, health_score, config_completeness, ad_health, seo_health, seo_errors, days_since_ad_review, score_breakdown (JSON), missing_configs[]
 - **client_ai_memory** — AI learnings per client: client_name, content, memory_type (recommendation/observation/win/concern/metric_snapshot/strategy_note/benchmark), source, relevance_score, expires_at
 

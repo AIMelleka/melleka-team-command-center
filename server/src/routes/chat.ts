@@ -25,6 +25,7 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
   } else if (Array.isArray(rawMentions)) {
     mentionedClients = rawMentions;
   }
+  console.log(`[chat] ${memberName} | mentions raw=${JSON.stringify(rawMentions)} parsed=${JSON.stringify(mentionedClients)}`);
 
   const uploadedFiles = (req.files as Express.Multer.File[]) ?? [];
   const hasText = message?.trim();
@@ -144,6 +145,7 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
         .select("client_name, platform, account_id, account_name")
         .in("client_name", mentionedClients);
 
+      console.log(`[chat] @mention lookup: clients found=${mcData?.length ?? 0}, mappings found=${mappings?.length ?? 0}`);
       if (mcData && mcData.length > 0) {
         const contextLines: string[] = ["[Client Context — auto-resolved from @mentions]"];
         for (const mc of mcData) {
@@ -172,6 +174,7 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
           if (typeof lastMsg.content === "string") {
             lastMsg.content = prefix + lastMsg.content;
           }
+          console.log(`[chat] Injected @mention context:\n${prefix}`);
         }
       }
     }
