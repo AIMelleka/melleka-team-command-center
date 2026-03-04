@@ -898,9 +898,9 @@ export async function executeTool(
         if (!headers["Content-Type"] && reqBody) {
           headers["Content-Type"] = "application/json";
         }
-        // 5-minute timeout — only kills truly dead connections, not slow ones
+        // 10-minute timeout — only kills truly dead connections, not slow ones
         const abortCtrl = new AbortController();
-        const timeoutId = setTimeout(() => abortCtrl.abort(), 300000);
+        const timeoutId = setTimeout(() => abortCtrl.abort(), 600000);
         try {
           const response = await fetch(url, {
             method,
@@ -915,7 +915,7 @@ export async function executeTool(
         } catch (err: any) {
           clearTimeout(timeoutId);
           if (err.name === "AbortError") {
-            return `Error: HTTP request to ${url} timed out after 5 minutes. The server is unresponsive.`;
+            return `Error: HTTP request to ${url} timed out after 10 minutes. The server is unresponsive.`;
           }
           return `Error: HTTP request failed — ${err.message}`;
         }
