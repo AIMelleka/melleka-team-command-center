@@ -2,6 +2,12 @@ import { supabase } from "@/integrations/supabase/client";
 
 const BASE = "/api";
 
+// SSE streaming goes directly to Railway to avoid Vercel's rewrite timeout (30s).
+// Short REST calls (conversations, memory, auth) go through the Vercel /api proxy.
+const STREAM_BASE = import.meta.env.PROD
+  ? "https://server-production-0486.up.railway.app/api"
+  : "/api";
+
 async function authHeaders(): Promise<Record<string, string>> {
   const { data: { session } } = await supabase.auth.getSession();
   return {
@@ -110,7 +116,7 @@ export function streamMessage(
     }
 
     try {
-      const res = await fetch(`${BASE}/chat`, {
+      const res = await fetch(`${STREAM_BASE}/chat`, {
         method: "POST",
         headers: fetchHeaders,
         body,
