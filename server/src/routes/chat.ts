@@ -9,6 +9,9 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 const router = Router();
 
+let activeSseConnections = 0;
+export function getActiveSseConnections(): number { return activeSseConnections; }
+
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, res) => {
@@ -35,6 +38,8 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
     res.status(400).json({ error: "Message or files required." });
     return;
   }
+
+  activeSseConnections++;
 
   // Set up SSE headers
   res.setHeader("Content-Type", "text/event-stream");
@@ -229,6 +234,7 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       } catch { /* response already gone */ }
     }
   } finally {
+    activeSseConnections--;
     clearInterval(keepalive);
     if (!clientDisconnected) res.end();
   }

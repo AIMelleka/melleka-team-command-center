@@ -46,7 +46,7 @@ async function loadAndSchedule(): Promise<void> {
       continue;
     }
     const task = cron.schedule(job.cron_expr, () => runJob(job), {
-      timezone: "America/New_York",
+      timezone: "America/Los_Angeles",
     });
     activeTasks.set(job.id, task);
     console.log(`[scheduler] Scheduled "${job.name}" (${job.cron_expr}) for ${job.member_name}`);
@@ -86,7 +86,7 @@ async function runJob(job: CronJob): Promise<void> {
     const convId = await getOrCreateConversation(job);
 
     const runTime = new Date().toLocaleString("en-US", {
-      timeZone: "America/New_York",
+      timeZone: "America/Los_Angeles",
       dateStyle: "medium",
       timeStyle: "short",
     });
@@ -110,7 +110,7 @@ async function runJob(job: CronJob): Promise<void> {
 
     const messages = (history ?? []).map((m) => {
       const ts = new Date(m.created_at).toLocaleString("en-US", {
-        timeZone: "America/New_York",
+        timeZone: "America/Los_Angeles",
         dateStyle: "short",
         timeStyle: "short",
       });
@@ -144,6 +144,10 @@ async function runJob(job: CronJob): Promise<void> {
   } catch (err) {
     console.error(`[scheduler] "${job.name}" failed:`, err);
   }
+}
+
+export function getActiveCronCount(): number {
+  return activeTasks.size;
 }
 
 export async function startScheduler(): Promise<void> {

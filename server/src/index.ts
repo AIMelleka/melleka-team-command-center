@@ -5,8 +5,9 @@ import authRouter from "./routes/auth.js";
 import chatRouter from "./routes/chat.js";
 import conversationsRouter from "./routes/conversations.js";
 import memoryRouter from "./routes/memory.js";
-import { startScheduler } from "./services/scheduler.js";
+import { startScheduler, getActiveCronCount } from "./services/scheduler.js";
 import notificationsRouter from "./routes/notifications.js";
+import { getActiveSseConnections } from "./routes/chat.js";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -30,8 +31,20 @@ app.use(
 );
 app.use(express.json());
 
-// Health check
-app.get("/health", (_req, res) => res.json({ ok: true }));
+// Health check — rich diagnostics for monitoring
+app.get("/health", (_req, res) => {
+  const mem = process.memoryUsage();
+  res.json({
+    ok: true,
+    uptime: Math.round(process.uptime()),
+    memoryMB: {
+      rss: Math.round(mem.rss / 1024 / 1024),
+      heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
+    },
+    activeSseConnections: getActiveSseConnections(),
+    cronJobsLoaded: getActiveCronCount(),
+  });
+});
 
 // API routes
 app.use("/api/auth", authRouter);
