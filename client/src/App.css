@@ -1,0 +1,99 @@
+/* App-level styles - optimized for full-screen layouts */
+
+/* Ensure root takes full viewport */
+#root {
+  min-height: 100vh;
+  min-height: 100dvh; /* Dynamic viewport height for mobile browsers */
+  width: 100%;
+}
+
+/* Prevent horizontal overflow globally */
+html, body {
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+}
+
+/* Ensure body can scroll vertically */
+body {
+  overflow-y: auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Deck Present Mode — hide all admin controls */
+.deck-present-mode .deck-admin-control {
+  display: none !important;
+}
+
+/* Resizable table columns */
+th.resize-x {
+  resize: horizontal;
+  overflow: hidden;
+  cursor: col-resize;
+}
+th.resize-x::-webkit-resizable-content {
+  cursor: col-resize;
+}
+
+/* ===== MOBILE OPTIMIZATIONS ===== */
+
+/* Safe area insets for notched devices */
+body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Prevent iOS zoom on input focus (font-size >= 16px) */
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Better touch targets */
+@media (max-width: 767px) {
+  button, a, [role="button"] {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  
+  /* Tighter padding on mobile for data-dense pages */
+  .container {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+
+/* Smooth momentum scrolling for overflow containers */
+.overflow-x-auto, .overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Thin scrollbar utility for mobile toolbars */
+.scrollbar-thin::-webkit-scrollbar {
+  height: 2px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 2px;
+}
+
+/* Hide scrollbar on mobile for horizontal scroll tables */
+@media (max-width: 767px) {
+  .overflow-x-auto::-webkit-scrollbar {
+    height: 4px;
+  }
+  .overflow-x-auto::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 4px;
+  }
+}
+
+/* Sticky column shadow on scroll */
+@media (max-width: 767px) {
+  td[class*="sticky"], th[class*="sticky"] {
+    box-shadow: 2px 0 8px -2px rgba(0,0,0,0.15);
+  }
+}

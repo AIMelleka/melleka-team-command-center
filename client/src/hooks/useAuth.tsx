@@ -1,0 +1,160 @@
+import { useState, useEffect, useMemo, useCallback, createContext, useContext, ReactNode } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { User, Session } from '@supabase/supabase-js';
+
+interface AuthContextType {
+  user: User | null;
+  session: Session | null;
+  isAdmin: boolean;
+  isLoading: boolean;
+  mfaEnrolled: boolean;
+  mfaVerified: boolean;
+  refreshMfaStatus: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [mfaEnrolled, setMfaEnrolled] = useState(false);
+  const [mfaVerified, setMfaVerified] = useState(false);
+
+  const checkAdminAccess = async (currentUser: User): Promise<boolean> => {
+    try {
+      const timeoutPromise = new Promise<boolean>((_, reject) =>
+        setTimeout(() => reject(new Error('Admin check timed out')), 5000)
+      );
+      
+      const checkPromise = supabase.rpc('has_role', {
+        _user_id: currentUser.id,
+        _role: 'admin'
+      }).then(({ data, error }) => {
+        if (error) {
+          console.error('Error checking admin role:', error);
+          return false;
+        }
+        return data === true;
+      });
+
+      return await Promise.race([checkPromise, timeoutPromise]);
+    } catch (err) {
+      console.error('Failed to check admin role:', err);
+      return false;
+    }
+  };
+
+  const checkMfaStatus = async () => {
+    try {
+      const { data: factors } = await supabase.auth.mfa.listFactors();
+      const enrolled = (factors?.totp?.length ?? 0) > 0;
+      setMfaEnrolled(enrolled);
+
+      if (enrolled) {
+        const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+        setMfaVerified(aal?.currentLevel === 'aal2');
+      } else {
+        setMfaVerified(false);
+      }
+    } catch {
+      setMfaEnrolled(false);
+      setMfaVerified(false);
+    }
+  };
+
+  const refreshMfaStatus = useCallback(async () => {
+    await checkMfaStatus();
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (!isMounted) return;
+        
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          setTimeout(() => {
+            if (!isMounted) return;
+            Promise.all([
+              checkAdminAccess(session.user),
+              checkMfaStatus(),
+            ]).then(([adminStatus]) => {
+              if (isMounted) {
+                setIsAdmin(adminStatus);
+                setIsLoading(false);
+              }
+            });
+          }, 0);
+        } else {
+          setIsAdmin(false);
+          setMfaEnrolled(false);
+          setMfaVerified(false);
+          setIsLoading(false);
+        }
+      }
+    );
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!isMounted) return;
+      
+      setSession(session);
+      setUser(session?.user ?? null);
+      
+      if (session?.user) {
+        const [adminStatus] = await Promise.all([
+          checkAdminAccess(session.user),
+          checkMfaStatus(),
+        ]);
+        if (isMounted) {
+          setIsAdmin(adminStatus);
+        }
+      }
+      if (isMounted) {
+        setIsLoading(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error };
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
+    setIsAdmin(false);
+    setMfaEnrolled(false);
+    setMfaVerified(false);
+  }, []);
+
+  const value = useMemo(() => ({
+    user, session, isAdmin, isLoading, mfaEnrolled, mfaVerified, refreshMfaStatus, signIn, signOut
+  }), [user, session, isAdmin, isLoading, mfaEnrolled, mfaVerified, refreshMfaStatus, signIn, signOut]);
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+};
