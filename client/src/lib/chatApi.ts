@@ -146,7 +146,8 @@ export function streamMessage(
       });
 
       if (!res.ok || !res.body) {
-        onEvent({ type: "error", message: "Request failed" });
+        const text = await res.text().catch(() => "");
+        onEvent({ type: "error", message: `Request failed (${res.status}): ${text || res.statusText}` });
         onDone();
         return;
       }
@@ -181,7 +182,10 @@ export function streamMessage(
       onDone();
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        onEvent({ type: "error", message: String(err) });
+        const msg = err instanceof TypeError
+          ? `Connection failed — check network or try again`
+          : String(err);
+        onEvent({ type: "error", message: msg });
         if (onDisconnect) onDisconnect();
         onDone();
       }
