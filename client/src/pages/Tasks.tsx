@@ -167,16 +167,16 @@ export default function Tasks() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#191919]">
+    <div className="min-h-screen bg-background">
       <AdminHeader />
 
-      <div className="max-w-[1800px] mx-auto px-[96px] py-[12px]">
+      <div style={{ maxWidth: 1800, margin: "0 auto", padding: "12px 48px" }}>
         {/* Database title */}
-        <div className="flex items-center gap-[10px] mb-[2px] mt-[8px]">
-          <h1 className="text-[32px] font-bold text-[rgba(255,255,255,0.91)] leading-[1.2]">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 2, marginTop: 8 }}>
+          <h1 style={{ fontSize: 32, fontWeight: 700, color: "rgba(255,255,255,0.91)", lineHeight: 1.2 }}>
             IN HOUSE TO-DO
           </h1>
-          {isFetching && <Loader2 className="h-[16px] w-[16px] animate-spin text-[rgba(255,255,255,0.282)]" />}
+          {isFetching && <Loader2 className="h-4 w-4 animate-spin" style={{ color: "rgba(255,255,255,0.28)" }} />}
         </div>
 
         {/* Toolbar */}
