@@ -1,6 +1,5 @@
 import "dotenv/config";
 import express from "express";
-import cors from "cors";
 import authRouter from "./routes/auth.js";
 import chatRouter from "./routes/chat.js";
 import conversationsRouter from "./routes/conversations.js";
@@ -13,29 +12,26 @@ import { getActiveSseConnections } from "./routes/chat.js";
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
-// CORS — allow comma-separated origins from env
-const allowedOrigins = (process.env.CLIENT_ORIGIN ?? "*")
-  .split(",")
-  .map((o) => o.trim());
-
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      // No origin = server-to-server or same-origin — allow
-      if (!origin || allowedOrigins.includes("*")) {
-        cb(null, origin || "*");
-        return;
-      }
-      if (allowedOrigins.includes(origin)) {
-        // Reflect back the EXACT requesting origin (not all of them)
-        cb(null, origin);
-      } else {
-        cb(new Error("CORS blocked"));
-      }
-    },
-    credentials: true,
-  })
+// CORS — manual middleware (replaces cors package for reliable origin reflection)
+const allowedOrigins = new Set(
+  (process.env.CLIENT_ORIGIN ?? "*").split(",").map((o) => o.trim())
 );
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && (allowedOrigins.has("*") || allowedOrigins.has(origin))) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Vary", "Origin");
+  }
+  if (req.method === "OPTIONS") {
+    res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,PUT,PATCH,POST,DELETE");
+    res.setHeader("Access-Control-Allow-Headers", req.headers["access-control-request-headers"] || "content-type,authorization");
+    res.status(204).end();
+    return;
+  }
+  next();
+});
 app.use(express.json());
 
 // Health check — rich diagnostics for monitoring
