@@ -21,8 +21,14 @@ const allowedOrigins = (process.env.CLIENT_ORIGIN ?? "*")
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
-        cb(null, true);
+      // No origin = server-to-server or same-origin — allow
+      if (!origin || allowedOrigins.includes("*")) {
+        cb(null, origin || "*");
+        return;
+      }
+      if (allowedOrigins.includes(origin)) {
+        // Reflect back the EXACT requesting origin (not all of them)
+        cb(null, origin);
       } else {
         cb(new Error("CORS blocked"));
       }
