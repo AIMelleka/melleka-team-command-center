@@ -784,6 +784,40 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ["property_id", "metrics", "start_date"],
     },
   },
+  {
+    name: "notion_query_tasks",
+    description:
+      "Query the Melleka team's Notion task database (IN HOUSE TO-DO). Returns tasks filtered by client name, date range, and completion status. " +
+      "Use this to pull completed or pending tasks for a specific client when generating client updates, weekly reports, or workload analysis. " +
+      "Handles client name fuzzy matching automatically (abbreviations, acronyms, partial names). " +
+      "Example: notion_query_tasks({client_name:'SDPF', start_date:'2026-02-26', end_date:'2026-03-05', status_filter:'completed'})",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        client_name: {
+          type: "string",
+          description: "Client name to filter by. Supports fuzzy matching (e.g. 'SDPF' matches 'San Diego Parks Foundation', 'GG' matches 'Global Guard').",
+        },
+        database_id: {
+          type: "string",
+          description: "Notion database ID. Defaults to IN HOUSE TO-DO (9e7cd72f-e62c-4514-9456-5f51cbcfe981). Override only if querying a different database.",
+        },
+        start_date: {
+          type: "string",
+          description: "Start date in YYYY-MM-DD format. Filters tasks by last_edited_time >= this date.",
+        },
+        end_date: {
+          type: "string",
+          description: "End date in YYYY-MM-DD format. Filters tasks by last_edited_time <= this date.",
+        },
+        status_filter: {
+          type: "string",
+          description: "Which tasks to return: 'completed' (default) = Done/Archived tasks, 'pending' = in-progress/not-done, 'all' = everything.",
+        },
+      },
+      required: ["client_name"],
+    },
+  },
 ];
 
 export async function executeTool(
@@ -1614,6 +1648,167 @@ export async function executeTool(
         });
 
         return `GA4 Report (${rows.length} rows):\n\n${header_row}\n${separator}\n${dataRows.join("\n")}`;
+      }
+
+      case "notion_query_tasks": {
+        const clientName = toolInput.client_name as string;
+        if (!clientName) return "Error: client_name is required.";
+
+        const notionApiKey = process.env.NOTION_API_KEY;
+        if (!notionApiKey) return "Error: NOTION_API_KEY is not configured.";
+
+        const databaseId = (toolInput.database_id as string) || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
+        const startDate = toolInput.start_date as string | undefined;
+        const endDate = toolInput.end_date as string | undefined;
+        const statusFilter = (toolInput.status_filter as string) || "completed";
+
+        const notionHeaders = {
+          Authorization: `Bearer ${notionApiKey}`,
+          "Content-Type": "application/json",
+          "Notion-Version": "2022-06-28",
+        };
+
+        // Build date filter
+        const filterClauses: unknown[] = [];
+        if (startDate) {
+          filterClauses.push({ timestamp: "last_edited_time", last_edited_time: { on_or_after: startDate } });
+        }
+        if (endDate) {
+          const endPlusOne = new Date(endDate);
+          endPlusOne.setDate(endPlusOne.getDate() + 1);
+          filterClauses.push({ timestamp: "last_edited_time", last_edited_time: { before: endPlusOne.toISOString().split("T")[0] } });
+        }
+
+        const filter = filterClauses.length === 0 ? undefined
+          : filterClauses.length === 1 ? filterClauses[0]
+          : { and: filterClauses };
+
+        // Paginate through Notion results
+        const allTasks: any[] = [];
+        let cursor: string | undefined;
+        let hasMore = true;
+
+        while (hasMore) {
+          const queryBody: any = {
+            sorts: [{ timestamp: "last_edited_time", direction: "descending" }],
+            page_size: 100,
+            ...(filter ? { filter } : {}),
+            ...(cursor ? { start_cursor: cursor } : {}),
+          };
+
+          let resp: Response;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            resp = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
+              method: "POST", headers: notionHeaders, body: JSON.stringify(queryBody),
+            });
+            if (resp.status === 429) {
+              const wait = Math.min(2000 * Math.pow(2, attempt), 10000);
+              await new Promise(r => setTimeout(r, wait));
+              continue;
+            }
+            break;
+          }
+
+          if (!resp!.ok) {
+            const errText = await resp!.text();
+            return `Notion API error (${resp!.status}): ${errText.slice(0, 1000)}`;
+          }
+
+          const data = await resp!.json();
+          allTasks.push(...(data.results || []));
+          hasMore = Boolean(data.has_more);
+          cursor = data.next_cursor || undefined;
+          if (allTasks.length >= 2000) hasMore = false;
+        }
+
+        // Build client name aliases for fuzzy matching
+        const clientLower = clientName.toLowerCase().trim();
+        const clientWords = clientLower.split(/\s+/).filter(Boolean);
+        const aliases = new Set<string>([clientLower]);
+        if (clientWords.length > 1) {
+          aliases.add(clientWords.map(w => w[0]).join("")); // acronym
+          aliases.add(clientWords.slice(0, 2).join(" ")); // first two words
+          aliases.add(clientWords[0]); // first word
+          aliases.add(clientWords.join("")); // no spaces
+          if (clientWords.length >= 3) aliases.add(clientWords.map(w => w[0]).join("").slice(0, 3));
+        }
+        // Also add the raw input as-is (handles cases like "SDPF", "STJ", "GGIS")
+        aliases.add(clientLower.replace(/\s+/g, ""));
+
+        const matchesClient = (clientField: string, title: string): boolean => {
+          const field = (clientField || "").toLowerCase();
+          const titleLower = (title || "").toLowerCase();
+          for (const alias of aliases) {
+            if (field.includes(alias) || (alias.length >= 2 && field.includes(alias))) return true;
+            if (alias.length >= 3 && titleLower.includes(alias)) return true;
+          }
+          // Also check if any alias is a substring of the client field or vice versa
+          for (const alias of aliases) {
+            if (alias.length >= 3 && field && (field.includes(alias) || alias.includes(field))) return true;
+          }
+          return false;
+        };
+
+        // Parse and filter tasks
+        const results: Array<{ title: string; status: string; client: string; assignee: string; lastEdited: string; isCompleted: boolean }> = [];
+
+        for (const task of allTasks) {
+          const props = task.properties || {};
+
+          // Title
+          let title = "";
+          const titleProp = props["Task name"]?.title || props["Name"]?.title;
+          if (titleProp) title = titleProp.map((t: any) => t.plain_text).join("");
+
+          // Status
+          let status = "";
+          if (props["STATUS"]?.status) status = props["STATUS"].status.name || "";
+          else if (props["STATUS"]?.select) status = props["STATUS"].select?.name || "";
+
+          // Client
+          let client = "";
+          const cp = props["CLIENTS"];
+          if (cp?.type === "rich_text") client = cp.rich_text.map((x: any) => x.plain_text).join("");
+          else if (cp?.type === "multi_select") client = cp.multi_select.map((x: any) => x.name).join(", ");
+          else if (cp?.type === "select") client = cp.select?.name || "";
+
+          // Assignee
+          let assignee = "";
+          const ap = props["Assign"] || props["Managers"];
+          if (ap?.people) assignee = ap.people.map((p: any) => p.name || "").filter(Boolean).join(", ");
+
+          const lastEdited = task.last_edited_time || "";
+          const statusLower = status.toLowerCase();
+          const isCompleted = ["done", "good to launch", "archived", "complete", "completed"].some(s => statusLower.includes(s));
+          const isNonEssential = statusLower.includes("non-essential") || statusLower.includes("non essential");
+
+          if (isNonEssential) continue;
+          if (!matchesClient(client, title)) continue;
+          if (statusFilter === "completed" && !isCompleted) continue;
+          if (statusFilter === "pending" && isCompleted) continue;
+
+          results.push({ title, status, client, assignee, lastEdited, isCompleted });
+        }
+
+        // Format output
+        const label = statusFilter === "completed" ? "Completed" : statusFilter === "pending" ? "Pending" : "All";
+        let output = `${label} Tasks for "${clientName}"\n`;
+        output += `Database: IN HOUSE TO-DO | Date range: ${startDate || "all time"} to ${endDate || "present"}\n`;
+        output += `Total tasks scanned: ${allTasks.length} | Matched: ${results.length}\n\n`;
+
+        if (results.length === 0) {
+          output += `No ${label.toLowerCase()} tasks found for "${clientName}" in the given date range.\n`;
+          output += `\nTip: Try broader date range or different name/alias. Aliases tried: ${[...aliases].join(", ")}`;
+        } else {
+          for (const t of results) {
+            output += `- ${t.title}\n`;
+            output += `  Status: ${t.status} | Edited: ${new Date(t.lastEdited).toLocaleDateString()}`;
+            if (t.assignee) output += ` | Assigned: ${t.assignee}`;
+            output += "\n";
+          }
+        }
+
+        return output;
       }
 
       default:

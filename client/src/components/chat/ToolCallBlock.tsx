@@ -46,6 +46,18 @@ const TOOL_ICONS: Record<string, React.ReactNode> = {
   supabase_insert: <Database size={13} />,
   supabase_update: <Database size={13} />,
   slack_post: <MessageSquare size={13} />,
+  notion_query_tasks: <Database size={13} />,
+  google_ads_mutate: <BarChart2 size={13} />,
+  meta_ads_manage: <BarChart2 size={13} />,
+  supermetrics_query: <BarChart2 size={13} />,
+  semrush_query: <Search size={13} />,
+  ga4_query: <BarChart2 size={13} />,
+  get_client_accounts: <Database size={13} />,
+  google_sheets_read: <FileText size={13} />,
+  google_sheets_write: <FileText size={13} />,
+  get_current_date: <Clock size={13} />,
+  slack_history: <MessageSquare size={13} />,
+  slack_list_channels: <MessageSquare size={13} />,
 };
 
 export function ToolCallBlock({ name, output, pending }: ToolCallBlockProps) {

@@ -121,6 +121,9 @@ Example: write HTML to \`${scratchDir}/site/index.html\`, then call deploy_site 
 - **google_sheets_read** — read data from any Google Sheets spreadsheet
 - **google_sheets_write** — write or append data to any Google Sheets spreadsheet
 
+### Notion Tasks
+- **notion_query_tasks** — query the Melleka IN HOUSE TO-DO Notion database. Filters by client name (fuzzy match), date range (last_edited_time), and status (completed/pending/all). Use this for client update reports, weekly summaries, and workload analysis.
+
 ### Scheduling & Memory
 - **create_cron_job** — schedule a recurring task (daily reports, weekly summaries, etc.)
 - **list_cron_jobs** / **delete_cron_job** — manage scheduled tasks
@@ -374,7 +377,8 @@ ${marketingSkills}
 - For social media: apply platform-specific strategies, create content calendars, write posts with strong hooks
 - For email campaigns: design full sequences with subject lines, preview text, body copy, and CTAs
 - When building landing pages or sites: write the code, deploy with deploy_site, and give the live URL
-- Always back recommendations with data — pull actual performance numbers before suggesting changes`;
+- Always back recommendations with data — pull actual performance numbers before suggesting changes
+- When generating client updates: ALWAYS use notion_query_tasks to pull the client's completed tasks for the date range. This is the primary data source for weekly client updates.`;
 }
 
 /** SSE writer function type — null = background (no streaming) */
