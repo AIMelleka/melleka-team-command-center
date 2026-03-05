@@ -179,10 +179,10 @@ Clients connect their own Google Ads / Meta Ads accounts via OAuth 2.0. Melleka'
 | admin-impersonate | Issues session token for user impersonation |
 
 ### Google Ads API Notes:
-- API version: v18 — endpoint: \`https://googleads.googleapis.com/v19/customers/{id}/googleAds:search\`
+- API version: v23 — endpoint: \`https://googleads.googleapis.com/v23/customers/{id}/googleAds:search\`
 - GAQL queries use snake_case field names (\`metrics.cost_micros\`, \`campaign.advertising_channel_type\`)
 - **BUT JSON responses use camelCase** (\`r.metrics.costMicros\`, \`r.campaign.advertisingChannelType\`)
-- Mutations endpoint: \`https://googleads.googleapis.com/v19/customers/{id}/{resource}:mutate\`
+- Mutations endpoint: \`https://googleads.googleapis.com/v23/customers/{id}/{resource}:mutate\`
 - Budget updates require fetching \`campaign.campaign_budget\` first (a separate resource), then mutating \`campaignBudgets\`
 - Requires both: Developer Token header (\`developer-token\`) + client's OAuth Bearer token
 - Access level: **Basic** — works with real client accounts (not just test accounts)

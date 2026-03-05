@@ -11,6 +11,7 @@ const execAsync = promisify(exec);
 
 const MELLEKA_PROJECT = process.env.MELLEKA_PROJECT_DIR || "";
 const TEAM_TIMEZONE = "America/New_York";
+const GOOGLE_ADS_API_VERSION = process.env.GOOGLE_ADS_API_VERSION || "v23";
 
 /** Format an ISO timestamp to a human-readable string in the team's timezone */
 function formatTZ(isoStr: string): string {
@@ -1007,7 +1008,7 @@ export async function executeTool(
         if (loginCustomerId) headers["login-customer-id"] = loginCustomerId.replace(/-/g, "");
 
         const resp = await fetch(
-          `https://googleads.googleapis.com/v23/customers/${customerId}/googleAds:search`,
+          `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${customerId}/googleAds:search`,
           { method: "POST", headers, body: JSON.stringify({ query }) }
         );
         const data = await resp.json() as { results?: unknown[]; error?: unknown };
@@ -1030,7 +1031,7 @@ export async function executeTool(
         if (loginCustomerId) headers["login-customer-id"] = loginCustomerId.replace(/-/g, "");
 
         const resp = await fetch(
-          "https://googleads.googleapis.com/v23/customers:listAccessibleCustomers",
+          `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers:listAccessibleCustomers`,
           { headers }
         );
         const data = await resp.json() as { resourceNames?: string[]; error?: unknown };
@@ -1043,7 +1044,7 @@ export async function executeTool(
         // (for MCC accounts, use the login customer ID)
         const seedId = (loginCustomerId ?? ids[0]).replace(/-/g, "");
         const nameResp = await fetch(
-          `https://googleads.googleapis.com/v23/customers/${seedId}/googleAds:search`,
+          `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${seedId}/googleAds:search`,
           {
             method: "POST",
             headers: { ...headers, "Content-Type": "application/json" },
@@ -1322,7 +1323,7 @@ export async function executeTool(
         };
 
         const resp = await fetch(
-          `https://googleads.googleapis.com/v23/customers/${customerId}/${resource}:mutate`,
+          `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${customerId}/${resource}:mutate`,
           { method: "POST", headers, body: JSON.stringify(mutateBody) }
         );
         const data = await resp.json();
