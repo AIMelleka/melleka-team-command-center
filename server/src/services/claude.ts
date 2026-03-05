@@ -137,7 +137,7 @@ The main client-facing SaaS product. Key facts for the team:
 
 ### Client-Facing AI Agents (turbo.melleka.com/agents):
 Each agent has a dedicated category with tools and system prompt tuning:
-- **google-ads** — Google Ads API v19 via GAQL + mutations (campaigns, keywords, budgets, negatives)
+- **google-ads** — Google Ads API v23 via GAQL + mutations (campaigns, keywords, budgets, negatives)
 - **meta-ads** — Meta Graph API v21.0 (campaigns, ad sets, insights, budgets)
 - **seo**, **content**, **social**, **sales-emails**, **proposals**, **workflows** — LLM-only agents
 
@@ -404,9 +404,77 @@ async function runChat(
   let fullResponse = "";
   const currentMessages = [...messages];
 
+  // Rough token estimation: 1 token ≈ 4 chars
+  const estimateTokens = (msgs: Anthropic.MessageParam[]): number => {
+    let chars = 0;
+    for (const m of msgs) {
+      if (typeof m.content === "string") {
+        chars += m.content.length;
+      } else if (Array.isArray(m.content)) {
+        for (const block of m.content) {
+          if ("text" in block && typeof block.text === "string") chars += block.text.length;
+          else if ("content" in block && typeof block.content === "string") chars += block.content.length;
+          else chars += JSON.stringify(block).length;
+        }
+      }
+    }
+    return Math.ceil(chars / 4);
+  };
+
+  // Compress old tool results to free up context space
+  const compressOldMessages = (msgs: Anthropic.MessageParam[], keepRecent: number): void => {
+    // Find tool_result messages older than the last N pairs and shrink them
+    let toolResultCount = 0;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === "user" && Array.isArray(m.content)) {
+        const hasToolResult = m.content.some((b: any) => b.type === "tool_result");
+        if (hasToolResult) {
+          toolResultCount++;
+          if (toolResultCount > keepRecent) {
+            // Compress this tool result to a short summary
+            msgs[i] = {
+              role: "user",
+              content: (m.content as any[]).map((b: any) => {
+                if (b.type === "tool_result" && typeof b.content === "string" && b.content.length > 200) {
+                  return { ...b, content: b.content.slice(0, 200) + "\n[...compressed — old result]" };
+                }
+                return b;
+              }),
+            };
+          }
+        }
+      }
+      // Also compress old assistant text blocks (keep tool_use blocks intact for API validity)
+      if (m.role === "assistant" && Array.isArray(m.content) && toolResultCount > keepRecent) {
+        msgs[i] = {
+          role: "assistant",
+          content: (m.content as any[]).map((b: any) => {
+            if (b.type === "text" && typeof b.text === "string" && b.text.length > 300) {
+              return { ...b, text: b.text.slice(0, 300) + "..." };
+            }
+            return b;
+          }),
+        };
+      }
+    }
+  };
+
+  const MAX_ITERATIONS = 30;
+  const CONTEXT_TOKEN_LIMIT = 150000; // Leave room for system prompt + tools + response
+
   try {
-    for (let iteration = 0; iteration < 20; iteration++) {
-      console.log(`[runChat] ${memberName} | iteration ${iteration}, messages=${currentMessages.length}`);
+    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      // Compress older messages if context is getting large
+      const estimatedTokens = estimateTokens(currentMessages);
+      console.log(`[runChat] ${memberName} | iteration ${iteration}, messages=${currentMessages.length}, ~${estimatedTokens} tokens`);
+
+      if (estimatedTokens > CONTEXT_TOKEN_LIMIT) {
+        compressOldMessages(currentMessages, 4); // Keep last 4 tool exchanges in full detail
+        const afterTokens = estimateTokens(currentMessages);
+        console.log(`[runChat] ${memberName} | compressed context: ${estimatedTokens} → ${afterTokens} tokens`);
+      }
+
       let stream;
       try {
         stream = await client.messages.stream({
@@ -417,10 +485,30 @@ async function runChat(
           messages: currentMessages,
         });
       } catch (err: any) {
-        const errMsg = `\n\n[Error: Failed to connect to Claude API — ${err.message}]`;
-        fullResponse += errMsg;
-        write?.({ type: "text", delta: errMsg });
-        break;
+        // If context too large, try aggressive compression and retry once
+        if (err.status === 400 && err.message?.includes("too long")) {
+          compressOldMessages(currentMessages, 2);
+          console.log(`[runChat] ${memberName} | context too long, compressed aggressively and retrying`);
+          try {
+            stream = await client.messages.stream({
+              model: "claude-opus-4-6",
+              max_tokens: 16384,
+              system: systemPrompt,
+              tools: TOOL_DEFINITIONS,
+              messages: currentMessages,
+            });
+          } catch (retryErr: any) {
+            const errMsg = `\n\n[Error: Failed to connect to Claude API — ${retryErr.message}]`;
+            fullResponse += errMsg;
+            write?.({ type: "text", delta: errMsg });
+            break;
+          }
+        } else {
+          const errMsg = `\n\n[Error: Failed to connect to Claude API — ${err.message}]`;
+          fullResponse += errMsg;
+          write?.({ type: "text", delta: errMsg });
+          break;
+        }
       }
 
       let currentToolUseId: string | null = null;
@@ -506,9 +594,10 @@ async function runChat(
         const result = await executeTool(block.name, parsedInput, memberName);
         write?.({ type: "tool_result", name: block.name, output: result.slice(0, 500) });
 
-        // Cap tool results to prevent context bloat over many iterations
-        const trimmedResult = result.length > 6000
-          ? result.slice(0, 6000) + "\n[...truncated — full result was " + result.length + " chars]"
+        // Cap tool results to prevent context bloat — tighter limit on mutation confirmations
+        const maxLen = result.startsWith("Mutation successful") ? 2000 : 6000;
+        const trimmedResult = result.length > maxLen
+          ? result.slice(0, maxLen) + "\n[...truncated — full result was " + result.length + " chars]"
           : result;
 
         toolResultContent.push({
