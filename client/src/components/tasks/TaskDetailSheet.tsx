@@ -15,7 +15,7 @@ import {
   getNotes,
   getRejectedReason,
   getFiles,
-  colorClass,
+  notionTagStyle,
   useUpdateTask,
   useTaskBlocks,
 } from "@/hooks/useNotionTasks";
@@ -31,13 +31,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
 import {
   ExternalLink,
   Calendar,
@@ -47,9 +43,9 @@ import {
   FileText,
   Link,
   AlertTriangle,
-  MessageSquare,
   ChevronDown,
   Clock,
+  CheckSquare,
 } from "lucide-react";
 
 interface TaskDetailSheetProps {
@@ -61,35 +57,28 @@ interface TaskDetailSheetProps {
   teammateOptions: { name: string; color: string }[];
 }
 
-// ── Property row component ────────────────────────────────────────────────
-
-function PropertyRow({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: typeof Calendar;
-  label: string;
-  children: React.ReactNode;
-}) {
+function PropRow({ icon: Icon, label, children }: { icon: typeof Calendar; label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-3 py-2 group">
-      <div className="flex items-center gap-2 w-[140px] shrink-0 text-muted-foreground">
-        <Icon className="h-4 w-4" />
-        <span className="text-xs font-medium">{label}</span>
+    <div className="flex items-start gap-[8px] min-h-[34px] py-[4px]">
+      <div className="flex items-center gap-[6px] w-[140px] shrink-0 text-[rgba(255,255,255,0.443)] h-[26px]">
+        <Icon className="h-[14px] w-[14px]" />
+        <span className="text-[13px]">{label}</span>
       </div>
-      <div className="flex-1 min-w-0">{children}</div>
+      <div className="flex-1 min-w-0 flex items-center min-h-[26px]">{children}</div>
     </div>
   );
 }
 
+function NotionPill({ name, color }: { name: string; color: string }) {
+  return (
+    <span className="inline-flex items-center h-[22px] rounded-[3px] px-[8px] text-[13px] whitespace-nowrap" style={notionTagStyle(color)}>
+      {name}
+    </span>
+  );
+}
+
 export default function TaskDetailSheet({
-  task,
-  open,
-  onOpenChange,
-  statusOptions,
-  priorityOptions,
-  teammateOptions,
+  task, open, onOpenChange, statusOptions, priorityOptions, teammateOptions,
 }: TaskDetailSheetProps) {
   const updateTask = useUpdateTask();
   const { data: blocksData } = useTaskBlocks(task?.id || null);
@@ -101,13 +90,8 @@ export default function TaskDetailSheet({
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
 
-  // Reset editing state when task changes
   useEffect(() => {
-    if (task) {
-      setEditingTitle(false);
-      setEditingDesc(false);
-      setEditingNotes(false);
-    }
+    if (task) { setEditingTitle(false); setEditingDesc(false); setEditingNotes(false); }
   }, [task?.id]);
 
   if (!task) return null;
@@ -127,470 +111,231 @@ export default function TaskDetailSheet({
   const rejectedReason = getRejectedReason(task.properties);
   const files = getFiles(task.properties);
 
-  const handleSaveTitle = () => {
-    if (titleDraft.trim() && titleDraft.trim() !== title) {
-      updateTask.mutate({
-        id: task.id,
-        properties: {
-          "Task name": { title: [{ text: { content: titleDraft.trim() } }] },
-        },
-      });
-    }
-    setEditingTitle(false);
-  };
-
-  const handleSaveDesc = () => {
-    if (descDraft !== description) {
-      updateTask.mutate({
-        id: task.id,
-        properties: {
-          Description: {
-            rich_text: [{ text: { content: descDraft } }],
-          },
-        },
-      });
-    }
-    setEditingDesc(false);
-  };
-
-  const handleSaveNotes = () => {
-    if (notesDraft !== notes) {
-      updateTask.mutate({
-        id: task.id,
-        properties: {
-          "Notes (1)": {
-            rich_text: [{ text: { content: notesDraft } }],
-          },
-        },
-      });
-    }
-    setEditingNotes(false);
-  };
+  const save = (props: Record<string, any>) => updateTask.mutate({ id: task.id, properties: props });
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="w-full sm:max-w-[600px] overflow-y-auto p-0"
-      >
-        <SheetHeader className="p-6 pb-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1">
-              {/* Checkbox + Title */}
-              <div className="flex items-start gap-3">
-                <Checkbox
-                  checked={done}
-                  onCheckedChange={(checked) =>
-                    updateTask.mutate({
-                      id: task.id,
-                      properties: { "Done ?": { checkbox: checked as boolean } },
-                    })
-                  }
-                  className="mt-1 h-5 w-5"
-                />
-                {editingTitle ? (
-                  <Input
-                    autoFocus
-                    value={titleDraft}
-                    onChange={(e) => setTitleDraft(e.target.value)}
-                    onBlur={handleSaveTitle}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleSaveTitle();
-                      if (e.key === "Escape") setEditingTitle(false);
-                    }}
-                    className="text-lg font-semibold border-none shadow-none ring-1 ring-blue-500 px-1"
-                  />
-                ) : (
-                  <SheetTitle
-                    className={cn(
-                      "text-lg font-semibold cursor-text flex-1",
-                      done && "line-through text-muted-foreground"
-                    )}
-                    onClick={() => {
-                      setTitleDraft(title);
-                      setEditingTitle(true);
-                    }}
-                  >
-                    {title || "Untitled"}
-                  </SheetTitle>
-                )}
-              </div>
+      <SheetContent side="right" className="w-full sm:max-w-[620px] overflow-y-auto p-0 bg-[#202020] border-l border-[rgba(255,255,255,0.055)]">
+        <SheetHeader className="p-[24px] pb-0">
+          <div className="flex items-start gap-[12px]">
+            {/* Checkbox */}
+            <div
+              onClick={() => save({ "Done ?": { checkbox: !done } })}
+              className={`mt-[4px] w-[18px] h-[18px] rounded-[3px] border cursor-pointer flex items-center justify-center shrink-0 ${
+                done ? "bg-[#2383e2] border-[#2383e2]" : "border-[rgba(255,255,255,0.282)]"
+              }`}
+            >
+              {done && <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M3 7L6 10L11 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            </div>
 
-              {/* Open in Notion */}
-              <a
-                href={task.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 mt-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ExternalLink className="h-3 w-3" />
-                Open in Notion
+            {/* Title */}
+            <div className="flex-1 min-w-0">
+              {editingTitle ? (
+                <Input
+                  autoFocus
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onBlur={() => { if (titleDraft.trim() && titleDraft.trim() !== title) save({ "Task name": { title: [{ text: { content: titleDraft.trim() } }] } }); setEditingTitle(false); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setEditingTitle(false); }}
+                  className="text-[20px] font-semibold border-none bg-transparent text-[rgba(255,255,255,0.91)] p-0 h-auto shadow-none focus-visible:ring-1 focus-visible:ring-[#2383e2]"
+                />
+              ) : (
+                <SheetTitle
+                  className={`text-[20px] font-semibold cursor-text ${done ? "line-through text-[rgba(255,255,255,0.38)]" : "text-[rgba(255,255,255,0.91)]"}`}
+                  onClick={() => { setTitleDraft(title); setEditingTitle(true); }}
+                >
+                  {title || "Untitled"}
+                </SheetTitle>
+              )}
+              <a href={task.url} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-[4px] mt-[6px] text-[12px] text-[rgba(255,255,255,0.38)] hover:text-[rgba(255,255,255,0.65)] transition-colors">
+                <ExternalLink className="h-[12px] w-[12px]" /> Open in Notion
               </a>
             </div>
           </div>
         </SheetHeader>
 
-        <div className="px-6 py-4">
-          <Separator className="mb-4" />
+        <div className="px-[24px] py-[16px]">
+          <Separator className="mb-[16px] bg-[rgba(255,255,255,0.055)]" />
 
           {/* Properties */}
-          <div className="space-y-0.5">
-            {/* Status */}
-            <PropertyRow icon={Tag} label="Status">
+          <div>
+            <PropRow icon={Tag} label="Status">
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="inline-flex items-center gap-1">
-                    {status ? (
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded px-2.5 py-1 text-xs font-medium",
-                          colorClass(status.color)
-                        )}
-                      >
-                        {status.name}
-                        <ChevronDown className="h-3 w-3 ml-1" />
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        Empty <ChevronDown className="h-3 w-3 inline" />
-                      </span>
-                    )}
-                  </button>
+                <DropdownMenuTrigger className="outline-none">
+                  {status ? <NotionPill name={status.name} color={status.color} /> : <span className="text-[13px] text-[rgba(255,255,255,0.282)]">Empty</span>}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="max-h-[300px] overflow-y-auto">
-                  {statusOptions.map((opt) => (
-                    <DropdownMenuItem
-                      key={opt.name}
-                      onClick={() =>
-                        updateTask.mutate({
-                          id: task.id,
-                          properties: { STATUS: { status: { name: opt.name } } },
-                        })
-                      }
-                    >
-                      <span className={cn("rounded px-2 py-0.5 text-xs font-medium", colorClass(opt.color))}>
-                        {opt.name}
-                      </span>
+                  {statusOptions.map((o) => (
+                    <DropdownMenuItem key={o.name} onClick={() => save({ STATUS: { status: { name: o.name } } })}>
+                      <NotionPill name={o.name} color={o.color} />
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-            </PropertyRow>
+            </PropRow>
 
-            {/* Priority */}
-            <PropertyRow icon={AlertTriangle} label="Priority">
+            <PropRow icon={AlertTriangle} label="Priority">
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="inline-flex items-center gap-1">
-                    {priority ? (
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded px-2.5 py-1 text-xs font-medium",
-                          colorClass(priority.color)
-                        )}
-                      >
-                        {priority.name}
-                        <ChevronDown className="h-3 w-3 ml-1" />
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        Empty <ChevronDown className="h-3 w-3 inline" />
-                      </span>
-                    )}
-                  </button>
+                <DropdownMenuTrigger className="outline-none">
+                  {priority ? <NotionPill name={priority.name} color={priority.color} /> : <span className="text-[13px] text-[rgba(255,255,255,0.282)]">Empty</span>}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
-                  {priorityOptions.map((opt) => (
-                    <DropdownMenuItem
-                      key={opt.name}
-                      onClick={() =>
-                        updateTask.mutate({
-                          id: task.id,
-                          properties: { Priority: { select: { name: opt.name } } },
-                        })
-                      }
-                    >
-                      <span className={cn("rounded px-2 py-0.5 text-xs font-medium", colorClass(opt.color))}>
-                        {opt.name}
-                      </span>
+                  {priorityOptions.map((o) => (
+                    <DropdownMenuItem key={o.name} onClick={() => save({ Priority: { select: { name: o.name } } })}>
+                      <NotionPill name={o.name} color={o.color} />
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-            </PropertyRow>
+            </PropRow>
 
-            {/* Client */}
-            <PropertyRow icon={Users} label="Client">
-              <span className="text-sm">{client || <em className="text-muted-foreground">Empty</em>}</span>
-            </PropertyRow>
+            <PropRow icon={Users} label="Client">
+              <span className="text-[14px] text-[rgba(255,255,255,0.81)]">{client || <span className="text-[rgba(255,255,255,0.282)]">Empty</span>}</span>
+            </PropRow>
 
-            {/* Teammate */}
-            <PropertyRow icon={User} label="Teammate">
+            <PropRow icon={User} label="Teammate">
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="inline-flex items-center gap-1">
-                    {teammate ? (
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded px-2.5 py-1 text-xs font-medium",
-                          colorClass(teammate.color)
-                        )}
-                      >
-                        {teammate.name}
-                        <ChevronDown className="h-3 w-3 ml-1" />
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        Empty <ChevronDown className="h-3 w-3 inline" />
-                      </span>
-                    )}
-                  </button>
+                <DropdownMenuTrigger className="outline-none">
+                  {teammate ? <NotionPill name={teammate.name} color={teammate.color} /> : <span className="text-[13px] text-[rgba(255,255,255,0.282)]">Empty</span>}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
-                  {teammateOptions.map((opt) => (
-                    <DropdownMenuItem
-                      key={opt.name}
-                      onClick={() =>
-                        updateTask.mutate({
-                          id: task.id,
-                          properties: { Teammate: { select: { name: opt.name } } },
-                        })
-                      }
-                    >
-                      <span className={cn("rounded px-2 py-0.5 text-xs font-medium", colorClass(opt.color))}>
-                        {opt.name}
-                      </span>
+                  {teammateOptions.map((o) => (
+                    <DropdownMenuItem key={o.name} onClick={() => save({ Teammate: { select: { name: o.name } } })}>
+                      <NotionPill name={o.name} color={o.color} />
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-            </PropertyRow>
+            </PropRow>
 
-            {/* Due Date */}
-            <PropertyRow icon={Calendar} label="Due">
-              <input
-                type="date"
-                defaultValue={due || ""}
-                onChange={(e) => {
-                  const val = e.target.value || null;
-                  updateTask.mutate({
-                    id: task.id,
-                    properties: {
-                      Due: val ? { date: { start: val } } : { date: null },
-                    },
-                  });
-                }}
-                className="bg-transparent border border-border rounded px-2 py-1 text-xs w-[150px]"
+            <PropRow icon={Calendar} label="Due">
+              <input type="date" defaultValue={due || ""}
+                onChange={(e) => save({ Due: e.target.value ? { date: { start: e.target.value } } : { date: null } })}
+                className="bg-transparent border border-[rgba(255,255,255,0.094)] rounded-[3px] px-[8px] py-[4px] text-[13px] text-[rgba(255,255,255,0.72)] w-[160px]"
               />
-            </PropertyRow>
+            </PropRow>
 
-            {/* Managers */}
-            <PropertyRow icon={Users} label="Managers">
-              <div className="flex items-center gap-2 flex-wrap">
-                {managers.length > 0 ? (
-                  managers.map((m) => (
-                    <div key={m.name} className="flex items-center gap-1.5">
-                      {m.avatar_url ? (
-                        <img src={m.avatar_url} alt={m.name} className="w-5 h-5 rounded-full" />
-                      ) : (
-                        <div className="w-5 h-5 rounded-full bg-zinc-600 flex items-center justify-center text-[10px] text-zinc-200">
-                          {m.name.charAt(0)}
-                        </div>
-                      )}
-                      <span className="text-xs">{m.name}</span>
-                    </div>
-                  ))
-                ) : (
-                  <span className="text-xs text-muted-foreground italic">Empty</span>
-                )}
+            <PropRow icon={Users} label="Managers">
+              <div className="flex items-center gap-[8px] flex-wrap">
+                {managers.length > 0 ? managers.map((m) => (
+                  <div key={m.name} className="flex items-center gap-[6px]">
+                    {m.avatar_url
+                      ? <img src={m.avatar_url} alt={m.name} className="w-[22px] h-[22px] rounded-full" />
+                      : <div className="w-[22px] h-[22px] rounded-full bg-[rgba(255,255,255,0.08)] flex items-center justify-center text-[11px] text-[rgba(255,255,255,0.55)]">{m.name.charAt(0)}</div>
+                    }
+                    <span className="text-[13px] text-[rgba(255,255,255,0.72)]">{m.name}</span>
+                  </div>
+                )) : <span className="text-[13px] text-[rgba(255,255,255,0.282)]">Empty</span>}
               </div>
-            </PropertyRow>
+            </PropRow>
 
-            {/* Assigned */}
             {assign.length > 0 && (
-              <PropertyRow icon={User} label="Assigned">
-                <div className="flex items-center gap-2 flex-wrap">
+              <PropRow icon={User} label="Assigned">
+                <div className="flex items-center gap-[8px] flex-wrap">
                   {assign.map((a) => (
-                    <div key={a.name} className="flex items-center gap-1.5">
-                      {a.avatar_url ? (
-                        <img src={a.avatar_url} alt={a.name} className="w-5 h-5 rounded-full" />
-                      ) : (
-                        <div className="w-5 h-5 rounded-full bg-zinc-600 flex items-center justify-center text-[10px] text-zinc-200">
-                          {a.name.charAt(0)}
-                        </div>
-                      )}
-                      <span className="text-xs">{a.name}</span>
+                    <div key={a.name} className="flex items-center gap-[6px]">
+                      {a.avatar_url
+                        ? <img src={a.avatar_url} alt={a.name} className="w-[22px] h-[22px] rounded-full" />
+                        : <div className="w-[22px] h-[22px] rounded-full bg-[rgba(255,255,255,0.08)] flex items-center justify-center text-[11px] text-[rgba(255,255,255,0.55)]">{a.name.charAt(0)}</div>
+                      }
+                      <span className="text-[13px] text-[rgba(255,255,255,0.72)]">{a.name}</span>
                     </div>
                   ))}
                 </div>
-              </PropertyRow>
+              </PropRow>
             )}
 
-            {/* URL */}
             {url && (
-              <PropertyRow icon={Link} label="URL">
-                <a
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-blue-400 hover:underline truncate block"
-                >
-                  {url}
-                </a>
-              </PropertyRow>
+              <PropRow icon={Link} label="URL">
+                <a href={url} target="_blank" rel="noopener noreferrer" className="text-[13px] text-[#2383e2] hover:underline truncate block">{url}</a>
+              </PropRow>
             )}
 
-            {/* Files */}
             {files.length > 0 && (
-              <PropertyRow icon={FileText} label="Files">
-                <div className="flex flex-col gap-1">
+              <PropRow icon={FileText} label="Files">
+                <div className="flex flex-col gap-[4px]">
                   {files.map((f, i) => (
-                    <a
-                      key={i}
-                      href={f.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-blue-400 hover:underline truncate block"
-                    >
-                      {f.name}
-                    </a>
+                    <a key={i} href={f.url} target="_blank" rel="noopener noreferrer" className="text-[13px] text-[#2383e2] hover:underline truncate block">{f.name}</a>
                   ))}
                 </div>
-              </PropertyRow>
+              </PropRow>
             )}
 
-            {/* Timestamps */}
-            <PropertyRow icon={Clock} label="Created">
-              <span className="text-xs text-muted-foreground">
-                {new Date(task.created_time).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}
+            <PropRow icon={Clock} label="Created">
+              <span className="text-[13px] text-[rgba(255,255,255,0.443)]">
+                {new Date(task.created_time).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
               </span>
-            </PropertyRow>
+            </PropRow>
 
-            <PropertyRow icon={Clock} label="Last edited">
-              <span className="text-xs text-muted-foreground">
-                {new Date(task.last_edited_time).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}
+            <PropRow icon={Clock} label="Last edited">
+              <span className="text-[13px] text-[rgba(255,255,255,0.443)]">
+                {new Date(task.last_edited_time).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
               </span>
-            </PropertyRow>
+            </PropRow>
           </div>
 
-          <Separator className="my-4" />
+          <Separator className="my-[16px] bg-[rgba(255,255,255,0.055)]" />
 
           {/* Description */}
-          <div className="mb-4">
-            <label className="text-xs font-medium text-muted-foreground mb-2 block">
-              Description
-            </label>
+          <div className="mb-[16px]">
+            <div className="text-[12px] text-[rgba(255,255,255,0.443)] mb-[8px]">Description</div>
             {editingDesc ? (
               <div>
-                <Textarea
-                  autoFocus
-                  value={descDraft}
-                  onChange={(e) => setDescDraft(e.target.value)}
-                  className="min-h-[100px] text-sm"
-                  placeholder="Add a description..."
-                />
-                <div className="flex gap-2 mt-2">
-                  <Button size="sm" onClick={handleSaveDesc}>
-                    Save
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setEditingDesc(false)}>
-                    Cancel
-                  </Button>
+                <Textarea autoFocus value={descDraft} onChange={(e) => setDescDraft(e.target.value)}
+                  className="min-h-[100px] text-[14px] bg-[rgba(255,255,255,0.024)] border-[rgba(255,255,255,0.094)]" />
+                <div className="flex gap-[8px] mt-[8px]">
+                  <button onClick={() => { if (descDraft !== description) save({ Description: { rich_text: [{ text: { content: descDraft } }] } }); setEditingDesc(false); }}
+                    className="h-[28px] px-[10px] text-[13px] bg-[#2383e2] text-white rounded-[3px] hover:bg-[#1b6ec2]">Save</button>
+                  <button onClick={() => setEditingDesc(false)} className="h-[28px] px-[10px] text-[13px] text-[rgba(255,255,255,0.55)] hover:bg-[rgba(255,255,255,0.055)] rounded-[3px]">Cancel</button>
                 </div>
               </div>
             ) : (
-              <div
-                onClick={() => {
-                  setDescDraft(description);
-                  setEditingDesc(true);
-                }}
-                className="text-sm min-h-[40px] p-2 rounded border border-transparent hover:border-border cursor-text whitespace-pre-wrap"
-              >
-                {description || (
-                  <span className="text-muted-foreground italic">
-                    Click to add a description...
-                  </span>
-                )}
+              <div onClick={() => { setDescDraft(description); setEditingDesc(true); }}
+                className="text-[14px] text-[rgba(255,255,255,0.72)] min-h-[40px] p-[8px] rounded-[3px] border border-transparent hover:border-[rgba(255,255,255,0.094)] cursor-text whitespace-pre-wrap">
+                {description || <span className="text-[rgba(255,255,255,0.282)] italic">Click to add description...</span>}
               </div>
             )}
           </div>
 
           {/* Notes */}
-          <div className="mb-4">
-            <label className="text-xs font-medium text-muted-foreground mb-2 block">
-              Notes
-            </label>
+          <div className="mb-[16px]">
+            <div className="text-[12px] text-[rgba(255,255,255,0.443)] mb-[8px]">Notes</div>
             {editingNotes ? (
               <div>
-                <Textarea
-                  autoFocus
-                  value={notesDraft}
-                  onChange={(e) => setNotesDraft(e.target.value)}
-                  className="min-h-[80px] text-sm"
-                  placeholder="Add notes..."
-                />
-                <div className="flex gap-2 mt-2">
-                  <Button size="sm" onClick={handleSaveNotes}>
-                    Save
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setEditingNotes(false)}>
-                    Cancel
-                  </Button>
+                <Textarea autoFocus value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)}
+                  className="min-h-[80px] text-[14px] bg-[rgba(255,255,255,0.024)] border-[rgba(255,255,255,0.094)]" />
+                <div className="flex gap-[8px] mt-[8px]">
+                  <button onClick={() => { if (notesDraft !== notes) save({ "Notes (1)": { rich_text: [{ text: { content: notesDraft } }] } }); setEditingNotes(false); }}
+                    className="h-[28px] px-[10px] text-[13px] bg-[#2383e2] text-white rounded-[3px] hover:bg-[#1b6ec2]">Save</button>
+                  <button onClick={() => setEditingNotes(false)} className="h-[28px] px-[10px] text-[13px] text-[rgba(255,255,255,0.55)] hover:bg-[rgba(255,255,255,0.055)] rounded-[3px]">Cancel</button>
                 </div>
               </div>
             ) : (
-              <div
-                onClick={() => {
-                  setNotesDraft(notes);
-                  setEditingNotes(true);
-                }}
-                className="text-sm min-h-[40px] p-2 rounded border border-transparent hover:border-border cursor-text whitespace-pre-wrap"
-              >
-                {notes || (
-                  <span className="text-muted-foreground italic">
-                    Click to add notes...
-                  </span>
-                )}
+              <div onClick={() => { setNotesDraft(notes); setEditingNotes(true); }}
+                className="text-[14px] text-[rgba(255,255,255,0.72)] min-h-[40px] p-[8px] rounded-[3px] border border-transparent hover:border-[rgba(255,255,255,0.094)] cursor-text whitespace-pre-wrap">
+                {notes || <span className="text-[rgba(255,255,255,0.282)] italic">Click to add notes...</span>}
               </div>
             )}
           </div>
 
           {/* Rejected Reason */}
           {rejectedReason && (
-            <div className="mb-4">
-              <label className="text-xs font-medium text-red-400 mb-2 flex items-center gap-1.5">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Rejected Reason
-              </label>
-              <p className="text-sm text-red-300 bg-red-950/30 rounded p-2">
-                {rejectedReason}
-              </p>
+            <div className="mb-[16px]">
+              <div className="text-[12px] text-red-400 mb-[8px] flex items-center gap-[6px]">
+                <AlertTriangle className="h-[12px] w-[12px]" /> Rejected Reason
+              </div>
+              <p className="text-[14px] text-red-300 bg-[rgba(224,62,62,0.08)] rounded-[3px] p-[8px]">{rejectedReason}</p>
             </div>
           )}
 
-          {/* Page Content Blocks (from Notion page body) */}
+          {/* Page content blocks */}
           {blocksData?.results?.length > 0 && (
             <>
-              <Separator className="my-4" />
-              <label className="text-xs font-medium text-muted-foreground mb-2 block">
-                Page Content
-              </label>
-              <div className="space-y-2">
-                {blocksData.results.map((block: any) => (
-                  <NotionBlock key={block.id} block={block} />
-                ))}
+              <Separator className="my-[16px] bg-[rgba(255,255,255,0.055)]" />
+              <div className="text-[12px] text-[rgba(255,255,255,0.443)] mb-[8px]">Page content</div>
+              <div className="space-y-[6px]">
+                {blocksData.results.map((block: any) => <Block key={block.id} block={block} />)}
               </div>
             </>
           )}
@@ -600,109 +345,37 @@ export default function TaskDetailSheet({
   );
 }
 
-// ── Render Notion blocks ──────────────────────────────────────────────────
-
-function NotionBlock({ block }: { block: any }) {
-  const type = block.type;
-
-  const richTextToString = (rt: any[]) =>
-    rt?.map((t: any) => t.plain_text).join("") || "";
-
-  switch (type) {
-    case "paragraph":
-      return (
-        <p className="text-sm whitespace-pre-wrap">
-          {richTextToString(block.paragraph.rich_text) || "\u00A0"}
-        </p>
-      );
-    case "heading_1":
-      return (
-        <h1 className="text-xl font-bold mt-4 mb-1">
-          {richTextToString(block.heading_1.rich_text)}
-        </h1>
-      );
-    case "heading_2":
-      return (
-        <h2 className="text-lg font-semibold mt-3 mb-1">
-          {richTextToString(block.heading_2.rich_text)}
-        </h2>
-      );
-    case "heading_3":
-      return (
-        <h3 className="text-base font-medium mt-2 mb-1">
-          {richTextToString(block.heading_3.rich_text)}
-        </h3>
-      );
-    case "bulleted_list_item":
-      return (
-        <li className="text-sm ml-4 list-disc">
-          {richTextToString(block.bulleted_list_item.rich_text)}
-        </li>
-      );
-    case "numbered_list_item":
-      return (
-        <li className="text-sm ml-4 list-decimal">
-          {richTextToString(block.numbered_list_item.rich_text)}
-        </li>
-      );
-    case "to_do":
-      return (
-        <div className="flex items-center gap-2 text-sm">
-          <Checkbox checked={block.to_do.checked} disabled className="h-3.5 w-3.5" />
-          <span className={block.to_do.checked ? "line-through text-muted-foreground" : ""}>
-            {richTextToString(block.to_do.rich_text)}
-          </span>
+function Block({ block }: { block: any }) {
+  const rt = (arr: any[]) => arr?.map((t: any) => t.plain_text).join("") || "";
+  switch (block.type) {
+    case "paragraph": return <p className="text-[14px] text-[rgba(255,255,255,0.72)] whitespace-pre-wrap">{rt(block.paragraph.rich_text) || "\u00A0"}</p>;
+    case "heading_1": return <h1 className="text-[20px] font-bold text-[rgba(255,255,255,0.91)] mt-[16px] mb-[4px]">{rt(block.heading_1.rich_text)}</h1>;
+    case "heading_2": return <h2 className="text-[17px] font-semibold text-[rgba(255,255,255,0.91)] mt-[12px] mb-[4px]">{rt(block.heading_2.rich_text)}</h2>;
+    case "heading_3": return <h3 className="text-[15px] font-medium text-[rgba(255,255,255,0.91)] mt-[8px] mb-[4px]">{rt(block.heading_3.rich_text)}</h3>;
+    case "bulleted_list_item": return <li className="text-[14px] text-[rgba(255,255,255,0.72)] ml-[16px] list-disc">{rt(block.bulleted_list_item.rich_text)}</li>;
+    case "numbered_list_item": return <li className="text-[14px] text-[rgba(255,255,255,0.72)] ml-[16px] list-decimal">{rt(block.numbered_list_item.rich_text)}</li>;
+    case "to_do": return (
+      <div className="flex items-center gap-[8px] text-[14px]">
+        <div className={`w-[16px] h-[16px] rounded-[3px] border flex items-center justify-center ${block.to_do.checked ? "bg-[#2383e2] border-[#2383e2]" : "border-[rgba(255,255,255,0.282)]"}`}>
+          {block.to_do.checked && <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M3 7L6 10L11 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
         </div>
-      );
-    case "toggle":
-      return (
-        <details className="text-sm">
-          <summary className="cursor-pointer">
-            {richTextToString(block.toggle.rich_text)}
-          </summary>
-        </details>
-      );
-    case "divider":
-      return <Separator />;
-    case "callout":
-      return (
-        <div className="flex gap-2 bg-muted/50 rounded p-3 text-sm">
-          <span>{block.callout.icon?.emoji || "💡"}</span>
-          <span>{richTextToString(block.callout.rich_text)}</span>
-        </div>
-      );
-    case "quote":
-      return (
-        <blockquote className="border-l-2 border-muted-foreground/30 pl-3 text-sm italic">
-          {richTextToString(block.quote.rich_text)}
-        </blockquote>
-      );
-    case "code":
-      return (
-        <pre className="bg-zinc-900 rounded p-3 text-xs overflow-x-auto">
-          <code>{richTextToString(block.code.rich_text)}</code>
-        </pre>
-      );
-    case "image":
-      const imgUrl =
-        block.image.type === "external"
-          ? block.image.external.url
-          : block.image.file?.url;
-      return imgUrl ? (
-        <img src={imgUrl} alt="" className="rounded max-w-full" />
-      ) : null;
-    case "bookmark":
-      return (
-        <a
-          href={block.bookmark.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs text-blue-400 hover:underline block"
-        >
-          {block.bookmark.url}
-        </a>
-      );
-    default:
-      return null;
+        <span className={block.to_do.checked ? "line-through text-[rgba(255,255,255,0.38)]" : "text-[rgba(255,255,255,0.72)]"}>{rt(block.to_do.rich_text)}</span>
+      </div>
+    );
+    case "divider": return <Separator className="bg-[rgba(255,255,255,0.055)]" />;
+    case "callout": return (
+      <div className="flex gap-[8px] bg-[rgba(255,255,255,0.024)] rounded-[3px] p-[12px] text-[14px] text-[rgba(255,255,255,0.72)]">
+        <span>{block.callout.icon?.emoji || "💡"}</span>
+        <span>{rt(block.callout.rich_text)}</span>
+      </div>
+    );
+    case "quote": return <blockquote className="border-l-[3px] border-[rgba(255,255,255,0.2)] pl-[12px] text-[14px] text-[rgba(255,255,255,0.72)] italic">{rt(block.quote.rich_text)}</blockquote>;
+    case "code": return <pre className="bg-[rgba(255,255,255,0.024)] rounded-[3px] p-[12px] text-[13px] text-[rgba(255,255,255,0.72)] overflow-x-auto"><code>{rt(block.code.rich_text)}</code></pre>;
+    case "image": {
+      const src = block.image.type === "external" ? block.image.external.url : block.image.file?.url;
+      return src ? <img src={src} alt="" className="rounded-[3px] max-w-full" /> : null;
+    }
+    case "bookmark": return <a href={block.bookmark.url} target="_blank" rel="noopener noreferrer" className="text-[13px] text-[#2383e2] hover:underline block">{block.bookmark.url}</a>;
+    default: return null;
   }
 }

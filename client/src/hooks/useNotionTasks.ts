@@ -42,12 +42,12 @@ export interface TaskFilters {
   sortDir?: "ascending" | "descending";
 }
 
-// ── Helper to extract plain values from Notion properties ─────────────────
+// ── Property extractors ───────────────────────────────────────────────────
 
 export function getTitle(props: Record<string, any>): string {
-  const titleProp = props["Task name"];
-  if (!titleProp?.title?.length) return "";
-  return titleProp.title.map((t: any) => t.plain_text).join("");
+  const p = props["Task name"];
+  if (!p?.title?.length) return "";
+  return p.title.map((t: any) => t.plain_text).join("");
 }
 
 export function getStatus(props: Record<string, any>): { name: string; color: string } | null {
@@ -113,6 +113,12 @@ export function getRejectedReason(props: Record<string, any>): string {
   return rt.map((t: any) => t.plain_text).join("");
 }
 
+export function getRejectedReasonTeam(props: Record<string, any>): string {
+  const rt = props["Rejected Reason (Team)"]?.rich_text;
+  if (!rt?.length) return "";
+  return rt.map((t: any) => t.plain_text).join("");
+}
+
 export function getFiles(props: Record<string, any>): { name: string; url: string }[] {
   const files = props["Files & media"]?.files;
   if (!files?.length) return [];
@@ -122,46 +128,77 @@ export function getFiles(props: Record<string, any>): { name: string; url: strin
   }));
 }
 
+export function getCompletedOn(props: Record<string, any>): string | null {
+  return props["Completed on"]?.date?.start || null;
+}
+
 export function getCreatedTime(props: Record<string, any>): string {
   return props["Date"]?.created_time || "";
 }
 
+export function getLastEdited(props: Record<string, any>): string {
+  return props["Last edited time"]?.last_edited_time || "";
+}
+
 export function getSecondaryStatus(props: Record<string, any>): { name: string; color: string } | null {
-  // The unnamed status field
   const s = props[""]?.status;
   return s ? { name: s.name, color: s.color } : null;
 }
 
-// ── Status color mapping ──────────────────────────────────────────────────
+// ── Notion color palette (dark mode) ──────────────────────────────────────
+// Matches Notion's exact dark mode tag/badge colors
 
-const NOTION_COLORS: Record<string, string> = {
-  default: "bg-zinc-700 text-zinc-200",
-  gray: "bg-zinc-600 text-zinc-200",
-  brown: "bg-amber-800 text-amber-100",
-  orange: "bg-orange-700 text-orange-100",
-  yellow: "bg-yellow-700 text-yellow-100",
-  green: "bg-emerald-700 text-emerald-100",
-  blue: "bg-blue-700 text-blue-100",
-  purple: "bg-purple-700 text-purple-100",
-  pink: "bg-pink-700 text-pink-100",
-  red: "bg-red-700 text-red-100",
+export const NOTION_TAG_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
+  default: { bg: "rgba(151,154,202,0.13)", text: "#9B9A97", dot: "#9B9A97" },
+  gray:    { bg: "rgba(151,154,202,0.13)", text: "#9B9A97", dot: "#9B9A97" },
+  brown:   { bg: "rgba(186,133,111,0.13)", text: "#BA856F", dot: "#BA856F" },
+  orange:  { bg: "rgba(217,115,13,0.13)",  text: "#D9730D", dot: "#D9730D" },
+  yellow:  { bg: "rgba(223,171,1,0.13)",   text: "#DFAB01", dot: "#DFAB01" },
+  green:   { bg: "rgba(15,123,108,0.13)",  text: "#0F7B6C", dot: "#0F7B6C" },
+  blue:    { bg: "rgba(11,110,153,0.13)",  text: "#0B6E99", dot: "#0B6E99" },
+  purple:  { bg: "rgba(105,64,165,0.13)",  text: "#6940A5", dot: "#6940A5" },
+  pink:    { bg: "rgba(173,26,114,0.13)",  text: "#AD1A72", dot: "#AD1A72" },
+  red:     { bg: "rgba(224,62,62,0.13)",   text: "#E03E3E", dot: "#E03E3E" },
+};
+
+export function notionTagStyle(color: string): React.CSSProperties {
+  const c = NOTION_TAG_STYLES[color] || NOTION_TAG_STYLES.default;
+  return { backgroundColor: c.bg, color: c.text };
+}
+
+export function notionDotColor(color: string): string {
+  return NOTION_TAG_STYLES[color]?.dot || "#9B9A97";
+}
+
+const NOTION_COLOR_CLASSES: Record<string, string> = {
+  default: "bg-gray-500/10 text-gray-400",
+  gray:    "bg-gray-500/10 text-gray-400",
+  brown:   "bg-amber-800/10 text-amber-700",
+  orange:  "bg-orange-500/10 text-orange-500",
+  yellow:  "bg-yellow-500/10 text-yellow-500",
+  green:   "bg-emerald-500/10 text-emerald-500",
+  blue:    "bg-blue-500/10 text-blue-500",
+  purple:  "bg-purple-500/10 text-purple-500",
+  pink:    "bg-pink-500/10 text-pink-500",
+  red:     "bg-red-500/10 text-red-500",
 };
 
 export function colorClass(color: string): string {
-  return NOTION_COLORS[color] || NOTION_COLORS.default;
+  return NOTION_COLOR_CLASSES[color] || NOTION_COLOR_CLASSES.default;
 }
 
-// Status group mapping
-export const STATUS_GROUPS = {
-  "To-do": ["👋 NEW 👋"],
+// ── Status groups ─────────────────────────────────────────────────────────
+
+export const STATUS_GROUPS: Record<string, string[]> = {
+  "To-do": ["\u{1F44B} NEW \u{1F44B}"],
   "In progress": [
-    "👥TEAM IS WORKING ON IT 👥",
-    "READY 🚀",
-    "🛑 ATTENTION 🛑",
+    "\u{1F465}TEAM IS WORKING ON IT \u{1F465}",
+    "READY \u{1F680}",
+    "\u{1F6D1} ATTENTION \u{1F6D1}",
     "IN PROGRESS",
-    "⏱️ ON-GOING ⏱️",
-    "⚠️ HELD UP ⚠️",
-    "🛠️ Working on it 🛠️",
+    "\u23F1\uFE0F ON-GOING \u23F1\uFE0F",
+    "\u26A0\uFE0F HELD UP \u26A0\uFE0F",
+    "\u{1F6E0}\uFE0F Working on it \u{1F6E0}\uFE0F",
   ],
   Complete: [
     "1QA - Needed",
@@ -172,9 +209,16 @@ export const STATUS_GROUPS = {
     "2QA - DONE (Lexie)",
     "2QA - DONE (Bryan)",
     "2QA DONE (send to client)",
-    "✅ Done (NO QA) ✅",
+    "\u2705 Done (NO QA) \u2705",
   ],
 };
+
+export function getStatusGroup(statusName: string): string {
+  for (const [group, statuses] of Object.entries(STATUS_GROUPS)) {
+    if (statuses.includes(statusName)) return group;
+  }
+  return "Other";
+}
 
 // ── API Functions ─────────────────────────────────────────────────────────
 
@@ -192,7 +236,10 @@ async function fetchTasks(filters: TaskFilters): Promise<NotionListResponse> {
   const resp = await fetch(`${API_BASE}/tasks?${params}`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch tasks");
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`Failed to fetch tasks: ${resp.status} ${body}`);
+  }
   return resp.json();
 }
 
@@ -200,7 +247,7 @@ async function fetchDatabase(): Promise<any> {
   const resp = await fetch(`${API_BASE}/tasks/database`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch database schema");
+  if (!resp.ok) throw new Error(`Failed to fetch database: ${resp.status}`);
   return resp.json();
 }
 

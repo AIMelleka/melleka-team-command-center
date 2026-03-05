@@ -9,15 +9,20 @@ import {
   getDue,
   getManagers,
   getCheckbox,
-  colorClass,
+  getDescription,
+  getSecondaryStatus,
+  notionTagStyle,
+  notionDotColor,
+  NOTION_TAG_STYLES,
   useUpdateTask,
 } from "@/hooks/useNotionTasks";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   MoreHorizontal,
   ExternalLink,
   Trash2,
-  GripVertical,
+  Plus,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -25,77 +30,80 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
 
-interface TaskTableViewProps {
+interface Props {
   tasks: NotionTask[];
   onTaskClick: (task: NotionTask) => void;
   onDelete: (id: string) => void;
+  onNewTask: () => void;
   statusOptions: { name: string; color: string }[];
   priorityOptions: { name: string; color: string }[];
   teammateOptions: { name: string; color: string }[];
+  visibleColumns: string[];
+  groupBy: string | null;
 }
 
-// ── Inline editable cell ──────────────────────────────────────────────────
+/* ── Notion pill/tag ──────────────────────────────────────────────────── */
 
-function InlineEditCell({
+function Tag({ name, color }: { name: string; color: string }) {
+  return (
+    <span
+      className="inline-flex items-center h-[20px] rounded-[3px] px-[6px] text-[12px] leading-[20px] whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px]"
+      style={notionTagStyle(color)}
+    >
+      {name}
+    </span>
+  );
+}
+
+/* ── Inline text editor ───────────────────────────────────────────────── */
+
+function InlineText({
   value,
   onSave,
-  className,
+  strikethrough,
 }: {
   value: string;
-  onSave: (val: string) => void;
-  className?: string;
+  onSave: (v: string) => void;
+  strikethrough?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const ref = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (editing) inputRef.current?.focus();
+    if (editing) { ref.current?.focus(); ref.current?.select(); }
   }, [editing]);
-
-  const commit = () => {
-    setEditing(false);
-    if (draft.trim() !== value) onSave(draft.trim());
-  };
 
   if (editing) {
     return (
       <input
-        ref={inputRef}
+        ref={ref}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
+        onBlur={() => { setEditing(false); if (draft.trim() !== value) onSave(draft.trim()); }}
         onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
-          if (e.key === "Escape") {
-            setDraft(value);
-            setEditing(false);
-          }
+          if (e.key === "Enter") { setEditing(false); if (draft.trim() !== value) onSave(draft.trim()); }
+          if (e.key === "Escape") { setDraft(value); setEditing(false); }
         }}
-        className={cn(
-          "w-full bg-transparent border-none outline-none ring-1 ring-blue-500 rounded px-1 py-0.5 text-sm",
-          className
-        )}
+        className="w-full bg-transparent outline-none border-none text-[14px] leading-[32px] text-[rgba(255,255,255,0.91)] px-0 m-0"
       />
     );
   }
 
   return (
-    <span
-      onDoubleClick={() => {
-        setDraft(value);
-        setEditing(true);
-      }}
-      className={cn("cursor-default truncate text-sm", className)}
+    <div
+      onClick={(e) => { e.stopPropagation(); setDraft(value); setEditing(true); }}
+      className={`text-[14px] leading-[32px] truncate cursor-text min-h-[32px] ${
+        strikethrough ? "line-through text-[rgba(255,255,255,0.38)]" : "text-[rgba(255,255,255,0.91)]"
+      }`}
     >
-      {value || <span className="text-muted-foreground italic">Empty</span>}
-    </span>
+      {value || "\u00A0"}
+    </div>
   );
 }
 
-// ── Select dropdown cell ──────────────────────────────────────────────────
+/* ── Select cell (status/priority/teammate) ───────────────────────────── */
 
 function SelectCell({
   current,
@@ -108,42 +116,13 @@ function SelectCell({
 }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="inline-flex items-center gap-1 max-w-full">
-          {current ? (
-            <span
-              className={cn(
-                "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium truncate max-w-[180px]",
-                colorClass(current.color)
-              )}
-            >
-              {current.name}
-            </span>
-          ) : (
-            <span className="text-xs text-muted-foreground italic px-2 py-0.5">
-              Empty
-            </span>
-          )}
-        </button>
+      <DropdownMenuTrigger className="w-full h-full text-left outline-none min-h-[32px] flex items-center">
+        {current ? <Tag name={current.name} color={current.color} /> : <span className="h-[32px]">&nbsp;</span>}
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="max-h-[300px] overflow-y-auto min-w-[200px]"
-      >
+      <DropdownMenuContent className="max-h-[320px] overflow-y-auto min-w-[200px]" align="start">
         {options.map((opt) => (
-          <DropdownMenuItem
-            key={opt.name}
-            onClick={() => onSelect(opt.name)}
-            className="flex items-center gap-2"
-          >
-            <span
-              className={cn(
-                "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium",
-                colorClass(opt.color)
-              )}
-            >
-              {opt.name}
-            </span>
+          <DropdownMenuItem key={opt.name} onClick={() => onSelect(opt.name)} className="gap-2 py-[6px]">
+            <Tag name={opt.name} color={opt.color} />
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
@@ -151,354 +130,315 @@ function SelectCell({
   );
 }
 
-// ── Date cell ─────────────────────────────────────────────────────────────
+/* ── People avatars ───────────────────────────────────────────────────── */
 
-function DateCell({
-  value,
-  onSave,
-}: {
-  value: string | null;
-  onSave: (val: string | null) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        type="date"
-        defaultValue={value || ""}
-        onBlur={(e) => {
-          setEditing(false);
-          const val = e.target.value || null;
-          if (val !== value) onSave(val);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") setEditing(false);
-        }}
-        className="bg-transparent border-none outline-none ring-1 ring-blue-500 rounded px-1 py-0.5 text-xs w-[130px]"
-      />
-    );
-  }
-
+function Avatars({ people }: { people: { name: string; avatar_url?: string }[] }) {
+  if (!people.length) return null;
   return (
-    <span
-      onDoubleClick={() => setEditing(true)}
-      className="text-xs cursor-default text-muted-foreground"
-    >
-      {value ? new Date(value + "T00:00:00").toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }) : (
-        <span className="italic">No date</span>
+    <div className="flex items-center -space-x-[6px]">
+      {people.slice(0, 5).map((p) =>
+        p.avatar_url ? (
+          <img key={p.name} src={p.avatar_url} alt={p.name} title={p.name}
+            className="w-[24px] h-[24px] rounded-full border-[2px] border-[#191919] object-cover" />
+        ) : (
+          <div key={p.name} title={p.name}
+            className="w-[24px] h-[24px] rounded-full border-[2px] border-[#191919] bg-[rgba(255,255,255,0.08)] flex items-center justify-center text-[11px] font-medium text-[rgba(255,255,255,0.55)]">
+            {p.name.charAt(0).toUpperCase()}
+          </div>
+        )
       )}
-    </span>
-  );
-}
-
-// ── People cell ───────────────────────────────────────────────────────────
-
-function PeopleCell({ people }: { people: { name: string; avatar_url?: string }[] }) {
-  if (!people.length) return <span className="text-xs text-muted-foreground italic">-</span>;
-  return (
-    <div className="flex items-center gap-1 overflow-hidden">
-      {people.map((p) => (
-        <div
-          key={p.name}
-          className="flex items-center gap-1 shrink-0"
-          title={p.name}
-        >
-          {p.avatar_url ? (
-            <img
-              src={p.avatar_url}
-              alt={p.name}
-              className="w-5 h-5 rounded-full object-cover"
-            />
-          ) : (
-            <div className="w-5 h-5 rounded-full bg-zinc-600 flex items-center justify-center text-[10px] font-medium text-zinc-200">
-              {p.name.charAt(0).toUpperCase()}
-            </div>
-          )}
-        </div>
-      ))}
     </div>
   );
 }
 
-// ── Main table view ───────────────────────────────────────────────────────
+/* ── Date cell ────────────────────────────────────────────────────────── */
 
-const TaskTableView = memo(
-  ({
-    tasks,
-    onTaskClick,
-    onDelete,
-    statusOptions,
-    priorityOptions,
-    teammateOptions,
-  }: TaskTableViewProps) => {
-    const updateTask = useUpdateTask();
-    const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+function DateCell({ value, onSave }: { value: string | null; onSave: (v: string | null) => void }) {
+  const [editing, setEditing] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
 
-    const handleUpdateStatus = useCallback(
-      (taskId: string, statusName: string) => {
-        updateTask.mutate({
-          id: taskId,
-          properties: {
-            STATUS: { status: { name: statusName } },
-          },
-        });
-      },
-      [updateTask]
-    );
+  useEffect(() => { if (editing) ref.current?.showPicker?.(); }, [editing]);
 
-    const handleUpdatePriority = useCallback(
-      (taskId: string, priorityName: string) => {
-        updateTask.mutate({
-          id: taskId,
-          properties: {
-            Priority: { select: { name: priorityName } },
-          },
-        });
-      },
-      [updateTask]
-    );
-
-    const handleUpdateTeammate = useCallback(
-      (taskId: string, teammateName: string) => {
-        updateTask.mutate({
-          id: taskId,
-          properties: {
-            Teammate: { select: { name: teammateName } },
-          },
-        });
-      },
-      [updateTask]
-    );
-
-    const handleUpdateTitle = useCallback(
-      (taskId: string, title: string) => {
-        updateTask.mutate({
-          id: taskId,
-          properties: {
-            "Task name": {
-              title: [{ text: { content: title } }],
-            },
-          },
-        });
-      },
-      [updateTask]
-    );
-
-    const handleUpdateClient = useCallback(
-      (taskId: string, client: string) => {
-        updateTask.mutate({
-          id: taskId,
-          properties: {
-            CLIENTS: {
-              rich_text: [{ text: { content: client } }],
-            },
-          },
-        });
-      },
-      [updateTask]
-    );
-
-    const handleUpdateDue = useCallback(
-      (taskId: string, date: string | null) => {
-        updateTask.mutate({
-          id: taskId,
-          properties: {
-            Due: date ? { date: { start: date } } : { date: null },
-          },
-        });
-      },
-      [updateTask]
-    );
-
-    const handleUpdateCheckbox = useCallback(
-      (taskId: string, checked: boolean) => {
-        updateTask.mutate({
-          id: taskId,
-          properties: {
-            "Done ?": { checkbox: checked },
-          },
-        });
-      },
-      [updateTask]
-    );
-
+  if (editing) {
     return (
-      <div className="w-full overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wider">
-              <th className="w-8 px-2 py-2" />
-              <th className="px-3 py-2 font-medium min-w-[280px]">Task name</th>
-              <th className="px-3 py-2 font-medium min-w-[180px]">Status</th>
-              <th className="px-3 py-2 font-medium min-w-[120px]">Client</th>
-              <th className="px-3 py-2 font-medium min-w-[120px]">Priority</th>
-              <th className="px-3 py-2 font-medium min-w-[100px]">Teammate</th>
-              <th className="px-3 py-2 font-medium min-w-[80px]">Managers</th>
-              <th className="px-3 py-2 font-medium min-w-[120px]">Due</th>
-              <th className="px-3 py-2 font-medium w-8" />
-            </tr>
-          </thead>
-          <tbody>
-            {tasks.map((task) => {
-              const title = getTitle(task.properties);
-              const status = getStatus(task.properties);
-              const client = getClient(task.properties);
-              const priority = getPriority(task.properties);
-              const teammate = getTeammate(task.properties);
-              const due = getDue(task.properties);
-              const managers = getManagers(task.properties);
-              const done = getCheckbox(task.properties);
-              const isHovered = hoveredRow === task.id;
-
-              return (
-                <tr
-                  key={task.id}
-                  className={cn(
-                    "border-b border-border/50 transition-colors group",
-                    isHovered && "bg-muted/50"
-                  )}
-                  onMouseEnter={() => setHoveredRow(task.id)}
-                  onMouseLeave={() => setHoveredRow(null)}
-                >
-                  {/* Checkbox */}
-                  <td className="px-2 py-1.5">
-                    <div className="flex items-center gap-1">
-                      {isHovered && (
-                        <GripVertical className="h-3 w-3 text-muted-foreground/40 cursor-grab" />
-                      )}
-                      <Checkbox
-                        checked={done}
-                        onCheckedChange={(checked) =>
-                          handleUpdateCheckbox(task.id, checked as boolean)
-                        }
-                        className="h-4 w-4"
-                      />
-                    </div>
-                  </td>
-
-                  {/* Task name */}
-                  <td className="px-3 py-1.5">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => onTaskClick(task)}
-                        className="flex-1 text-left"
-                      >
-                        <InlineEditCell
-                          value={title}
-                          onSave={(val) => handleUpdateTitle(task.id, val)}
-                          className={cn(done && "line-through text-muted-foreground")}
-                        />
-                      </button>
-                      {isHovered && (
-                        <button
-                          onClick={() => onTaskClick(task)}
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-
-                  {/* Status */}
-                  <td className="px-3 py-1.5">
-                    <SelectCell
-                      current={status}
-                      options={statusOptions}
-                      onSelect={(name) => handleUpdateStatus(task.id, name)}
-                    />
-                  </td>
-
-                  {/* Client */}
-                  <td className="px-3 py-1.5">
-                    <InlineEditCell
-                      value={client}
-                      onSave={(val) => handleUpdateClient(task.id, val)}
-                    />
-                  </td>
-
-                  {/* Priority */}
-                  <td className="px-3 py-1.5">
-                    <SelectCell
-                      current={priority}
-                      options={priorityOptions}
-                      onSelect={(name) => handleUpdatePriority(task.id, name)}
-                    />
-                  </td>
-
-                  {/* Teammate */}
-                  <td className="px-3 py-1.5">
-                    <SelectCell
-                      current={teammate}
-                      options={teammateOptions}
-                      onSelect={(name) => handleUpdateTeammate(task.id, name)}
-                    />
-                  </td>
-
-                  {/* Managers */}
-                  <td className="px-3 py-1.5">
-                    <PeopleCell people={managers} />
-                  </td>
-
-                  {/* Due */}
-                  <td className="px-3 py-1.5">
-                    <DateCell
-                      value={due}
-                      onSave={(val) => handleUpdateDue(task.id, val)}
-                    />
-                  </td>
-
-                  {/* Actions */}
-                  <td className="px-2 py-1.5">
-                    {isHovered && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button className="p-1 rounded hover:bg-muted">
-                            <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => onTaskClick(task)}>
-                            <ExternalLink className="h-4 w-4 mr-2" />
-                            Open
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => window.open(task.url, "_blank")}
-                          >
-                            <ExternalLink className="h-4 w-4 mr-2" />
-                            Open in Notion
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => onDelete(task.id)}
-                            className="text-destructive focus:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <input ref={ref} type="date" defaultValue={value || ""}
+        onBlur={(e) => { setEditing(false); const v = e.target.value || null; if (v !== value) onSave(v); }}
+        onKeyDown={(e) => { if (e.key === "Escape") setEditing(false); }}
+        className="bg-transparent outline-none border-none text-[13px] text-[rgba(255,255,255,0.72)] leading-[32px]"
+      />
     );
   }
-);
+
+  const formatted = value
+    ? new Date(value + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : null;
+
+  return (
+    <div onClick={() => setEditing(true)} className="text-[14px] leading-[32px] text-[rgba(255,255,255,0.72)] cursor-pointer min-h-[32px]">
+      {formatted || "\u00A0"}
+    </div>
+  );
+}
+
+/* ── Checkbox cell ────────────────────────────────────────────────────── */
+
+function CheckboxCell({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-center h-[32px]" onClick={(e) => e.stopPropagation()}>
+      <div
+        onClick={() => onChange(!checked)}
+        className={`w-[16px] h-[16px] rounded-[3px] border cursor-pointer flex items-center justify-center transition-colors ${
+          checked
+            ? "bg-[#2383e2] border-[#2383e2]"
+            : "border-[rgba(255,255,255,0.282)] hover:border-[rgba(255,255,255,0.45)]"
+        }`}
+      >
+        {checked && (
+          <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+            <path d="M3 7L6 10L11 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Column config ────────────────────────────────────────────────────── */
+
+const COL_WIDTHS: Record<string, number> = {
+  "Task name": 340,
+  STATUS: 200,
+  CLIENTS: 160,
+  Priority: 120,
+  Teammate: 130,
+  Managers: 130,
+  Due: 140,
+  "Done ?": 60,
+  "Secondary Status": 160,
+  Description: 200,
+};
+
+/* ── Main table ───────────────────────────────────────────────────────── */
+
+const TaskTableView = memo(({
+  tasks,
+  onTaskClick,
+  onDelete,
+  onNewTask,
+  statusOptions,
+  priorityOptions,
+  teammateOptions,
+  visibleColumns,
+  groupBy,
+}: Props) => {
+  const update = useUpdateTask();
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+
+  const setStatus = useCallback((id: string, name: string) => {
+    update.mutate({ id, properties: { STATUS: { status: { name } } } });
+  }, [update]);
+  const setPriority = useCallback((id: string, name: string) => {
+    update.mutate({ id, properties: { Priority: { select: { name } } } });
+  }, [update]);
+  const setTeammate = useCallback((id: string, name: string) => {
+    update.mutate({ id, properties: { Teammate: { select: { name } } } });
+  }, [update]);
+  const setTitle = useCallback((id: string, title: string) => {
+    update.mutate({ id, properties: { "Task name": { title: [{ text: { content: title } }] } } });
+  }, [update]);
+  const setClient = useCallback((id: string, client: string) => {
+    update.mutate({ id, properties: { CLIENTS: { rich_text: [{ text: { content: client } }] } } });
+  }, [update]);
+  const setDueDate = useCallback((id: string, date: string | null) => {
+    update.mutate({ id, properties: { Due: date ? { date: { start: date } } : { date: null } } });
+  }, [update]);
+  const setCheckbox = useCallback((id: string, checked: boolean) => {
+    update.mutate({ id, properties: { "Done ?": { checkbox: checked } } });
+  }, [update]);
+
+  const renderCell = (task: NotionTask, col: string) => {
+    const p = task.properties;
+    switch (col) {
+      case "Task name":
+        return (
+          <InlineText
+            value={getTitle(p)}
+            onSave={(v) => setTitle(task.id, v)}
+            strikethrough={getCheckbox(p)}
+          />
+        );
+      case "STATUS":
+        return <SelectCell current={getStatus(p)} options={statusOptions} onSelect={(n) => setStatus(task.id, n)} />;
+      case "CLIENTS":
+        return <InlineText value={getClient(p)} onSave={(v) => setClient(task.id, v)} />;
+      case "Priority":
+        return <SelectCell current={getPriority(p)} options={priorityOptions} onSelect={(n) => setPriority(task.id, n)} />;
+      case "Teammate":
+        return <SelectCell current={getTeammate(p)} options={teammateOptions} onSelect={(n) => setTeammate(task.id, n)} />;
+      case "Managers":
+        return <Avatars people={getManagers(p)} />;
+      case "Due":
+        return <DateCell value={getDue(p)} onSave={(v) => setDueDate(task.id, v)} />;
+      case "Done ?":
+        return <CheckboxCell checked={getCheckbox(p)} onChange={(v) => setCheckbox(task.id, v)} />;
+      case "Secondary Status": {
+        const ss = getSecondaryStatus(p);
+        return ss ? <Tag name={ss.name} color={ss.color} /> : null;
+      }
+      case "Description":
+        return (
+          <div className="text-[14px] leading-[32px] text-[rgba(255,255,255,0.55)] truncate">
+            {getDescription(p) || "\u00A0"}
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  // ── Grouping ─────────────────────────────────────────────────────────
+  const groups: { label: string; color?: string; tasks: NotionTask[] }[] = [];
+  if (groupBy === "STATUS") {
+    const map = new Map<string, NotionTask[]>();
+    const order: string[] = [];
+    for (const t of tasks) {
+      const s = getStatus(t.properties);
+      const key = s?.name || "No status";
+      if (!map.has(key)) { map.set(key, []); order.push(key); }
+      map.get(key)!.push(t);
+    }
+    for (const key of order) {
+      const s = tasks.find(t => getStatus(t.properties)?.name === key);
+      groups.push({ label: key, color: getStatus(s!.properties)?.color, tasks: map.get(key)! });
+    }
+  } else if (groupBy === "Priority") {
+    const map = new Map<string, NotionTask[]>();
+    const order: string[] = [];
+    for (const t of tasks) {
+      const p = getPriority(t.properties);
+      const key = p?.name || "No priority";
+      if (!map.has(key)) { map.set(key, []); order.push(key); }
+      map.get(key)!.push(t);
+    }
+    for (const key of order) {
+      const p = tasks.find(t => getPriority(t.properties)?.name === key);
+      groups.push({ label: key, color: getPriority(p!.properties)?.color, tasks: map.get(key)! });
+    }
+  } else if (groupBy === "Teammate") {
+    const map = new Map<string, NotionTask[]>();
+    const order: string[] = [];
+    for (const t of tasks) {
+      const tm = getTeammate(t.properties);
+      const key = tm?.name || "No teammate";
+      if (!map.has(key)) { map.set(key, []); order.push(key); }
+      map.get(key)!.push(t);
+    }
+    for (const key of order) groups.push({ label: key, tasks: map.get(key)! });
+  } else {
+    groups.push({ label: "", tasks });
+  }
+
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  return (
+    <div className="w-full overflow-x-auto">
+      {/* Column headers */}
+      <div className="flex border-b border-[rgba(255,255,255,0.094)]" style={{ minWidth: visibleColumns.reduce((a, c) => a + (COL_WIDTHS[c] || 140), 0) + 44 }}>
+        {visibleColumns.map((col) => (
+          <div
+            key={col}
+            className="flex items-center gap-[6px] px-[8px] h-[33px] text-[12px] text-[rgba(255,255,255,0.443)] border-r border-[rgba(255,255,255,0.055)] select-none shrink-0"
+            style={{ width: COL_WIDTHS[col] || 140 }}
+          >
+            <span className="truncate">{col === "Done ?" ? "Done" : col}</span>
+          </div>
+        ))}
+        <div className="w-[44px] shrink-0" />
+      </div>
+
+      {/* Groups + rows */}
+      {groups.map((group) => (
+        <div key={group.label || "__all"}>
+          {/* Group header */}
+          {groupBy && (
+            <div
+              className="flex items-center gap-[6px] h-[34px] px-[8px] cursor-pointer hover:bg-[rgba(255,255,255,0.024)] select-none sticky top-0 bg-background z-[1]"
+              onClick={() => setCollapsed((prev) => {
+                const n = new Set(prev);
+                n.has(group.label) ? n.delete(group.label) : n.add(group.label);
+                return n;
+              })}
+            >
+              {collapsed.has(group.label)
+                ? <ChevronRight className="h-[12px] w-[12px] text-[rgba(255,255,255,0.443)]" />
+                : <ChevronDown className="h-[12px] w-[12px] text-[rgba(255,255,255,0.443)]" />
+              }
+              {group.color && (
+                <span className="w-[8px] h-[8px] rounded-full shrink-0" style={{ backgroundColor: notionDotColor(group.color) }} />
+              )}
+              <span className="text-[14px] font-medium text-[rgba(255,255,255,0.81)]">{group.label}</span>
+              <span className="text-[12px] text-[rgba(255,255,255,0.282)]">{group.tasks.length}</span>
+            </div>
+          )}
+
+          {/* Rows */}
+          {!collapsed.has(group.label) && group.tasks.map((task) => (
+            <div
+              key={task.id}
+              className="flex border-b border-[rgba(255,255,255,0.055)] hover:bg-[rgba(255,255,255,0.024)] transition-colors group/row"
+              style={{ minWidth: visibleColumns.reduce((a, c) => a + (COL_WIDTHS[c] || 140), 0) + 44 }}
+              onMouseEnter={() => setHoveredRow(task.id)}
+              onMouseLeave={() => setHoveredRow(null)}
+            >
+              {visibleColumns.map((col) => (
+                <div
+                  key={col}
+                  className={`px-[8px] border-r border-[rgba(255,255,255,0.055)] shrink-0 flex items-center min-h-[34px] ${
+                    col === "Task name" ? "cursor-pointer" : ""
+                  }`}
+                  style={{ width: COL_WIDTHS[col] || 140 }}
+                  onClick={col === "Task name" ? () => onTaskClick(task) : undefined}
+                >
+                  {renderCell(task, col)}
+                </div>
+              ))}
+              {/* Row actions */}
+              <div className="w-[44px] shrink-0 flex items-center justify-center">
+                {hoveredRow === task.id && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger className="p-[4px] rounded-[3px] hover:bg-[rgba(255,255,255,0.055)] outline-none">
+                      <MoreHorizontal className="h-[14px] w-[14px] text-[rgba(255,255,255,0.38)]" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-[160px]">
+                      <DropdownMenuItem onClick={() => onTaskClick(task)}>
+                        <ExternalLink className="h-[14px] w-[14px] mr-[8px]" /> Open
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => window.open(task.url, "_blank")}>
+                        <ExternalLink className="h-[14px] w-[14px] mr-[8px]" /> Open in Notion
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onDelete(task.id)} className="text-red-400 focus:text-red-400">
+                        <Trash2 className="h-[14px] w-[14px] mr-[8px]" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {/* New row */}
+      <div
+        className="flex items-center h-[34px] px-[8px] cursor-pointer hover:bg-[rgba(255,255,255,0.024)] transition-colors"
+        onClick={onNewTask}
+      >
+        <Plus className="h-[14px] w-[14px] text-[rgba(255,255,255,0.282)] mr-[6px]" />
+        <span className="text-[14px] text-[rgba(255,255,255,0.282)]">New</span>
+      </div>
+    </div>
+  );
+});
 
 TaskTableView.displayName = "TaskTableView";
 export default TaskTableView;
