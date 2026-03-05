@@ -640,7 +640,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "google_ads_mutate",
     description:
-      "Mutate Google Ads resources — create, update, or remove campaigns, budgets, ad groups, ads, keywords, and more. Uses the Google Ads API v19 mutate endpoint with proper authentication (developer token + OAuth). Common operations:\n" +
+      "Mutate Google Ads resources — create, update, or remove campaigns, budgets, ad groups, ads, keywords, and more. Uses the Google Ads API v23 mutate endpoint with proper authentication (developer token + OAuth). Common operations:\n" +
       "- Pause/enable campaign: resource='campaigns', operations=[{update:{resourceName:'customers/{cid}/campaigns/{id}', status:'PAUSED'}, updateMask:'status'}]\n" +
       "- Update budget: resource='campaignBudgets', operations=[{update:{resourceName:'customers/{cid}/campaignBudgets/{bid}', amountMicros:'50000000'}, updateMask:'amount_micros'}]\n" +
       "- Add negative keyword: resource='campaignCriteria', operations=[{create:{campaign:'customers/{cid}/campaigns/{id}', negative:true, keyword:{text:'free',matchType:'BROAD'}}}]\n" +
@@ -656,7 +656,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         resource: {
           type: "string",
           description:
-            "Resource type to mutate. Common values: 'campaigns', 'campaignBudgets', 'adGroups', 'adGroupAds', 'adGroupCriteria', 'campaignCriteria', 'assets', 'adGroupAssets'. See Google Ads API v19 docs for full list.",
+            "Resource type to mutate. Common values: 'campaigns', 'campaignBudgets', 'adGroups', 'adGroupAds', 'adGroupCriteria', 'campaignCriteria', 'assets', 'adGroupAssets'. See Google Ads API v23 docs for full list.",
         },
         operations: {
           type: "array",
@@ -1007,7 +1007,7 @@ export async function executeTool(
         if (loginCustomerId) headers["login-customer-id"] = loginCustomerId.replace(/-/g, "");
 
         const resp = await fetch(
-          `https://googleads.googleapis.com/v19/customers/${customerId}/googleAds:search`,
+          `https://googleads.googleapis.com/v23/customers/${customerId}/googleAds:search`,
           { method: "POST", headers, body: JSON.stringify({ query }) }
         );
         const data = await resp.json() as { results?: unknown[]; error?: unknown };
@@ -1030,7 +1030,7 @@ export async function executeTool(
         if (loginCustomerId) headers["login-customer-id"] = loginCustomerId.replace(/-/g, "");
 
         const resp = await fetch(
-          "https://googleads.googleapis.com/v19/customers:listAccessibleCustomers",
+          "https://googleads.googleapis.com/v23/customers:listAccessibleCustomers",
           { headers }
         );
         const data = await resp.json() as { resourceNames?: string[]; error?: unknown };
@@ -1043,7 +1043,7 @@ export async function executeTool(
         // (for MCC accounts, use the login customer ID)
         const seedId = (loginCustomerId ?? ids[0]).replace(/-/g, "");
         const nameResp = await fetch(
-          `https://googleads.googleapis.com/v19/customers/${seedId}/googleAds:search`,
+          `https://googleads.googleapis.com/v23/customers/${seedId}/googleAds:search`,
           {
             method: "POST",
             headers: { ...headers, "Content-Type": "application/json" },
@@ -1322,7 +1322,7 @@ export async function executeTool(
         };
 
         const resp = await fetch(
-          `https://googleads.googleapis.com/v19/customers/${customerId}/${resource}:mutate`,
+          `https://googleads.googleapis.com/v23/customers/${customerId}/${resource}:mutate`,
           { method: "POST", headers, body: JSON.stringify(mutateBody) }
         );
         const data = await resp.json();
