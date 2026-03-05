@@ -1310,31 +1310,48 @@ export async function executeTool(
         };
         if (loginCustomerId) headers["login-customer-id"] = loginCustomerId.replace(/-/g, "");
 
-        // Build the mutation request body
-        const mutateBody: Record<string, unknown> = {
-          operations: operations.map((op) => {
-            const mutateOp: Record<string, unknown> = {};
-            if (op.create) mutateOp.create = op.create;
-            if (op.update) mutateOp.update = op.update;
-            if (op.remove) mutateOp.remove = op.remove;
-            if (op.updateMask) mutateOp.updateMask = op.updateMask;
-            return mutateOp;
-          }),
-        };
+        // Build mapped operations
+        const mappedOps = operations.map((op) => {
+          const mutateOp: Record<string, unknown> = {};
+          if (op.create) mutateOp.create = op.create;
+          if (op.update) mutateOp.update = op.update;
+          if (op.remove) mutateOp.remove = op.remove;
+          if (op.updateMask) mutateOp.updateMask = op.updateMask;
+          return mutateOp;
+        });
 
-        const resp = await fetch(
-          `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${customerId}/${resource}:mutate`,
-          { method: "POST", headers, body: JSON.stringify(mutateBody) }
-        );
-        const data = await resp.json();
+        // Auto-batch: send in chunks of 5 to avoid Google 500 errors on bulk mutations
+        const BATCH_SIZE = 5;
+        const allResults: unknown[] = [];
+        const errors: string[] = [];
 
-        if (!resp.ok) {
-          const errStr = JSON.stringify(data, null, 2);
-          return `Google Ads mutation error (${resp.status}):\n${errStr.slice(0, 4000)}`;
+        for (let i = 0; i < mappedOps.length; i += BATCH_SIZE) {
+          const batch = mappedOps.slice(i, i + BATCH_SIZE);
+          const mutateBody = { operations: batch };
+
+          const resp = await fetch(
+            `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${customerId}/${resource}:mutate`,
+            { method: "POST", headers, body: JSON.stringify(mutateBody) }
+          );
+          const data = await resp.json();
+
+          if (!resp.ok) {
+            errors.push(`Batch ${Math.floor(i / BATCH_SIZE) + 1} error (${resp.status}): ${JSON.stringify(data).slice(0, 1000)}`);
+          } else if (data.results) {
+            allResults.push(...data.results);
+          }
         }
 
-        const resultStr = JSON.stringify(data, null, 2);
-        return `Mutation successful!\n${resultStr.slice(0, 8000)}`;
+        if (errors.length > 0 && allResults.length === 0) {
+          return `Google Ads mutation error:\n${errors.join("\n").slice(0, 4000)}`;
+        }
+
+        const summary = allResults.length > 0
+          ? `Mutation successful! ${allResults.length}/${mappedOps.length} operations completed.`
+          : `Mutation completed.`;
+        const resultStr = JSON.stringify({ results: allResults }, null, 2);
+        const errNote = errors.length > 0 ? `\n\nPartial errors (${errors.length} batch(es) failed):\n${errors.join("\n").slice(0, 1000)}` : "";
+        return `${summary}\n${resultStr.slice(0, 4000)}${errNote}`;
       }
 
       case "meta_ads_manage": {

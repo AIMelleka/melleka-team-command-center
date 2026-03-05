@@ -506,10 +506,15 @@ async function runChat(
         const result = await executeTool(block.name, parsedInput, memberName);
         write?.({ type: "tool_result", name: block.name, output: result.slice(0, 500) });
 
+        // Cap tool results to prevent context bloat over many iterations
+        const trimmedResult = result.length > 6000
+          ? result.slice(0, 6000) + "\n[...truncated — full result was " + result.length + " chars]"
+          : result;
+
         toolResultContent.push({
           type: "tool_result",
           tool_use_id: block.id,
-          content: result,
+          content: trimmedResult,
         });
       }
 
