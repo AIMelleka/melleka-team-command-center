@@ -58,11 +58,9 @@ type EditingState = { id: string; title: string } | null;
 const tools = [
   { label: 'Proposal Builder', route: '/proposal-builder' },
   { label: 'SEO Writer', route: '/seo-writer' },
-  { label: 'Ad Generator', route: '/ad-generator' },
-  { label: 'Image Studio', route: '/image-generator' },
+  { label: 'Creative Studio', route: '/creative-studio' },
   { label: 'QA Bot', route: '/qa-bot' },
   { label: 'Email Writer', route: '/email-writer' },
-  { label: 'Video Generator', route: '/video-generator' },
   { label: 'Client Update', route: '/client-update' },
   { label: 'Client Health', route: '/client-health' },
   { label: 'Decks', route: '/decks' },
@@ -130,9 +128,11 @@ const Index = () => {
   const [showMentionPopover, setShowMentionPopover] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
 
-  // SSE resilience
+  // SSE resilience — auto-reconnect up to 2 times before showing manual resume
   const [disconnected, setDisconnected] = useState(false);
   const lastUserMessageRef = useRef<string>('');
+  const reconnectAttemptsRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 2;
 
   // Refs
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -337,6 +337,7 @@ const Index = () => {
             }
             case 'done':
               assistant.streaming = false;
+              reconnectAttemptsRef.current = 0; // Reset on successful completion
               if (event.conversationId && !activeConvoId) {
                 setActiveConvoId(event.conversationId);
               }
@@ -359,16 +360,34 @@ const Index = () => {
       currentMentions.length > 0 ? currentMentions : undefined,
       () => {
         // SSE stream ended without a "done" event — connection dropped
-        setDisconnected(true);
-        setMessages(prev => {
-          const msgs = [...prev];
-          const aIdx = msgs.findIndex(m => m.id === assistantId);
-          if (aIdx === -1) return prev;
-          const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts], streaming: false };
-          assistant.parts.push({ type: 'text', content: '\n\n**Connection lost.** Click Resume to continue.' });
-          msgs[aIdx] = assistant;
-          return msgs;
-        });
+        reconnectAttemptsRef.current += 1;
+        if (reconnectAttemptsRef.current <= MAX_RECONNECT_ATTEMPTS && activeConvoId) {
+          // Auto-reconnect: send "continue" to the same conversation
+          console.log(`[SSE] Connection dropped, auto-reconnecting (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})...`);
+          setMessages(prev => {
+            const msgs = [...prev];
+            const aIdx = msgs.findIndex(m => m.id === assistantId);
+            if (aIdx === -1) return prev;
+            const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts] };
+            assistant.parts.push({ type: 'text', content: '\n\n*(reconnecting...)*\n\n' });
+            msgs[aIdx] = assistant;
+            return msgs;
+          });
+          setTimeout(() => sendMessage('continue from where you left off'), 2000);
+        } else {
+          // Exhausted auto-reconnect attempts — show manual resume
+          setDisconnected(true);
+          reconnectAttemptsRef.current = 0;
+          setMessages(prev => {
+            const msgs = [...prev];
+            const aIdx = msgs.findIndex(m => m.id === assistantId);
+            if (aIdx === -1) return prev;
+            const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts], streaming: false };
+            assistant.parts.push({ type: 'text', content: '\n\nConnection lost. Click Resume to continue.' });
+            msgs[aIdx] = assistant;
+            return msgs;
+          });
+        }
       },
     );
 

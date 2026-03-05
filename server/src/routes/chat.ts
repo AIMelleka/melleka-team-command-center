@@ -48,10 +48,10 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
   res.setHeader("X-Accel-Buffering", "no"); // Disable proxy buffering (nginx/Railway)
   res.flushHeaders();
 
-  // Send keepalive pings every 15s to prevent Railway/proxy timeout
+  // Send keepalive pings every 5s to prevent Railway/proxy timeout
   const keepalive = setInterval(() => {
     try { res.write(": keepalive\n\n"); } catch { /* connection gone */ }
-  }, 15000);
+  }, 5000);
 
   // Track if client disconnected so we still save the response
   let clientDisconnected = false;
