@@ -198,7 +198,9 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
     }
 
     // Stream response from Claude
+    console.log(`[chat] ${memberName} | starting streamChat with ${messages.length} messages`);
     const fullResponse = await streamChat(memberName, messages, res);
+    console.log(`[chat] ${memberName} | streamChat done, response length=${fullResponse.length}, disconnected=${clientDisconnected}`);
 
     // Always save assistant response (even if client disconnected mid-stream)
     if (fullResponse.trim()) {

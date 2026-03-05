@@ -4,7 +4,7 @@ WORKDIR /app/server
 COPY server/package*.json ./
 RUN npm install
 COPY server/ ./
-RUN npx tsc
+RUN npx tsc && cp -r src/data dist/data 2>/dev/null || true
 
 # Stage 2: Production image
 FROM node:20-alpine

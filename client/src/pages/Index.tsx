@@ -130,6 +130,10 @@ const Index = () => {
   const [showMentionPopover, setShowMentionPopover] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
 
+  // SSE resilience
+  const [disconnected, setDisconnected] = useState(false);
+  const lastUserMessageRef = useRef<string>('');
+
   // Refs
   const editInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -254,6 +258,8 @@ const Index = () => {
   const sendMessage = useCallback(async (text?: string) => {
     const msgText = text || input.trim();
     if ((!msgText && files.length === 0) || isStreaming) return;
+    lastUserMessageRef.current = msgText;
+    setDisconnected(false);
 
     // Build display text
     let displayText = msgText;
@@ -351,6 +357,19 @@ const Index = () => {
       },
       currentFiles.length > 0 ? currentFiles : undefined,
       currentMentions.length > 0 ? currentMentions : undefined,
+      () => {
+        // SSE stream ended without a "done" event — connection dropped
+        setDisconnected(true);
+        setMessages(prev => {
+          const msgs = [...prev];
+          const aIdx = msgs.findIndex(m => m.id === assistantId);
+          if (aIdx === -1) return prev;
+          const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts], streaming: false };
+          assistant.parts.push({ type: 'text', content: '\n\n**Connection lost.** Click Resume to continue.' });
+          msgs[aIdx] = assistant;
+          return msgs;
+        });
+      },
     );
 
     abortRef.current = abort;
@@ -746,6 +765,24 @@ const Index = () => {
                     </div>
                   </div>
                 ))}
+                {/* Resume button when SSE connection drops */}
+                {disconnected && !isStreaming && (
+                  <div className="flex gap-2 md:gap-3">
+                    <div className="w-6 md:w-7 shrink-0" />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setDisconnected(false);
+                        sendMessage(lastUserMessageRef.current);
+                      }}
+                      className="text-xs"
+                    >
+                      <ArrowRight className="h-3.5 w-3.5 mr-1.5" />
+                      Resume
+                    </Button>
+                  </div>
+                )}
                 <div ref={messagesEndRef} />
               </div>
             </div>

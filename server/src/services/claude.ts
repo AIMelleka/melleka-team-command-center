@@ -30,7 +30,8 @@ async function loadMarketingSkills(): Promise<string> {
       "utf-8"
     );
     return _marketingSkillsCache;
-  } catch {
+  } catch (err) {
+    console.warn("[claude] marketing-skills.md not found:", (err as Error).message);
     return "(Marketing skills not found)";
   }
 }
@@ -399,11 +400,13 @@ async function runChat(
     loadMarketingSkills(),
   ]);
   const systemPrompt = buildSystemPrompt(memberName, memory, claudeMd, marketingSkills);
+  console.log(`[runChat] ${memberName} | system prompt length=${systemPrompt.length}, history=${messages.length} messages`);
   let fullResponse = "";
   const currentMessages = [...messages];
 
   try {
     for (let iteration = 0; iteration < 20; iteration++) {
+      console.log(`[runChat] ${memberName} | iteration ${iteration}, messages=${currentMessages.length}`);
       let stream;
       try {
         stream = await client.messages.stream({

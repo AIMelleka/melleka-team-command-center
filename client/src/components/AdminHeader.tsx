@@ -21,7 +21,6 @@ import {
   Sparkles,
   Brain,
   Building2,
-  ExternalLink,
 } from 'lucide-react';
 import teamPitLogo from '@/assets/team-pit-logo.png';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -35,7 +34,7 @@ import {
 } from '@/components/ui/sheet';
 import { useState } from 'react';
 
-const navItems: { path: string; label: string; icon: typeof Home; external?: boolean }[] = [
+const navItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/', label: 'Home', icon: Home },
   { path: '/client-health', label: 'Command Center', icon: Activity },
   { path: '/proposals', label: 'Proposals', icon: FolderOpen },
@@ -52,7 +51,7 @@ const navItems: { path: string; label: string; icon: typeof Home; external?: boo
   { path: '/client-settings', label: 'Clients', icon: Building2 },
   { path: '/strategist-settings', label: 'Strategist', icon: Brain },
   { path: '/admin', label: 'Admin Settings', icon: Settings },
-  { path: 'https://server-production-0486.up.railway.app/', label: 'Super Agent', icon: Bot, external: true },
+  { path: '/', label: 'Super Agent', icon: Bot },
 ];
 
 const AdminHeader = memo(() => {
@@ -67,12 +66,8 @@ const AdminHeader = memo(() => {
     navigate('/login');
   }, [signOut, navigate]);
 
-  const handleNav = useCallback((path: string, external?: boolean) => {
-    if (external) {
-      window.open(path, '_blank', 'noopener,noreferrer');
-    } else {
-      navigate(path);
-    }
+  const handleNav = useCallback((path: string) => {
+    navigate(path);
     setSheetOpen(false);
   }, [navigate]);
 
@@ -96,7 +91,7 @@ const AdminHeader = memo(() => {
 
         {/* Desktop Navigation - Quick Links */}
         <nav className="hidden lg:flex items-center gap-1 flex-1">
-          {navItems.filter(i => !i.external).slice(0, 6).map((item) => {
+          {navItems.slice(0, 6).map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
             return (
@@ -141,11 +136,11 @@ const AdminHeader = memo(() => {
                 <nav className="flex-1 overflow-y-auto p-2">
                   {navItems.map((item) => {
                     const Icon = item.icon;
-                    const isActive = !item.external && location.pathname === item.path;
+                    const isActive = location.pathname === item.path;
                     return (
                       <button
                         key={item.path}
-                        onClick={() => handleNav(item.path, item.external)}
+                        onClick={() => handleNav(item.path)}
                         className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm transition-colors ${
                           isActive
                             ? 'bg-accent text-accent-foreground font-medium'
@@ -154,7 +149,7 @@ const AdminHeader = memo(() => {
                       >
                         <Icon className="h-4 w-4 shrink-0" />
                         {item.label}
-                        {item.external && <ExternalLink className="h-3 w-3 ml-auto shrink-0" />}
+
                       </button>
                     );
                   })}
@@ -185,11 +180,11 @@ const AdminHeader = memo(() => {
                   <nav className="overflow-y-auto p-2">
                     {navItems.map((item) => {
                       const Icon = item.icon;
-                      const isActive = !item.external && location.pathname === item.path;
+                      const isActive = location.pathname === item.path;
                       return (
                         <button
                           key={item.path}
-                          onClick={() => handleNav(item.path, item.external)}
+                          onClick={() => handleNav(item.path)}
                           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                             isActive
                               ? 'bg-accent text-accent-foreground font-medium'
@@ -198,7 +193,7 @@ const AdminHeader = memo(() => {
                         >
                           <Icon className="h-4 w-4 shrink-0" />
                           {item.label}
-                          {item.external && <ExternalLink className="h-3 w-3 ml-auto shrink-0" />}
+  
                         </button>
                       );
                     })}

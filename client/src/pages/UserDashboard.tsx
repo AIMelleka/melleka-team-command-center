@@ -4,7 +4,7 @@ import { useUserPermissions } from '@/hooks/useUserPermissions';
 import { TOOL_CATALOG, CATEGORY_LABELS } from '@/data/toolCatalog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, Lock, Loader2, Bot, ExternalLink } from 'lucide-react';
+import { LogOut, Lock, Loader2, Bot } from 'lucide-react';
 import { MFASettings } from '@/components/MFASettings';
 import GenieLamp from '@/components/icons/GenieLamp';
 import mellekaLogo from '@/assets/melleka-logo.png';
@@ -110,12 +110,7 @@ const UserDashboard = () => {
             <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">
               Super Agent
             </h2>
-            <a
-              href="https://server-production-0486.up.railway.app/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block"
-            >
+            <Link to="/" className="block">
               <Card className="hover:border-primary/50 hover:shadow-lg transition-all cursor-pointer group">
                 <CardHeader className="pb-2">
                   <div className="flex items-center gap-3">
@@ -123,7 +118,6 @@ const UserDashboard = () => {
                       <Bot className="h-5 w-5 text-primary" />
                     </div>
                     <CardTitle className="text-base">Super Agent</CardTitle>
-                    <ExternalLink className="h-4 w-4 text-muted-foreground ml-auto" />
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -132,7 +126,7 @@ const UserDashboard = () => {
                   </CardDescription>
                 </CardContent>
               </Card>
-            </a>
+            </Link>
           </div>
 
           {/* Security Settings */}

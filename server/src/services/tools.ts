@@ -792,6 +792,7 @@ export async function executeTool(
 ): Promise<string> {
   const tmpDir = memberTmpDir(memberName);
 
+  console.log(`[tool] ${memberName} | ${toolName}(${JSON.stringify(toolInput).slice(0, 200)})`);
   try {
     switch (toolName) {
       case "read_file": {
@@ -1413,7 +1414,7 @@ export async function executeTool(
           .from("managed_clients")
           .select("client_name, domain, ga4_property_id, industry, tier, is_active, primary_conversion_goal");
         if (clientName) {
-          clientQuery = clientQuery.ilike("client_name", clientName);
+          clientQuery = clientQuery.ilike("client_name", `%${clientName}%`);
         } else {
           clientQuery = clientQuery.eq("is_active", true);
         }
@@ -1570,6 +1571,7 @@ export async function executeTool(
         return `Unknown tool: ${toolName}`;
     }
   } catch (err) {
+    console.error(`[tool] ERROR ${toolName}:`, err instanceof Error ? err.message : String(err));
     return `Error executing ${toolName}: ${err instanceof Error ? err.message : String(err)}`;
   }
 }

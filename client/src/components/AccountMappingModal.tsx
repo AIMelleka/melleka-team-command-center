@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Search, Plus, Trash2, Loader2, Check, Link, Settings } from 'lucide-react';
+import { X, Plus, Trash2, Loader2, Check, Link, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -23,34 +23,25 @@ interface Props {
   onSaved: () => void;
 }
 
-const ALL_PLATFORMS: Record<string, string> = {
-  google_ads: 'Google Ads',
-  meta_ads: 'Meta Ads',
-  tiktok_ads: 'TikTok Ads',
-  bing_ads: 'Microsoft Ads',
-  linkedin_ads: 'LinkedIn Ads',
-};
-
-const PLATFORM_LABELS: Record<string, string> = { ...ALL_PLATFORMS };
-
-const PLATFORM_COLORS: Record<string, string> = {
-  google_ads: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
-  meta_ads: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20',
-  tiktok_ads: 'bg-pink-500/15 text-pink-400 border-pink-500/20',
-  bing_ads: 'bg-teal-500/15 text-teal-400 border-teal-500/20',
-  linkedin_ads: 'bg-sky-500/15 text-sky-400 border-sky-500/20',
-};
+const PLATFORMS = [
+  { key: 'google_ads', smKey: 'AW', label: 'Google Ads', color: 'bg-blue-500/15 text-blue-400 border-blue-500/20' },
+  { key: 'meta_ads', smKey: 'FA', label: 'Meta Ads', color: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20' },
+  { key: 'tiktok_ads', smKey: 'TT', label: 'TikTok Ads', color: 'bg-pink-500/15 text-pink-400 border-pink-500/20' },
+  { key: 'bing_ads', smKey: 'BI', label: 'Microsoft Ads', color: 'bg-teal-500/15 text-teal-400 border-teal-500/20' },
+  { key: 'linkedin_ads', smKey: 'LI', label: 'LinkedIn Ads', color: 'bg-sky-500/15 text-sky-400 border-sky-500/20' },
+];
 
 export default function AccountMappingModal({ clientName, smAccounts, onClose, onSaved }: Props) {
   const { toast } = useToast();
   const [mappings, setMappings] = useState<AccountMapping[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedPlatform, setSelectedPlatform] = useState<string>('all');
-  const [showChannelManager, setShowChannelManager] = useState(false);
-  const [newChannelKey, setNewChannelKey] = useState('');
-  const [newChannelLabel, setNewChannelLabel] = useState('');
+
+  // Track which platforms allow multiple accounts (e.g. V1 / V2)
+  const [multiAccountPlatforms, setMultiAccountPlatforms] = useState<Set<string>>(new Set());
+
+  // Pending selection per platform (for dropdown)
+  const [pendingSelections, setPendingSelections] = useState<Record<string, string>>({});
 
   // Load existing mappings
   useEffect(() => {
@@ -60,84 +51,59 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
         .from('client_account_mappings')
         .select('*')
         .eq('client_name', clientName);
-      if (!error && data) setMappings(data as AccountMapping[]);
+      if (!error && data) {
+        setMappings(data as AccountMapping[]);
+        // Auto-enable multi-account for platforms that already have 2+ accounts
+        const counts: Record<string, number> = {};
+        for (const m of data) {
+          counts[m.platform] = (counts[m.platform] || 0) + 1;
+        }
+        const multiPlatforms = new Set<string>();
+        for (const [platform, count] of Object.entries(counts)) {
+          if (count > 1) multiPlatforms.add(platform);
+        }
+        setMultiAccountPlatforms(multiPlatforms);
+      }
       setIsLoading(false);
     })();
   }, [clientName]);
 
-  // Derive active channels from mappings + smAccounts
-  const activeChannels = useMemo(() => {
-    const channels = new Map<string, string>(); // key -> label
-    // From smAccounts (discovered)
-    for (const key of Object.keys(smAccounts)) {
-      channels.set(key, PLATFORM_LABELS[key] || key);
-    }
-    // From existing mappings (could include custom channels)
-    for (const m of mappings) {
-      if (!channels.has(m.platform)) {
-        channels.set(m.platform, PLATFORM_LABELS[m.platform] || m.platform);
-      }
-    }
-    return channels;
-  }, [smAccounts, mappings]);
-
-  const addChannel = () => {
-    const key = newChannelKey.trim().toLowerCase().replace(/\s+/g, '_');
-    const label = newChannelLabel.trim() || key;
-    if (!key) return;
-    if (activeChannels.has(key)) {
-      toast({ title: 'Channel already exists', variant: 'destructive' });
-      return;
-    }
-    // Register label globally so it persists in session
-    PLATFORM_LABELS[key] = label;
-    // Create a dummy mapping to persist this channel for the client
-    // The user can then add actual accounts under it
-    toast({ title: `Added "${label}" channel` });
-    setNewChannelKey('');
-    setNewChannelLabel('');
+  // Get available accounts for a platform from Supermetrics
+  const getAccountsForPlatform = (platformKey: string): SupermetricsAccount[] => {
+    const platform = PLATFORMS.find(p => p.key === platformKey);
+    if (!platform) return [];
+    // Try the Supermetrics key first (AW, FA, etc.), then fall back to platform key
+    return smAccounts[platform.smKey] || smAccounts[platformKey] || [];
   };
 
-  const removeChannel = async (platformKey: string) => {
-    // Remove all mappings for this channel
-    const toRemove = mappings.filter(m => m.platform === platformKey);
-    for (const m of toRemove) {
-      await supabase.from('client_account_mappings').delete().eq('id', m.id);
-    }
-    setMappings(prev => prev.filter(m => m.platform !== platformKey));
-    toast({ title: `Removed ${PLATFORM_LABELS[platformKey] || platformKey} channel and its ${toRemove.length} account(s)` });
+  // Get mapped accounts for a platform
+  const getMappingsForPlatform = (platformKey: string): AccountMapping[] => {
+    return mappings.filter(m => m.platform === platformKey);
   };
 
-  const mappedAccountIds = useMemo(() => new Set(mappings.map(m => `${m.platform}:${m.account_id}`)), [mappings]);
+  // Which accounts are already mapped for this platform
+  const getMappedIds = (platformKey: string): Set<string> => {
+    return new Set(getMappingsForPlatform(platformKey).map(m => m.account_id));
+  };
 
-  const availableAccounts = useMemo(() => {
-    const results: { platform: string; account: SupermetricsAccount }[] = [];
-    for (const [platform, accounts] of Object.entries(smAccounts)) {
-      for (const acc of accounts) {
-        if (mappedAccountIds.has(`${platform}:${acc.id}`)) continue;
-        if (selectedPlatform !== 'all' && platform !== selectedPlatform) continue;
-        if (searchQuery) {
-          const q = searchQuery.toLowerCase();
-          if (!acc.name.toLowerCase().includes(q) && !acc.id.toLowerCase().includes(q)) continue;
-        }
-        results.push({ platform, account: acc });
-      }
-    }
-    return results.sort((a, b) => a.account.name.localeCompare(b.account.name));
-  }, [smAccounts, mappedAccountIds, searchQuery, selectedPlatform]);
+  const addMapping = async (platformKey: string, accountId: string) => {
+    const accounts = getAccountsForPlatform(platformKey);
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) return;
 
-  const addMapping = async (platform: string, account: SupermetricsAccount) => {
     setIsSaving(true);
     const { data, error } = await supabase
       .from('client_account_mappings')
-      .insert({ client_name: clientName, platform, account_id: account.id, account_name: account.name })
+      .insert({ client_name: clientName, platform: platformKey, account_id: account.id, account_name: account.name })
       .select()
       .single();
     if (error) {
-      toast({ title: 'Failed to add mapping', description: error.message, variant: 'destructive' });
+      toast({ title: 'Failed to add account', description: error.message, variant: 'destructive' });
     } else if (data) {
       setMappings(prev => [...prev, data as AccountMapping]);
+      toast({ title: `Linked ${account.name}` });
     }
+    setPendingSelections(prev => ({ ...prev, [platformKey]: '' }));
     setIsSaving(false);
   };
 
@@ -150,7 +116,38 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
       toast({ title: 'Failed to remove', variant: 'destructive' });
     } else {
       setMappings(prev => prev.filter(m => m.id !== mapping.id));
+      toast({ title: `Removed ${mapping.account_name || mapping.account_id}` });
     }
+  };
+
+  // Replace the single mapping for a platform (when NOT in multi-account mode)
+  const replaceMapping = async (platformKey: string, accountId: string) => {
+    const accounts = getAccountsForPlatform(platformKey);
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) return;
+
+    setIsSaving(true);
+
+    // Remove existing mappings for this platform
+    const existing = getMappingsForPlatform(platformKey);
+    for (const m of existing) {
+      await supabase.from('client_account_mappings').delete().eq('id', m.id);
+    }
+
+    // Insert new
+    const { data, error } = await supabase
+      .from('client_account_mappings')
+      .insert({ client_name: clientName, platform: platformKey, account_id: account.id, account_name: account.name })
+      .select()
+      .single();
+
+    if (error) {
+      toast({ title: 'Failed to link account', description: error.message, variant: 'destructive' });
+    } else if (data) {
+      setMappings(prev => [...prev.filter(m => m.platform !== platformKey), data as AccountMapping]);
+      toast({ title: `Linked ${account.name}` });
+    }
+    setIsSaving(false);
   };
 
   const handleClose = () => {
@@ -158,187 +155,182 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     onClose();
   };
 
-  const platforms = [...activeChannels.keys()];
+  // Check if there are any Supermetrics accounts at all
+  const hasAnyAccounts = PLATFORMS.some(p => getAccountsForPlatform(p.key).length > 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={handleClose}>
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
             <h2 className="text-lg font-bold flex items-center gap-2">
               <Link className="h-5 w-5 text-primary" />
-              {showChannelManager ? 'Manage Channels' : 'Map Ad Accounts'}
+              Link Ad Accounts
             </h2>
             <p className="text-sm text-muted-foreground mt-0.5">{clientName}</p>
           </div>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" onClick={() => setShowChannelManager(!showChannelManager)} className="text-xs gap-1">
-              <Settings className="h-4 w-4" />
-              {showChannelManager ? 'Back to Accounts' : 'Channels'}
-            </Button>
-            <Button variant="ghost" size="icon" onClick={handleClose}>
-              <X className="h-5 w-5" />
-            </Button>
-          </div>
+          <Button variant="ghost" size="icon" onClick={handleClose}>
+            <X className="h-5 w-5" />
+          </Button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
-          {showChannelManager ? (
-            /* ===== CHANNEL MANAGER VIEW ===== */
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-sm font-semibold mb-3">Active Channels ({activeChannels.size})</h3>
-                <div className="space-y-2">
-                  {[...activeChannels.entries()].map(([key, label]) => {
-                    const count = mappings.filter(m => m.platform === key).length;
-                    const isDefault = key in ALL_PLATFORMS;
-                    return (
-                      <div key={key} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border group">
-                        <div className="flex items-center gap-3">
-                          <Badge variant="outline" className={`text-[10px] ${PLATFORM_COLORS[key] || 'bg-muted text-muted-foreground border-border'}`}>
-                            {label}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">{count} account{count !== 1 ? 's' : ''} mapped</span>
-                          {isDefault && <span className="text-[10px] text-muted-foreground/60">built-in</span>}
-                        </div>
-                        <Button
-                          variant="ghost" size="icon"
-                          className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
-                          onClick={() => { if (confirm(`Remove "${label}" and its ${count} mapped account(s)?`)) removeChannel(key); }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-sm font-semibold mb-3">Add Custom Channel</h3>
-                <div className="flex items-end gap-2">
-                  <div className="flex-1">
-                    <label className="text-xs text-muted-foreground mb-1 block">Channel Key</label>
-                    <Input
-                      value={newChannelKey}
-                      onChange={e => setNewChannelKey(e.target.value)}
-                      placeholder="e.g. snapchat_ads"
-                      className="h-9 text-sm"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="text-xs text-muted-foreground mb-1 block">Display Name</label>
-                    <Input
-                      value={newChannelLabel}
-                      onChange={e => setNewChannelLabel(e.target.value)}
-                      placeholder="e.g. Snapchat Ads"
-                      className="h-9 text-sm"
-                    />
-                  </div>
-                  <Button size="sm" onClick={addChannel} disabled={!newChannelKey.trim()} className="h-9">
-                    <Plus className="h-4 w-4 mr-1" /> Add
-                  </Button>
-                </div>
-                <p className="text-[10px] text-muted-foreground mt-2">Custom channels let you manually add account IDs for platforms not auto-discovered.</p>
-              </div>
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : !hasAnyAccounts ? (
+            <div className="text-center py-8 space-y-2">
+              <p className="text-sm text-muted-foreground">No ad accounts found from Supermetrics.</p>
+              <p className="text-xs text-muted-foreground">Make sure your Supermetrics API key is configured and has connected ad platforms.</p>
             </div>
           ) : (
-            /* ===== ACCOUNT MAPPING VIEW (existing) ===== */
-            <>
-          {/* Current Mappings */}
-          <div>
-            <h3 className="text-sm font-semibold mb-3">Mapped Accounts ({mappings.length})</h3>
-            {isLoading ? (
-              <div className="flex items-center justify-center py-6">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : mappings.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center bg-muted/20 rounded-lg">
-                No accounts mapped yet. Add accounts from the list below.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {mappings.map(m => (
-                  <div key={m.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border group">
-                    <div className="flex items-center gap-3">
-                      <Badge variant="outline" className={`text-[10px] ${PLATFORM_COLORS[m.platform] || ''}`}>
-                        {PLATFORM_LABELS[m.platform] || m.platform}
+            PLATFORMS.map(platform => {
+              const accounts = getAccountsForPlatform(platform.key);
+              const currentMappings = getMappingsForPlatform(platform.key);
+              const mappedIds = getMappedIds(platform.key);
+              const isMulti = multiAccountPlatforms.has(platform.key);
+              const unmapped = accounts.filter(a => !mappedIds.has(a.id));
+
+              // Skip platforms with no available accounts and no existing mappings
+              if (accounts.length === 0 && currentMappings.length === 0) return null;
+
+              return (
+                <div key={platform.key} className="rounded-lg border border-border overflow-hidden">
+                  {/* Platform header */}
+                  <div className="flex items-center justify-between px-4 py-3 bg-muted/30">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className={`text-xs ${platform.color}`}>
+                        {platform.label}
                       </Badge>
-                      <div>
-                        <p className="text-sm font-medium">{m.account_name || m.account_id}</p>
-                        <p className="text-[10px] text-muted-foreground font-mono">{m.account_id}</p>
+                      {currentMappings.length > 0 && (
+                        <span className="text-xs text-emerald-400 flex items-center gap-1">
+                          <Check className="h-3 w-3" />
+                          {currentMappings.length} linked
+                        </span>
+                      )}
+                    </div>
+                    {accounts.length > 1 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-muted-foreground">Multiple accounts</span>
+                        <Switch
+                          checked={isMulti}
+                          onCheckedChange={(checked) => {
+                            setMultiAccountPlatforms(prev => {
+                              const next = new Set(prev);
+                              if (checked) next.add(platform.key);
+                              else next.delete(platform.key);
+                              return next;
+                            });
+                          }}
+                        />
                       </div>
-                    </div>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-500" onClick={() => removeMapping(m)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
 
-          {/* Available accounts */}
-          <div>
-            <h3 className="text-sm font-semibold mb-3">Available Accounts</h3>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Search accounts..."
-                  className="w-full pl-9 pr-4 py-2 rounded-lg bg-muted border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                />
-              </div>
-              <select
-                value={selectedPlatform}
-                onChange={e => setSelectedPlatform(e.target.value)}
-                className="px-3 py-2 rounded-lg bg-muted border border-border text-sm focus:outline-none"
-              >
-                <option value="all">All Platforms</option>
-                {platforms.map(p => (
-                  <option key={p} value={p}>{PLATFORM_LABELS[p] || p}</option>
-                ))}
-              </select>
-            </div>
+                  <div className="px-4 py-3 space-y-2">
+                    {/* Single account mode — one dropdown that replaces */}
+                    {!isMulti ? (
+                      <div>
+                        <select
+                          value={currentMappings[0]?.account_id || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val) replaceMapping(platform.key, val);
+                          }}
+                          disabled={isSaving || accounts.length === 0}
+                          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer"
+                          style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23888\' stroke-width=\'2\'%3E%3Cpath d=\'m6 9 6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
+                        >
+                          <option value="">Select {platform.label} account...</option>
+                          {accounts.map(acc => (
+                            <option key={acc.id} value={acc.id}>
+                              {acc.name}
+                            </option>
+                          ))}
+                        </select>
+                        {currentMappings[0] && (
+                          <p className="text-[11px] text-muted-foreground mt-1 px-1">
+                            ID: {currentMappings[0].account_id}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      /* Multi-account mode — show all linked + dropdown to add more */
+                      <div className="space-y-2">
+                        {/* List linked accounts */}
+                        {currentMappings.map(m => (
+                          <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded-md bg-muted/30 group">
+                            <div>
+                              <p className="text-sm font-medium">{m.account_name || m.account_id}</p>
+                              <p className="text-[10px] text-muted-foreground">ID: {m.account_id}</p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-500"
+                              onClick={() => removeMapping(m)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ))}
 
-            <div className="max-h-60 overflow-y-auto space-y-1">
-              {availableAccounts.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">
-                  {searchQuery ? 'No accounts match your search' : 'All accounts already mapped'}
-                </p>
-              ) : availableAccounts.map(({ platform, account }) => (
-                <div key={`${platform}:${account.id}`} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-muted/40 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <Badge variant="outline" className={`text-[10px] ${PLATFORM_COLORS[platform] || ''}`}>
-                      {PLATFORM_LABELS[platform] || platform}
-                    </Badge>
-                    <div>
-                      <p className="text-sm">{account.name}</p>
-                      <p className="text-[10px] text-muted-foreground font-mono">{account.id}</p>
-                    </div>
+                        {/* Dropdown to add another */}
+                        {unmapped.length > 0 && (
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={pendingSelections[platform.key] || ''}
+                              onChange={(e) => setPendingSelections(prev => ({ ...prev, [platform.key]: e.target.value }))}
+                              disabled={isSaving}
+                              className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer"
+                              style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23888\' stroke-width=\'2\'%3E%3Cpath d=\'m6 9 6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
+                            >
+                              <option value="">Add another account...</option>
+                              {unmapped.map(acc => (
+                                <option key={acc.id} value={acc.id}>
+                                  {acc.name}
+                                </option>
+                              ))}
+                            </select>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!pendingSelections[platform.key] || isSaving}
+                              onClick={() => {
+                                if (pendingSelections[platform.key]) {
+                                  addMapping(platform.key, pendingSelections[platform.key]);
+                                }
+                              }}
+                              className="h-9 gap-1"
+                            >
+                              <Plus className="h-3.5 w-3.5" /> Add
+                            </Button>
+                          </div>
+                        )}
+
+                        {unmapped.length === 0 && currentMappings.length > 0 && (
+                          <p className="text-[11px] text-muted-foreground italic">All available accounts are linked.</p>
+                        )}
+                      </div>
+                    )}
+
+                    {accounts.length === 0 && (
+                      <p className="text-xs text-muted-foreground italic py-1">No accounts available from Supermetrics for this platform.</p>
+                    )}
                   </div>
-                  <Button
-                    variant="ghost" size="sm"
-                    disabled={isSaving}
-                    onClick={() => addMapping(platform, account)}
-                    className="h-7 text-xs text-primary hover:text-primary"
-                  >
-                    <Plus className="h-3 w-3 mr-1" /> Add
-                  </Button>
                 </div>
-              ))}
-            </div>
-          </div>
-          </>
+              );
+            })
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-border flex justify-end">
+        <div className="px-6 py-3 border-t border-border flex items-center justify-between">
+          <p className="text-[11px] text-muted-foreground">
+            {mappings.length} account{mappings.length !== 1 ? 's' : ''} linked
+          </p>
           <Button onClick={handleClose} className="gap-2">
             <Check className="h-4 w-4" /> Done
           </Button>

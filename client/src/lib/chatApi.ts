@@ -1,11 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 
-const BASE = "/api";
-
-// SSE streaming goes directly to Railway to avoid Vercel's rewrite timeout (30s).
-// Short REST calls (conversations, memory, auth) go through the Vercel /api proxy.
-const STREAM_BASE = import.meta.env.PROD
-  ? "https://server-production-0486.up.railway.app/api"
+// All API calls go to the same base — custom domain in prod, Vite proxy in dev.
+const API_BASE = import.meta.env.PROD
+  ? "https://api.teams.melleka.com/api"
   : "/api";
 
 async function authHeaders(): Promise<Record<string, string>> {
@@ -40,19 +37,19 @@ export interface Message {
 }
 
 export async function fetchNotifications(): Promise<{ count: number; conversations: Conversation[] }> {
-  const res = await fetch(`${BASE}/notifications`, { headers: await authHeaders() });
+  const res = await fetch(`${API_BASE}/notifications`, { headers: await authHeaders() });
   if (!res.ok) return { count: 0, conversations: [] };
   return res.json();
 }
 
 export async function fetchConversations(): Promise<Conversation[]> {
-  const res = await fetch(`${BASE}/conversations`, { headers: await authHeaders() });
+  const res = await fetch(`${API_BASE}/conversations`, { headers: await authHeaders() });
   if (!res.ok) throw new Error("Failed to load conversations");
   return res.json();
 }
 
 export async function fetchMessages(convId: string): Promise<Message[]> {
-  const res = await fetch(`${BASE}/conversations/${convId}/messages`, {
+  const res = await fetch(`${API_BASE}/conversations/${convId}/messages`, {
     headers: await authHeaders(),
   });
   if (!res.ok) throw new Error("Failed to load messages");
@@ -60,14 +57,14 @@ export async function fetchMessages(convId: string): Promise<Message[]> {
 }
 
 export async function deleteConversation(convId: string): Promise<void> {
-  await fetch(`${BASE}/conversations/${convId}`, {
+  await fetch(`${API_BASE}/conversations/${convId}`, {
     method: "DELETE",
     headers: await authHeaders(),
   });
 }
 
 export async function fetchMemory(): Promise<string> {
-  const res = await fetch(`${BASE}/memory`, { headers: await authHeaders() });
+  const res = await fetch(`${API_BASE}/memory`, { headers: await authHeaders() });
   if (!res.ok) return "";
   const data = await res.json();
   return (data as { content: string }).content;
@@ -86,13 +83,13 @@ export interface CronJob {
 
 export async function fetchCronJobs(): Promise<CronJob[]> {
   const h = await authHeaders();
-  const res = await fetch(`${BASE}/notifications/cron-jobs`, { headers: h });
+  const res = await fetch(`${API_BASE}/notifications/cron-jobs`, { headers: h });
   if (!res.ok) return [];
   return res.json();
 }
 
 export async function ensureTeamMember(): Promise<{ name: string; userId: string }> {
-  const res = await fetch(`${BASE}/auth/me`, { headers: await authHeaders() });
+  const res = await fetch(`${API_BASE}/auth/me`, { headers: await authHeaders() });
   if (!res.ok) throw new Error("Not authenticated");
   return res.json();
 }
@@ -112,7 +109,8 @@ export function streamMessage(
   onEvent: (event: SSEEvent) => void,
   onDone: () => void,
   files?: File[],
-  mentionedClients?: string[]
+  mentionedClients?: string[],
+  onDisconnect?: () => void,
 ): () => void {
   const controller = new AbortController();
 
@@ -137,8 +135,10 @@ export function streamMessage(
       fetchHeaders = await authHeaders();
     }
 
+    let receivedDone = false;
+
     try {
-      const res = await fetch(`${STREAM_BASE}/chat`, {
+      const res = await fetch(`${API_BASE}/chat`, {
         method: "POST",
         headers: fetchHeaders,
         body,
@@ -167,15 +167,22 @@ export function streamMessage(
           if (line.startsWith("data: ")) {
             try {
               const event = JSON.parse(line.slice(6)) as SSEEvent;
+              if (event.type === "done") receivedDone = true;
               onEvent(event);
             } catch { /* skip malformed */ }
           }
         }
       }
+
+      // Stream ended — if no "done" event, the connection dropped unexpectedly
+      if (!receivedDone && onDisconnect) {
+        onDisconnect();
+      }
       onDone();
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         onEvent({ type: "error", message: String(err) });
+        if (onDisconnect) onDisconnect();
         onDone();
       }
     }
