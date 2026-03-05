@@ -49,6 +49,29 @@ app.get("/health", (_req, res) => {
   });
 });
 
+// Notion reverse proxy — strips X-Frame-Options so we can iframe it
+app.get("/api/notion-proxy", async (req, res) => {
+  const notionUrl = req.query.url as string;
+  if (!notionUrl || !notionUrl.includes("notion")) {
+    res.status(400).json({ error: "Invalid URL" });
+    return;
+  }
+  try {
+    const resp = await fetch(notionUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
+    });
+    // Copy response but strip frame-blocking headers
+    const html = await resp.text();
+    res.setHeader("Content-Type", resp.headers.get("content-type") || "text/html");
+    // Explicitly remove frame restrictions
+    res.removeHeader("X-Frame-Options");
+    res.removeHeader("Content-Security-Policy");
+    res.send(html);
+  } catch (err: any) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // API routes
 app.use("/api/auth", authRouter);
 app.use("/api/chat", chatRouter);
