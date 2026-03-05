@@ -404,7 +404,11 @@ async function runChat(
   let fullResponse = "";
   const currentMessages = [...messages];
 
-  // Rough token estimation: 1 token ≈ 4 chars
+  // ── Context window management ──────────────────────────────────────
+  // Opus context is 200K tokens. System prompt + tools eat ~20K.
+  // We keep message context under 140K so there's always room for output.
+  const CONTEXT_TOKEN_BUDGET = 140000;
+
   const estimateTokens = (msgs: Anthropic.MessageParam[]): number => {
     let chars = 0;
     for (const m of msgs) {
@@ -421,9 +425,9 @@ async function runChat(
     return Math.ceil(chars / 4);
   };
 
-  // Compress old tool results to free up context space
+  // Progressively compress old messages. keepRecent = how many recent
+  // tool-result exchanges to keep in full detail.
   const compressOldMessages = (msgs: Anthropic.MessageParam[], keepRecent: number): void => {
-    // Find tool_result messages older than the last N pairs and shrink them
     let toolResultCount = 0;
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
@@ -432,12 +436,11 @@ async function runChat(
         if (hasToolResult) {
           toolResultCount++;
           if (toolResultCount > keepRecent) {
-            // Compress this tool result to a short summary
             msgs[i] = {
               role: "user",
               content: (m.content as any[]).map((b: any) => {
-                if (b.type === "tool_result" && typeof b.content === "string" && b.content.length > 200) {
-                  return { ...b, content: b.content.slice(0, 200) + "\n[...compressed — old result]" };
+                if (b.type === "tool_result" && typeof b.content === "string" && b.content.length > 150) {
+                  return { ...b, content: b.content.slice(0, 150) + "\n[...compressed]" };
                 }
                 return b;
               }),
@@ -445,13 +448,12 @@ async function runChat(
           }
         }
       }
-      // Also compress old assistant text blocks (keep tool_use blocks intact for API validity)
       if (m.role === "assistant" && Array.isArray(m.content) && toolResultCount > keepRecent) {
         msgs[i] = {
           role: "assistant",
           content: (m.content as any[]).map((b: any) => {
-            if (b.type === "text" && typeof b.text === "string" && b.text.length > 300) {
-              return { ...b, text: b.text.slice(0, 300) + "..." };
+            if (b.type === "text" && typeof b.text === "string" && b.text.length > 200) {
+              return { ...b, text: b.text.slice(0, 200) + "..." };
             }
             return b;
           }),
@@ -460,108 +462,162 @@ async function runChat(
     }
   };
 
-  const MAX_ITERATIONS = 30;
-  const CONTEXT_TOKEN_LIMIT = 150000; // Leave room for system prompt + tools + response
+  // Ensure context fits. Compress progressively until it fits.
+  const ensureContextFits = (msgs: Anthropic.MessageParam[]): void => {
+    for (const keepRecent of [6, 4, 2, 1]) {
+      if (estimateTokens(msgs) <= CONTEXT_TOKEN_BUDGET) return;
+      compressOldMessages(msgs, keepRecent);
+    }
+    // Nuclear option: if still too big, drop the oldest conversation history
+    // (keep first user message + last 10 messages)
+    if (estimateTokens(msgs) > CONTEXT_TOKEN_BUDGET && msgs.length > 12) {
+      const first = msgs[0]; // original user message
+      const recent = msgs.slice(-10);
+      msgs.length = 0;
+      msgs.push(first, ...recent);
+    }
+  };
 
-  try {
-    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      // Compress older messages if context is getting large
-      const estimatedTokens = estimateTokens(currentMessages);
-      console.log(`[runChat] ${memberName} | iteration ${iteration}, messages=${currentMessages.length}, ~${estimatedTokens} tokens`);
-
-      if (estimatedTokens > CONTEXT_TOKEN_LIMIT) {
-        compressOldMessages(currentMessages, 4); // Keep last 4 tool exchanges in full detail
-        const afterTokens = estimateTokens(currentMessages);
-        console.log(`[runChat] ${memberName} | compressed context: ${estimatedTokens} → ${afterTokens} tokens`);
-      }
-
-      let stream;
+  // ── Retry helper for Claude API calls ──────────────────────────────
+  const callClaudeWithRetry = async (
+    msgs: Anthropic.MessageParam[],
+    maxRetries = 3,
+  ): Promise<ReturnType<typeof client.messages.stream>> => {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        stream = await client.messages.stream({
+        return await client.messages.stream({
           model: "claude-opus-4-6",
           max_tokens: 16384,
           system: systemPrompt,
           tools: TOOL_DEFINITIONS,
-          messages: currentMessages,
+          messages: msgs,
         });
       } catch (err: any) {
-        // If context too large, try aggressive compression and retry once
-        if (err.status === 400 && err.message?.includes("too long")) {
-          compressOldMessages(currentMessages, 2);
-          console.log(`[runChat] ${memberName} | context too long, compressed aggressively and retrying`);
-          try {
-            stream = await client.messages.stream({
-              model: "claude-opus-4-6",
-              max_tokens: 16384,
-              system: systemPrompt,
-              tools: TOOL_DEFINITIONS,
-              messages: currentMessages,
-            });
-          } catch (retryErr: any) {
-            const errMsg = `\n\n[Error: Failed to connect to Claude API — ${retryErr.message}]`;
-            fullResponse += errMsg;
-            write?.({ type: "text", delta: errMsg });
-            break;
-          }
-        } else {
-          const errMsg = `\n\n[Error: Failed to connect to Claude API — ${err.message}]`;
-          fullResponse += errMsg;
-          write?.({ type: "text", delta: errMsg });
-          break;
+        const status = err.status ?? err.statusCode ?? 0;
+        const msg = err.message ?? "";
+
+        // Context too long: compress and retry immediately
+        if (status === 400 && (msg.includes("too long") || msg.includes("too many tokens"))) {
+          console.log(`[runChat] ${memberName} | context too long (attempt ${attempt}), compressing...`);
+          ensureContextFits(msgs);
+          continue;
         }
+
+        // Transient errors (overloaded, rate limit, 500): wait and retry
+        if ([429, 500, 502, 503, 529].includes(status) && attempt < maxRetries) {
+          const delay = Math.min(2000 * Math.pow(2, attempt), 30000); // 2s, 4s, 8s... max 30s
+          console.log(`[runChat] ${memberName} | API error ${status}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+          write?.({ type: "text", delta: `\n(API busy — retrying in ${Math.round(delay / 1000)}s...)\n` });
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+
+        // Non-retryable error
+        throw err;
+      }
+    }
+    throw new Error("Max retries exceeded");
+  };
+
+  // ── Main agentic loop — UNLIMITED iterations ───────────────────────
+  // Safety valve at 200 to prevent truly infinite loops from bugs,
+  // but in practice the agent will stop when it's done (stop_reason !== "tool_use").
+  const SAFETY_LIMIT = 200;
+
+  try {
+    for (let iteration = 0; iteration < SAFETY_LIMIT; iteration++) {
+      ensureContextFits(currentMessages);
+      const est = estimateTokens(currentMessages);
+      console.log(`[runChat] ${memberName} | iteration ${iteration}, messages=${currentMessages.length}, ~${est} tokens`);
+
+      let stream;
+      try {
+        stream = await callClaudeWithRetry(currentMessages);
+      } catch (err: any) {
+        const errMsg = `\n\n[Error: Claude API — ${err.message}]`;
+        fullResponse += errMsg;
+        write?.({ type: "text", delta: errMsg });
+        break;
       }
 
       let currentToolUseId: string | null = null;
-      // Track raw JSON input per tool_use ID so parallel tool calls don't clobber each other
       const toolInputBuffers = new Map<string, string>();
       const assistantBlocks: Anthropic.ContentBlock[] = [];
       let stopReason: string | null = null;
 
-      for await (const event of stream) {
-        if (event.type === "content_block_start") {
-          if (event.content_block.type === "tool_use") {
-            currentToolUseId = event.content_block.id;
-            toolInputBuffers.set(currentToolUseId, "");
-            assistantBlocks.push({
-              type: "tool_use",
-              id: currentToolUseId,
-              name: event.content_block.name,
-              input: {},
-            } as Anthropic.ToolUseBlock);
-            write?.({ type: "tool_start", name: event.content_block.name });
-          } else if (event.content_block.type === "text") {
-            assistantBlocks.push({ type: "text", text: "", citations: [] } as Anthropic.TextBlock);
-          }
-        } else if (event.type === "content_block_delta") {
-          if (event.delta.type === "text_delta") {
-            const delta = event.delta.text;
-            fullResponse += delta;
-            const lastBlock = assistantBlocks[assistantBlocks.length - 1];
-            if (lastBlock?.type === "text") lastBlock.text += delta;
-            write?.({ type: "text", delta });
-          } else if (event.delta.type === "input_json_delta" && currentToolUseId) {
-            const buf = (toolInputBuffers.get(currentToolUseId) ?? "") + event.delta.partial_json;
-            toolInputBuffers.set(currentToolUseId, buf);
-            const toolBlock = assistantBlocks.find(
-              (b) => b.type === "tool_use" && (b as Anthropic.ToolUseBlock).id === currentToolUseId
-            ) as Anthropic.ToolUseBlock | undefined;
-            if (toolBlock) {
-              try { toolBlock.input = JSON.parse(buf); } catch { /* partial JSON, will complete */ }
+      try {
+        for await (const event of stream) {
+          if (event.type === "content_block_start") {
+            if (event.content_block.type === "tool_use") {
+              currentToolUseId = event.content_block.id;
+              toolInputBuffers.set(currentToolUseId, "");
+              assistantBlocks.push({
+                type: "tool_use",
+                id: currentToolUseId,
+                name: event.content_block.name,
+                input: {},
+              } as Anthropic.ToolUseBlock);
+              write?.({ type: "tool_start", name: event.content_block.name });
+            } else if (event.content_block.type === "text") {
+              assistantBlocks.push({ type: "text", text: "", citations: [] } as Anthropic.TextBlock);
             }
+          } else if (event.type === "content_block_delta") {
+            if (event.delta.type === "text_delta") {
+              const delta = event.delta.text;
+              fullResponse += delta;
+              const lastBlock = assistantBlocks[assistantBlocks.length - 1];
+              if (lastBlock?.type === "text") lastBlock.text += delta;
+              write?.({ type: "text", delta });
+            } else if (event.delta.type === "input_json_delta" && currentToolUseId) {
+              const buf = (toolInputBuffers.get(currentToolUseId) ?? "") + event.delta.partial_json;
+              toolInputBuffers.set(currentToolUseId, buf);
+              const toolBlock = assistantBlocks.find(
+                (b) => b.type === "tool_use" && (b as Anthropic.ToolUseBlock).id === currentToolUseId
+              ) as Anthropic.ToolUseBlock | undefined;
+              if (toolBlock) {
+                try { toolBlock.input = JSON.parse(buf); } catch { /* partial JSON, will complete */ }
+              }
+            }
+          } else if (event.type === "message_delta") {
+            stopReason = event.delta.stop_reason ?? null;
           }
-        } else if (event.type === "message_delta") {
-          stopReason = event.delta.stop_reason ?? null;
         }
+      } catch (streamErr: any) {
+        // Stream interrupted mid-response (network blip, API timeout)
+        // Save what we have and retry the iteration
+        console.error(`[runChat] ${memberName} | stream error at iteration ${iteration}:`, streamErr.message);
+        if (assistantBlocks.length > 0) {
+          // Ensure we have at least one text block so the message is valid
+          const hasText = assistantBlocks.some((b) => b.type === "text");
+          if (!hasText) {
+            assistantBlocks.push({ type: "text", text: "(stream interrupted)", citations: [] } as Anthropic.TextBlock);
+          }
+          currentMessages.push({ role: "assistant", content: assistantBlocks });
+
+          // Return tool errors for any incomplete tool calls so Claude can recover
+          const toolBlocks = assistantBlocks.filter((b) => b.type === "tool_use") as Anthropic.ToolUseBlock[];
+          if (toolBlocks.length > 0) {
+            currentMessages.push({
+              role: "user",
+              content: toolBlocks.map((b) => ({
+                type: "tool_result" as const,
+                tool_use_id: b.id,
+                content: "ERROR: Stream was interrupted. Please retry this operation.",
+                is_error: true,
+              })),
+            });
+          }
+        }
+        write?.({ type: "text", delta: "\n(Connection interrupted — resuming automatically...)\n" });
+        fullResponse += "\n(Connection interrupted — resuming automatically...)\n";
+        continue; // retry the loop
       }
 
       currentMessages.push({ role: "assistant", content: assistantBlocks });
 
-      // Check if there are tool_use blocks to execute
       const toolBlocks = assistantBlocks.filter((b) => b.type === "tool_use") as Anthropic.ToolUseBlock[];
 
       if (stopReason === "max_tokens" && toolBlocks.length > 0) {
-        // Hit token limit mid-tool-call — the last tool_use likely has truncated input
-        // Remove the incomplete tool_use (last one) and tell Claude to retry with smaller output
         const incompleteBlock = toolBlocks[toolBlocks.length - 1];
         write?.({ type: "text", delta: "\n\n(Output was too large — retrying with chunked approach...)\n" });
         fullResponse += "\n\n(Output was too large — retrying with chunked approach...)\n";
@@ -570,19 +626,20 @@ async function runChat(
           content: [{
             type: "tool_result",
             tool_use_id: incompleteBlock.id,
-            content: "ERROR: Your response was cut off because it exceeded the token limit. The file content was too large for a single tool call. Please break it into smaller chunks: write the file in multiple parts using write_file, or use run_command with heredoc/echo to write sections. Try again with a shorter approach.",
+            content: "ERROR: Your response was cut off because it exceeded the token limit. Break the work into smaller chunks. Write files in multiple parts. Try again with a shorter approach.",
             is_error: true,
           }],
         });
         continue;
       }
 
+      // Agent is done — no more tool calls
       if (stopReason !== "tool_use") break;
 
+      // ── Execute tool calls ───────────────────────────────────────
       const toolResultContent: Anthropic.ToolResultBlockParam[] = [];
 
       for (const block of toolBlocks) {
-        // Use the fully parsed input from the per-tool buffer (not the shared variable)
         const rawBuf = toolInputBuffers.get(block.id) ?? "";
         let parsedInput: Record<string, unknown>;
         try {
@@ -591,13 +648,21 @@ async function runChat(
           parsedInput = block.input as Record<string, unknown>;
         }
 
-        const result = await executeTool(block.name, parsedInput, memberName);
+        let result: string;
+        try {
+          result = await executeTool(block.name, parsedInput, memberName);
+        } catch (toolErr: any) {
+          // Tool execution crashed — give Claude the error so it can adapt
+          result = `ERROR: Tool "${block.name}" failed: ${toolErr.message}`;
+          console.error(`[runChat] ${memberName} | tool ${block.name} threw:`, toolErr.message);
+        }
+
         write?.({ type: "tool_result", name: block.name, output: result.slice(0, 500) });
 
-        // Cap tool results to prevent context bloat — tighter limit on mutation confirmations
-        const maxLen = result.startsWith("Mutation successful") ? 2000 : 6000;
+        // Cap tool results — mutation confirmations are mostly noise
+        const maxLen = result.startsWith("Mutation successful") ? 1500 : 4000;
         const trimmedResult = result.length > maxLen
-          ? result.slice(0, maxLen) + "\n[...truncated — full result was " + result.length + " chars]"
+          ? result.slice(0, maxLen) + "\n[...truncated — " + result.length + " chars total]"
           : result;
 
         toolResultContent.push({
@@ -610,7 +675,6 @@ async function runChat(
       currentMessages.push({ role: "user", content: toolResultContent });
     }
   } catch (err: any) {
-    // Preserve partial response on any error in the agentic loop
     console.error("[runChat] Error in agentic loop:", err.message);
     const errMsg = `\n\n[Response interrupted: ${err.message}]`;
     fullResponse += errMsg;
