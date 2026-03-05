@@ -818,7 +818,259 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ["client_name"],
     },
   },
+  // ─── Canva Design Tools ─────────────────────────────────────
+  {
+    name: "canva_create_design",
+    description:
+      "Create a new Canva design. Can create presets (doc, whiteboard, presentation) or custom-size designs. Optionally insert an image asset.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        design_type: {
+          type: "string",
+          description:
+            "Preset type: 'doc', 'whiteboard', 'presentation'. Or use 'custom' for custom dimensions.",
+        },
+        width: {
+          type: "number",
+          description: "Width in pixels (40-8000). Required when design_type is 'custom'.",
+        },
+        height: {
+          type: "number",
+          description: "Height in pixels (40-8000). Required when design_type is 'custom'.",
+        },
+        title: {
+          type: "string",
+          description: "Name for the design (1-255 characters). Optional.",
+        },
+        asset_id: {
+          type: "string",
+          description: "Canva asset ID of an image to insert into the design. Optional.",
+        },
+      },
+      required: ["design_type"],
+    },
+  },
+  {
+    name: "canva_list_designs",
+    description: "List the user's Canva designs. Returns design IDs, titles, edit/view URLs, and thumbnails.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query to filter designs by title. Optional.",
+        },
+        continuation: {
+          type: "string",
+          description: "Pagination token from a previous response. Optional.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "canva_get_design",
+    description: "Get metadata for a specific Canva design including title, URLs, thumbnail, and page count.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        design_id: { type: "string", description: "The Canva design ID." },
+      },
+      required: ["design_id"],
+    },
+  },
+  {
+    name: "canva_export_design",
+    description:
+      "Export a Canva design to PDF, PNG, JPG, GIF, PPTX, or MP4. Creates an async export job and polls for the result. Returns download URLs.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        design_id: { type: "string", description: "The Canva design ID to export." },
+        format: {
+          type: "string",
+          description: "Export format: 'pdf', 'png', 'jpg', 'gif', 'pptx', or 'mp4'.",
+        },
+        width: { type: "number", description: "Output width in pixels (40-25000). Optional, for image formats." },
+        height: { type: "number", description: "Output height in pixels (40-25000). Optional, for image formats." },
+        quality: { type: "number", description: "JPG quality 1-100. Only for jpg format. Optional." },
+        transparent_background: { type: "boolean", description: "Transparent background for PNG. Optional." },
+        pages: {
+          type: "array",
+          items: { type: "number" },
+          description: "Array of page numbers to export (0-indexed). Optional, exports all pages by default.",
+        },
+      },
+      required: ["design_id", "format"],
+    },
+  },
+  {
+    name: "canva_upload_asset",
+    description:
+      "Upload an asset (image/video) to Canva from a URL. Returns the asset ID for use in designs.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "Public URL of the image or video to upload." },
+        name: { type: "string", description: "Name for the asset. Optional." },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "canva_list_brand_templates",
+    description:
+      "List the user's Canva brand templates. Brand templates can be autofilled with custom data to create personalized designs.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "Search query to filter templates. Optional." },
+        continuation: { type: "string", description: "Pagination token. Optional." },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "canva_autofill_design",
+    description:
+      "Create a personalized design by autofilling a Canva brand template with custom text and images. Great for generating personalized marketing materials, invites, proposals, etc.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        brand_template_id: { type: "string", description: "The brand template ID to autofill." },
+        title: { type: "string", description: "Title for the new design (1-255 chars). Optional." },
+        data: {
+          type: "object",
+          description:
+            'Field-value pairs to autofill. Text fields: { "field_name": { "type": "text", "text": "value" } }. Image fields: { "field_name": { "type": "image", "asset_id": "canva_asset_id" } }.',
+        },
+      },
+      required: ["brand_template_id", "data"],
+    },
+  },
 ];
+
+/** Refresh a Canva OAuth access token and update the DB */
+async function refreshCanvaToken(refreshToken: string): Promise<{ access_token: string; refresh_token: string }> {
+  const clientId = await requireSecret("CANVA_CLIENT_ID", "Canva Client ID");
+  const clientSecret = await requireSecret("CANVA_CLIENT_SECRET", "Canva Client Secret");
+  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+
+  const resp = await fetch("https://api.canva.com/rest/v1/oauth/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${basicAuth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    }),
+  });
+
+  const data = await resp.json() as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    error?: string;
+    error_description?: string;
+  };
+
+  if (!data.access_token || !data.refresh_token) {
+    throw new Error(`Canva token refresh failed: ${data.error_description || data.error || "Unknown error"}`);
+  }
+
+  // Update tokens in DB
+  const { supabase } = await import("./supabase.js");
+  const expiresAt = new Date(Date.now() + (data.expires_in || 14400) * 1000).toISOString();
+  await supabase
+    .from("oauth_connections")
+    .update({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      token_expires_at: expiresAt,
+    })
+    .eq("provider", "canva");
+
+  return { access_token: data.access_token, refresh_token: data.refresh_token };
+}
+
+/** Get a valid Canva access token, refreshing if expired */
+async function getCanvaToken(): Promise<string> {
+  // Check env var first
+  const envToken = process.env.CANVA_ACCESS_TOKEN;
+  if (envToken) return envToken;
+
+  // Look up from oauth_connections
+  const { supabase } = await import("./supabase.js");
+  const { data: row } = await supabase
+    .from("oauth_connections")
+    .select("access_token, refresh_token, token_expires_at")
+    .eq("provider", "canva")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!row) {
+    throw new Error("Canva not connected. Please connect Canva via OAuth first (GET /api/canva/oauth).");
+  }
+
+  // Check if token is expired (with 5-min buffer)
+  const expiresAt = row.token_expires_at ? new Date(row.token_expires_at) : null;
+  const isExpired = expiresAt && expiresAt.getTime() - 5 * 60 * 1000 < Date.now();
+
+  if (isExpired && row.refresh_token) {
+    const refreshed = await refreshCanvaToken(row.refresh_token);
+    return refreshed.access_token;
+  }
+
+  if (isExpired) {
+    throw new Error("Canva access token expired and no refresh token available. Please reconnect via OAuth.");
+  }
+
+  return row.access_token;
+}
+
+/** Make an authenticated Canva API request */
+async function canvaApi(
+  method: string,
+  path: string,
+  body?: Record<string, unknown>
+): Promise<{ ok: boolean; status: number; data: any }> {
+  const token = await getCanvaToken();
+  const url = `https://api.canva.com/rest/v1${path}`;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+  };
+  if (body) headers["Content-Type"] = "application/json";
+
+  const resp = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const data = await resp.json().catch(() => ({}));
+  return { ok: resp.ok, status: resp.status, data };
+}
+
+/** Poll a Canva async job until it completes */
+async function pollCanvaJob(
+  path: string,
+  maxAttempts = 30,
+  intervalMs = 2000
+): Promise<any> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const { ok, data } = await canvaApi("GET", path);
+    if (!ok) throw new Error(`Canva job poll error: ${JSON.stringify(data)}`);
+    const job = data.job || data;
+    if (job.status === "success") return job;
+    if (job.status === "failed") throw new Error(`Canva job failed: ${JSON.stringify(job.error || job)}`);
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error("Canva job timed out after polling.");
+}
 
 export async function executeTool(
   toolName: string,
@@ -1809,6 +2061,214 @@ export async function executeTool(
         }
 
         return output;
+      }
+
+      // ─── Canva Design Tools ─────────────────────────────────────
+
+      case "canva_create_design": {
+        const designType = toolInput.design_type as string;
+        const title = toolInput.title as string | undefined;
+        const assetId = toolInput.asset_id as string | undefined;
+
+        const body: Record<string, unknown> = {};
+        if (title) body.title = title;
+        if (assetId) body.asset_id = assetId;
+
+        if (designType === "custom") {
+          const width = toolInput.width as number;
+          const height = toolInput.height as number;
+          if (!width || !height) return "Error: width and height are required for custom design type.";
+          body.design_type = { type: "custom", width, height };
+        } else {
+          body.design_type = { type: "preset", name: designType };
+        }
+
+        const { ok, data } = await canvaApi("POST", "/designs", body);
+        if (!ok) return `Canva error: ${JSON.stringify(data, null, 2)}`;
+
+        const d = data.design;
+        return [
+          `Design created successfully!`,
+          `ID: ${d.id}`,
+          `Title: ${d.title}`,
+          `Edit URL: ${d.urls?.edit_url}`,
+          `View URL: ${d.urls?.view_url}`,
+          `Pages: ${d.page_count}`,
+          d.thumbnail?.url ? `Thumbnail: ${d.thumbnail.url}` : "",
+        ].filter(Boolean).join("\n");
+      }
+
+      case "canva_list_designs": {
+        const query = toolInput.query as string | undefined;
+        const continuation = toolInput.continuation as string | undefined;
+
+        let path = "/designs";
+        const params = new URLSearchParams();
+        if (query) params.set("query", query);
+        if (continuation) params.set("continuation", continuation);
+        const qs = params.toString();
+        if (qs) path += `?${qs}`;
+
+        const { ok, data } = await canvaApi("GET", path);
+        if (!ok) return `Canva error: ${JSON.stringify(data, null, 2)}`;
+
+        const items = data.items || [];
+        if (items.length === 0) return "No designs found.";
+
+        let output = `Found ${items.length} design(s):\n\n`;
+        for (const d of items) {
+          output += `- ${d.title || "(Untitled)"} [ID: ${d.id}]\n`;
+          if (d.urls?.edit_url) output += `  Edit: ${d.urls.edit_url}\n`;
+          output += `  Updated: ${d.updated_at ? new Date(d.updated_at * 1000).toLocaleDateString() : "unknown"}\n`;
+        }
+        if (data.continuation) {
+          output += `\n[More results available — use continuation: "${data.continuation}"]`;
+        }
+        return output;
+      }
+
+      case "canva_get_design": {
+        const designId = toolInput.design_id as string;
+        if (!designId) return "Error: design_id is required.";
+
+        const { ok, data } = await canvaApi("GET", `/designs/${designId}`);
+        if (!ok) return `Canva error: ${JSON.stringify(data, null, 2)}`;
+
+        const d = data.design;
+        return [
+          `Design: ${d.title}`,
+          `ID: ${d.id}`,
+          `Pages: ${d.page_count}`,
+          `Edit URL: ${d.urls?.edit_url}`,
+          `View URL: ${d.urls?.view_url}`,
+          `Created: ${d.created_at ? new Date(d.created_at * 1000).toLocaleString() : "unknown"}`,
+          `Updated: ${d.updated_at ? new Date(d.updated_at * 1000).toLocaleString() : "unknown"}`,
+          d.thumbnail?.url ? `Thumbnail: ${d.thumbnail.url} (${d.thumbnail.width}x${d.thumbnail.height})` : "",
+        ].filter(Boolean).join("\n");
+      }
+
+      case "canva_export_design": {
+        const designId = toolInput.design_id as string;
+        const format = toolInput.format as string;
+        if (!designId || !format) return "Error: design_id and format are required.";
+
+        const formatObj: Record<string, unknown> = { type: format };
+        if (toolInput.width) formatObj.width = toolInput.width;
+        if (toolInput.height) formatObj.height = toolInput.height;
+        if (toolInput.quality) formatObj.quality = toolInput.quality;
+        if (toolInput.transparent_background) formatObj.transparent_background = toolInput.transparent_background;
+        if (toolInput.pages) formatObj.pages = toolInput.pages;
+
+        const { ok, data } = await canvaApi("POST", "/exports", {
+          design_id: designId,
+          format: formatObj,
+        });
+        if (!ok) return `Canva export error: ${JSON.stringify(data, null, 2)}`;
+
+        // Poll for completion
+        const jobId = data.job?.id;
+        if (!jobId) return `Unexpected response: ${JSON.stringify(data)}`;
+
+        const result = await pollCanvaJob(`/exports/${jobId}`);
+        const urls = result.urls || [];
+        if (urls.length === 0) return "Export completed but no download URLs returned.";
+
+        let output = `Export complete! Format: ${format.toUpperCase()}\n\nDownload URLs (valid 24 hours):\n`;
+        for (const url of urls) {
+          output += `- ${url}\n`;
+        }
+        return output;
+      }
+
+      case "canva_upload_asset": {
+        const assetUrl = toolInput.url as string;
+        const name = toolInput.name as string | undefined;
+        if (!assetUrl) return "Error: url is required.";
+
+        const body: Record<string, unknown> = { url: assetUrl };
+        if (name) body.name = name;
+
+        const { ok, data } = await canvaApi("POST", "/assets/url", body);
+        if (!ok) return `Canva upload error: ${JSON.stringify(data, null, 2)}`;
+
+        // Poll for upload completion
+        const jobId = data.job?.id;
+        if (!jobId) return `Unexpected response: ${JSON.stringify(data)}`;
+
+        const result = await pollCanvaJob(`/assets/url/${jobId}`);
+        const asset = result.asset || result.result?.asset;
+        if (!asset) return `Upload completed. Job result: ${JSON.stringify(result)}`;
+
+        return [
+          `Asset uploaded successfully!`,
+          `Asset ID: ${asset.id}`,
+          `Name: ${asset.name || name || "unnamed"}`,
+          `Type: ${asset.type || "unknown"}`,
+          `Use this asset_id when creating designs or autofilling templates.`,
+        ].join("\n");
+      }
+
+      case "canva_list_brand_templates": {
+        const query = toolInput.query as string | undefined;
+        const continuation = toolInput.continuation as string | undefined;
+
+        let path = "/brand-templates";
+        const params = new URLSearchParams();
+        if (query) params.set("query", query);
+        if (continuation) params.set("continuation", continuation);
+        const qs = params.toString();
+        if (qs) path += `?${qs}`;
+
+        const { ok, data } = await canvaApi("GET", path);
+        if (!ok) return `Canva error: ${JSON.stringify(data, null, 2)}`;
+
+        const items = data.items || [];
+        if (items.length === 0) return "No brand templates found.";
+
+        let output = `Found ${items.length} brand template(s):\n\n`;
+        for (const t of items) {
+          output += `- ${t.title || "(Untitled)"} [ID: ${t.id}]\n`;
+          if (t.urls?.view_url) output += `  View: ${t.urls.view_url}\n`;
+          if (t.thumbnail?.url) output += `  Thumbnail: ${t.thumbnail.url}\n`;
+        }
+        if (data.continuation) {
+          output += `\n[More results available — use continuation: "${data.continuation}"]`;
+        }
+        return output;
+      }
+
+      case "canva_autofill_design": {
+        const templateId = toolInput.brand_template_id as string;
+        const data_fields = toolInput.data as Record<string, unknown>;
+        const title = toolInput.title as string | undefined;
+
+        if (!templateId || !data_fields) return "Error: brand_template_id and data are required.";
+
+        const body: Record<string, unknown> = {
+          brand_template_id: templateId,
+          data: data_fields,
+        };
+        if (title) body.title = title;
+
+        const { ok, data } = await canvaApi("POST", "/autofills", body);
+        if (!ok) return `Canva autofill error: ${JSON.stringify(data, null, 2)}`;
+
+        // Poll for completion
+        const jobId = data.job?.id;
+        if (!jobId) return `Unexpected response: ${JSON.stringify(data)}`;
+
+        const result = await pollCanvaJob(`/autofills/${jobId}`);
+        const design = result.result?.design || result.design;
+        if (!design) return `Autofill completed. Result: ${JSON.stringify(result)}`;
+
+        return [
+          `Design created from template!`,
+          `Design ID: ${design.id}`,
+          `Title: ${design.title}`,
+          `Edit URL: ${design.urls?.edit_url}`,
+          `View URL: ${design.urls?.view_url}`,
+          design.thumbnail?.url ? `Thumbnail: ${design.thumbnail.url}` : "",
+        ].filter(Boolean).join("\n");
       }
 
       default:

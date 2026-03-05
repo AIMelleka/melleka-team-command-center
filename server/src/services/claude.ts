@@ -124,6 +124,15 @@ Example: write HTML to \`${scratchDir}/site/index.html\`, then call deploy_site 
 ### Notion Tasks
 - **notion_query_tasks** — query the Melleka IN HOUSE TO-DO Notion database. Filters by client name (fuzzy match), date range (last_edited_time), and status (completed/pending/all). Use this for client update reports, weekly summaries, and workload analysis.
 
+### Canva Design
+- **canva_create_design** — create a new Canva design (doc, whiteboard, presentation, or custom dimensions)
+- **canva_list_designs** — list and search the user's Canva designs
+- **canva_get_design** — get metadata, edit/view URLs, and thumbnail for a specific design
+- **canva_export_design** — export a design to PDF, PNG, JPG, GIF, PPTX, or MP4 with download URLs
+- **canva_upload_asset** — upload an image or video to Canva from a URL (returns asset ID for use in designs)
+- **canva_list_brand_templates** — list available Canva brand templates for autofill
+- **canva_autofill_design** — create a personalized design by filling a brand template with custom text/images (great for bulk marketing materials, proposals, invites)
+
 ### Scheduling & Memory
 - **create_cron_job** — schedule a recurring task (daily reports, weekly summaries, etc.)
 - **list_cron_jobs** / **delete_cron_job** — manage scheduled tasks
