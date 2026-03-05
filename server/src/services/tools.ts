@@ -1357,69 +1357,100 @@ export async function executeTool(
       case "meta_ads_manage": {
         const method = ((toolInput.method as string) || "GET").toUpperCase();
         const endpoint = toolInput.endpoint as string;
-        const params = (toolInput.params as Record<string, string>) || {};
+        const params = (toolInput.params as Record<string, unknown>) || {};
         let token = toolInput.access_token as string | undefined;
 
         if (!endpoint) return "Error: endpoint is required.";
 
-        // If no token provided, try oauth_connections for a valid meta_ads token
+        // Token resolution: explicit param → env var → oauth_connections DB
+        if (!token) {
+          token = process.env.META_ACCESS_TOKEN;
+        }
         if (!token) {
           const client = await getSupabaseClient();
           const { data: oauthRow } = await client
             .from("oauth_connections")
-            .select("access_token")
+            .select("access_token, token_expires_at")
             .eq("provider", "meta_ads")
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
-          token = oauthRow?.access_token ?? undefined;
-          if (!token) {
-            return "Error: No Meta access token available. Either pass access_token parameter or ensure a client has connected their Meta Ads account via OAuth (oauth_connections table).";
+          if (oauthRow?.token_expires_at && new Date(oauthRow.token_expires_at) < new Date()) {
+            return "Error: Meta access token has expired. Meta tokens expire every 60 days. Please reconnect via OAuth or update META_ACCESS_TOKEN in environment variables. For a permanent solution, use a System User token from Meta Business Manager (these never expire).";
           }
+          token = oauthRow?.access_token ?? undefined;
+        }
+        if (!token) {
+          return "Error: No Meta access token available. Set META_ACCESS_TOKEN environment variable (recommended: use a System User token from Meta Business Manager — it never expires), or connect via OAuth.";
         }
 
-        const baseUrl = "https://graph.facebook.com/v21.0";
+        const META_API_VERSION = process.env.META_API_VERSION || "v21.0";
+        const baseUrl = `https://graph.facebook.com/${META_API_VERSION}`;
 
-        if (method === "GET") {
-          // Build query string
-          const qs = new URLSearchParams({ ...params, access_token: token });
-          const url = `${baseUrl}${endpoint}?${qs.toString()}`;
-          const resp = await fetch(url);
-          const data = await resp.json();
-
-          if (!resp.ok) {
-            return `Meta API error (${resp.status}): ${JSON.stringify(data, null, 2).slice(0, 4000)}`;
+        // Helper: serialize params for POST — handles nested objects (targeting, etc.)
+        const buildFormBody = (p: Record<string, unknown>, tok: string): URLSearchParams => {
+          const form = new URLSearchParams();
+          form.set("access_token", tok);
+          for (const [key, val] of Object.entries(p)) {
+            if (val === undefined || val === null) continue;
+            // Objects/arrays must be JSON-stringified for Meta API
+            form.set(key, typeof val === "object" ? JSON.stringify(val) : String(val));
           }
+          return form;
+        };
 
-          const resultStr = JSON.stringify(data, null, 2);
-          return resultStr.length > 12000 ? resultStr.slice(0, 12000) + "\n[...truncated]" : resultStr;
-        } else if (method === "POST") {
-          // POST with form body
-          const formParams = new URLSearchParams({ ...params, access_token: token });
-          const resp = await fetch(`${baseUrl}${endpoint}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: formParams.toString(),
-          });
-          const data = await resp.json();
-
-          if (!resp.ok) {
-            return `Meta API error (${resp.status}): ${JSON.stringify(data, null, 2).slice(0, 4000)}`;
+        // Helper: serialize params for GET query string
+        const buildQueryString = (p: Record<string, unknown>, tok: string): string => {
+          const qs = new URLSearchParams();
+          qs.set("access_token", tok);
+          for (const [key, val] of Object.entries(p)) {
+            if (val === undefined || val === null) continue;
+            qs.set(key, typeof val === "object" ? JSON.stringify(val) : String(val));
           }
+          return qs.toString();
+        };
 
-          return `Success!\n${JSON.stringify(data, null, 2).slice(0, 8000)}`;
-        } else if (method === "DELETE") {
-          const qs = new URLSearchParams({ access_token: token });
-          const resp = await fetch(`${baseUrl}${endpoint}?${qs.toString()}`, { method: "DELETE" });
-          const data = await resp.json();
+        // Helper: format Meta API errors with actionable guidance
+        const formatMetaError = (status: number, data: any): string => {
+          const errJson = JSON.stringify(data, null, 2).slice(0, 3000);
+          const code = data?.error?.code;
+          const subcode = data?.error?.error_subcode;
+          let hint = "";
+          if (code === 190) hint = "\nHINT: Token is invalid or expired. Update META_ACCESS_TOKEN or reconnect via OAuth.";
+          else if (code === 100 && subcode === 33) hint = "\nHINT: Endpoint not found. Check the ad account ID or resource ID.";
+          else if (code === 10 || code === 200) hint = "\nHINT: Permission denied. The token may not have ads_management or business_management scope.";
+          else if (code === 17 || code === 4) hint = "\nHINT: Rate limited. Wait a moment and retry.";
+          else if (code === 2635) hint = "\nHINT: Budget is too low. Meta requires minimum $1/day ($100 in cents).";
+          return `Meta API error (${status}):${hint}\n${errJson}`;
+        };
 
-          if (!resp.ok) {
-            return `Meta API error (${resp.status}): ${JSON.stringify(data, null, 2).slice(0, 4000)}`;
+        try {
+          if (method === "GET") {
+            const url = `${baseUrl}${endpoint}?${buildQueryString(params, token)}`;
+            const resp = await fetch(url);
+            const data = await resp.json();
+            if (!resp.ok) return formatMetaError(resp.status, data);
+            const resultStr = JSON.stringify(data, null, 2);
+            return resultStr.length > 8000 ? resultStr.slice(0, 8000) + "\n[...truncated]" : resultStr;
+          } else if (method === "POST") {
+            const resp = await fetch(`${baseUrl}${endpoint}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: buildFormBody(params, token).toString(),
+            });
+            const data = await resp.json();
+            if (!resp.ok) return formatMetaError(resp.status, data);
+            return `Success!\n${JSON.stringify(data, null, 2).slice(0, 4000)}`;
+          } else if (method === "DELETE") {
+            const resp = await fetch(`${baseUrl}${endpoint}?${buildQueryString({}, token)}`, { method: "DELETE" });
+            const data = await resp.json();
+            if (!resp.ok) return formatMetaError(resp.status, data);
+            return `Deleted successfully.\n${JSON.stringify(data, null, 2)}`;
+          } else {
+            return `Error: Unsupported method '${method}'. Use GET, POST, or DELETE.`;
           }
-
-          return `Deleted successfully.\n${JSON.stringify(data, null, 2)}`;
-        } else {
-          return `Error: Unsupported method '${method}'. Use GET, POST, or DELETE.`;
+        } catch (fetchErr: any) {
+          return `Meta API network error: ${fetchErr.message}. Check if the endpoint and parameters are correct.`;
         }
       }
 
