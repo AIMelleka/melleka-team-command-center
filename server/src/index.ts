@@ -7,6 +7,7 @@ import conversationsRouter from "./routes/conversations.js";
 import memoryRouter from "./routes/memory.js";
 import { startScheduler, getActiveCronCount } from "./services/scheduler.js";
 import notificationsRouter from "./routes/notifications.js";
+import tasksRouter from "./routes/tasks.js";
 import { getActiveSseConnections } from "./routes/chat.js";
 
 const app = express();
@@ -52,6 +53,7 @@ app.use("/api/chat", chatRouter);
 app.use("/api/conversations", conversationsRouter);
 app.use("/api/memory", memoryRouter);
 app.use("/api/notifications", notificationsRouter);
+app.use("/api/tasks", tasksRouter);
 
 const server = app.listen(PORT, () => {
   console.log(`Melleka Teams server running on http://localhost:${PORT}`);

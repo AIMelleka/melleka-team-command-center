@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./hooks/useAuth";
 import { ClientProvider } from "./contexts/ClientContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -21,10 +21,9 @@ const ProposalsDashboard = lazy(() => import("./pages/ProposalsDashboard"));
 const ProposalQA = lazy(() => import("./pages/ProposalQA"));
 const PortfolioManager = lazy(() => import("./pages/PortfolioManager"));
 const SeoWriter = lazy(() => import("./pages/SeoWriter"));
-const AdGenerator = lazy(() => import("./pages/AdGenerator"));
+const CreativeStudio = lazy(() => import("./pages/CreativeStudio"));
 const QABot = lazy(() => import("./pages/QABot"));
 const EmailWriter = lazy(() => import("./pages/EmailWriter"));
-const VideoGenerator = lazy(() => import("./pages/VideoGenerator"));
 const ClientUpdate = lazy(() => import("./pages/ClientUpdate"));
 const ClientHealth = lazy(() => import("./pages/ClientHealth"));
 const DeckBuilder = lazy(() => import("./pages/DeckBuilder"));
@@ -35,11 +34,11 @@ const UserDashboard = lazy(() => import("./pages/UserDashboard"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const AdReview = lazy(() => import("./pages/AdReview"));
 const SeoBot = lazy(() => import("./pages/SeoBot"));
-const ImageGenerator = lazy(() => import("./pages/ImageGenerator"));
 const PpcOptimizer = lazy(() => import("./pages/PpcOptimizer"));
 const ClientDashboard = lazy(() => import("./pages/ClientDashboard"));
 const StrategistSettings = lazy(() => import("./pages/StrategistSettings"));
 const ClientSettings = lazy(() => import("./pages/ClientSettings"));
+const Tasks = lazy(() => import("./pages/Tasks"));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
@@ -128,13 +127,14 @@ const App = () => (
                   }
                 />
                 <Route
-                  path="/ad-generator"
+                  path="/creative-studio"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <AdGenerator />
+                      <CreativeStudio />
                     </ProtectedRoute>
                   }
                 />
+                <Route path="/ad-generator" element={<Navigate to="/creative-studio?tab=ad" replace />} />
                 <Route
                   path="/ad-review"
                   element={
@@ -159,14 +159,7 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
-                <Route
-                  path="/video-generator"
-                  element={
-                    <ProtectedRoute requireAdmin>
-                      <VideoGenerator />
-                    </ProtectedRoute>
-                  }
-                />
+                <Route path="/video-generator" element={<Navigate to="/creative-studio?tab=video" replace />} />
                 <Route
                   path="/client-update"
                   element={
@@ -207,14 +200,7 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
-                <Route
-                  path="/image-generator"
-                  element={
-                    <ProtectedRoute requireAdmin>
-                      <ImageGenerator />
-                    </ProtectedRoute>
-                  }
-                />
+                <Route path="/image-generator" element={<Navigate to="/creative-studio?tab=image" replace />} />
                 <Route
                   path="/ppc-optimizer"
                   element={
@@ -236,6 +222,14 @@ const App = () => (
                   element={
                     <ProtectedRoute requireAdmin>
                       <StrategistSettings />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/tasks"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <Tasks />
                     </ProtectedRoute>
                   }
                 />

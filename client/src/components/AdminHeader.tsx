@@ -6,10 +6,8 @@ import {
   Home,
   FileText,
   Search,
-  ImageIcon,
   Bot,
   Mail,
-  Video,
   Users,
   Activity,
   Presentation,
@@ -18,9 +16,10 @@ import {
   LogOut,
   Menu,
   CheckCircle,
-  Sparkles,
+  Palette,
   Brain,
   Building2,
+  ListTodo,
 } from 'lucide-react';
 import teamPitLogo from '@/assets/team-pit-logo.png';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -36,17 +35,16 @@ import { useState } from 'react';
 
 const navItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/', label: 'Home', icon: Home },
+  { path: '/tasks', label: 'Tasks', icon: ListTodo },
   { path: '/client-health', label: 'Command Center', icon: Activity },
   { path: '/proposals', label: 'Proposals', icon: FolderOpen },
   { path: '/proposal-builder', label: 'Proposal Builder', icon: FileText },
   { path: '/deck-builder', label: 'Deck Builder', icon: Presentation },
   { path: '/seo-writer', label: 'SEO Writer', icon: Search },
-  { path: '/ad-generator', label: 'Ad Generator', icon: ImageIcon },
-  { path: '/image-generator', label: 'Image Studio', icon: Sparkles },
+  { path: '/creative-studio', label: 'Creative Studio', icon: Palette },
   { path: '/qa-bot', label: 'QA Bot', icon: Bot },
   { path: '/proposal-qa', label: 'Proposal QA', icon: CheckCircle },
   { path: '/email-writer', label: 'Email Writer', icon: Mail },
-  { path: '/video-generator', label: 'Video Generator', icon: Video },
   { path: '/client-update', label: 'Client Update', icon: Users },
   { path: '/client-settings', label: 'Clients', icon: Building2 },
   { path: '/strategist-settings', label: 'Strategist', icon: Brain },
@@ -89,29 +87,9 @@ const AdminHeader = memo(() => {
           </span>
         </button>
 
-        {/* Desktop Navigation - Quick Links */}
-        <nav className="hidden lg:flex items-center gap-1 flex-1">
-          {navItems.slice(0, 6).map((item) => {
-            const Icon = item.icon;
-            const isActive = location.pathname === item.path;
-            return (
-              <Button
-                key={item.path}
-                variant={isActive ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => navigate(item.path)}
-                className="text-xs"
-              >
-                <Icon className="h-3.5 w-3.5 mr-1.5" />
-                {item.label}
-              </Button>
-            );
-          })}
-        </nav>
-
-        {/* Mobile: Current page indicator */}
+        {/* Current page indicator */}
         {currentPage && (
-          <span className="text-xs font-medium text-foreground truncate lg:hidden flex-1">
+          <span className="text-xs font-medium text-foreground truncate flex-1">
             {currentPage.label}
           </span>
         )}
