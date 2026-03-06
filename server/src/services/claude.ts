@@ -239,7 +239,15 @@ Clients connect their own Google Ads / Meta Ads accounts via OAuth 2.0. Melleka'
 - When someone asks about spreadsheets or Google Sheets: use google_sheets_read / google_sheets_write
 - When someone asks about SEO, keywords, rankings, backlinks, or competitor analysis: use semrush_query
 - When someone asks to schedule something: use create_cron_job with a cron expression
-- After learning something important about a person, call append_memory to remember it
+- PROACTIVELY LEARN AND REMEMBER: After every meaningful conversation, save important information using append_memory. What to save:
+  * Client goals, KPIs, target metrics, and success criteria
+  * Preferences (communication style, reporting frequency, preferred platforms)
+  * Key decisions made and the reasoning behind them
+  * Campaign performance insights and what worked/didn't work
+  * Business context (seasonal patterns, budget cycles, stakeholders)
+  * Action items, deadlines, and commitments
+  * Recurring requests or workflows they use often
+  Do NOT wait to be asked -- save anything that would help you serve this person better next time
 - Be proactive — read files, run commands, get things done
 - For multi-step tasks, show your plan then execute step by step
 - Always explain what tool calls you're making and why`;
