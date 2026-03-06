@@ -719,18 +719,27 @@ async function runChat(
           }
         }
       } catch (streamErr: any) {
-        // Stream interrupted mid-response (network blip, API timeout)
-        // Save what we have and retry the iteration
-        console.error(`[runChat] ${memberName} | stream error at iteration ${iteration}:`, streamErr.message);
+        const errMsg = streamErr.message || "";
+        console.error(`[runChat] ${memberName} | stream error at iteration ${iteration}:`, errMsg);
+
+        // Non-retryable errors: billing, auth, invalid key -- stop immediately
+        const isFatal = /credit balance|too low|invalid.*api.*key|authentication|unauthorized|invalid_api_key/i.test(errMsg);
+        if (isFatal) {
+          const userMsg = "\nSorry, the AI service is temporarily unavailable (billing or authentication issue). Please contact your admin.";
+          write?.({ type: "text", delta: userMsg });
+          fullResponse += userMsg;
+          break; // stop the loop entirely
+        }
+
+        // Retryable errors: network blips, timeouts, 5xx
+        // Save partial progress and retry
         if (assistantBlocks.length > 0) {
-          // Ensure we have at least one text block so the message is valid
           const hasText = assistantBlocks.some((b) => b.type === "text");
           if (!hasText) {
             assistantBlocks.push({ type: "text", text: "(stream interrupted)", citations: [] } as Anthropic.TextBlock);
           }
           currentMessages.push({ role: "assistant", content: assistantBlocks });
 
-          // Return tool errors for any incomplete tool calls so Claude can recover
           const toolBlocks = assistantBlocks.filter((b) => b.type === "tool_use") as Anthropic.ToolUseBlock[];
           if (toolBlocks.length > 0) {
             currentMessages.push({
@@ -744,8 +753,8 @@ async function runChat(
             });
           }
         }
-        write?.({ type: "text", delta: "\n(Connection interrupted — resuming automatically...)\n" });
-        fullResponse += "\n(Connection interrupted — resuming automatically...)\n";
+        write?.({ type: "text", delta: "\n(Connection interrupted - resuming automatically...)\n" });
+        fullResponse += "\n(Connection interrupted - resuming automatically...)\n";
         continue; // retry the loop
       }
 
