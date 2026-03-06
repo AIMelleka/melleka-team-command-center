@@ -18,7 +18,6 @@ const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const ProposalBuilder = lazy(() => import("./pages/ProposalBuilder"));
 const ProposalView = lazy(() => import("./pages/ProposalView"));
 const ProposalsDashboard = lazy(() => import("./pages/ProposalsDashboard"));
-const ProposalQA = lazy(() => import("./pages/ProposalQA"));
 const PortfolioManager = lazy(() => import("./pages/PortfolioManager"));
 const SeoWriter = lazy(() => import("./pages/SeoWriter"));
 const CreativeStudio = lazy(() => import("./pages/CreativeStudio"));
@@ -38,6 +37,7 @@ const PpcOptimizer = lazy(() => import("./pages/PpcOptimizer"));
 const ClientDashboard = lazy(() => import("./pages/ClientDashboard"));
 const StrategistSettings = lazy(() => import("./pages/StrategistSettings"));
 const ClientSettings = lazy(() => import("./pages/ClientSettings"));
+const SuperAgentSettings = lazy(() => import("./pages/SuperAgentSettings"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 
 const PageLoader = () => (
@@ -99,14 +99,6 @@ const App = () => (
                   element={
                     <ProtectedRoute requireAdmin>
                       <ProposalsDashboard />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/proposal-qa"
-                  element={
-                    <ProtectedRoute requireAdmin>
-                      <ProposalQA />
                     </ProtectedRoute>
                   }
                 />
@@ -222,6 +214,14 @@ const App = () => (
                   element={
                     <ProtectedRoute requireAdmin>
                       <StrategistSettings />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/super-agent-settings"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <SuperAgentSettings />
                     </ProtectedRoute>
                   }
                 />

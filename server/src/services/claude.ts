@@ -36,6 +36,21 @@ async function loadMarketingSkills(): Promise<string> {
   }
 }
 
+let _communitySkillsCache: string | null = null;
+async function loadCommunitySkills(): Promise<string> {
+  if (_communitySkillsCache) return _communitySkillsCache;
+  try {
+    _communitySkillsCache = await fs.readFile(
+      path.join(__dirname, "../data/community-skills.md"),
+      "utf-8"
+    );
+    return _communitySkillsCache;
+  } catch (err) {
+    console.warn("[claude] community-skills.md not found:", (err as Error).message);
+    return "(Community skills not found)";
+  }
+}
+
 /** Resolve the absolute path to the client update HTML template */
 function getUpdateTemplatePath(): string {
   return path.join(__dirname, "../data/client-update-template.html");
@@ -63,7 +78,7 @@ function getCurrentDateISO(): string {
   return now.toLocaleDateString("en-CA", { timeZone: TEAM_TIMEZONE });
 }
 
-function buildSystemPrompt(name: string, memory: string, claudeMd: string, marketingSkills: string): string {
+function buildSystemPrompt(name: string, memory: string, claudeMd: string, marketingSkills: string, communitySkills: string): string {
   const slug = name.toLowerCase().replace(/\s+/g, "-");
   const scratchDir = `/tmp/${slug}`;
   const melleka = MELLEKA_PROJECT ? `\n## Melleka Project (${MELLEKA_PROJECT}):\n${claudeMd}` : "";
@@ -367,6 +382,9 @@ You ARE the AI Strategist. You replace the previous edge-function-based strategi
 ## Marketing Expertise:
 ${marketingSkills}
 
+## Community Skills (Extended Knowledge):
+${communitySkills}
+
 ## Guidelines:
 - Greet the team member by name at the start of new conversations
 - When someone asks to build a website: write the files to \`${scratchDir}/site/\`, then call \`deploy_site\` with that directory and a descriptive project_name — give them the branded melleka.app URL
@@ -511,12 +529,13 @@ async function runChat(
   messages: Anthropic.MessageParam[],
   write: SseWriter
 ): Promise<string> {
-  const [memory, claudeMd, marketingSkills] = await Promise.all([
+  const [memory, claudeMd, marketingSkills, communitySkills] = await Promise.all([
     readMemory(memberName),
     loadClaudeMd(),
     loadMarketingSkills(),
+    loadCommunitySkills(),
   ]);
-  const systemPrompt = buildSystemPrompt(memberName, memory, claudeMd, marketingSkills);
+  const systemPrompt = buildSystemPrompt(memberName, memory, claudeMd, marketingSkills, communitySkills);
   console.log(`[runChat] ${memberName} | system prompt length=${systemPrompt.length}, history=${messages.length} messages`);
   let fullResponse = "";
   const currentMessages = [...messages];
