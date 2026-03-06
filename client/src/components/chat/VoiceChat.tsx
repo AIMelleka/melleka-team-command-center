@@ -17,6 +17,7 @@ interface UseVoiceChatReturn {
   toggleVoice: () => void;
   isListening: boolean;
   isSpeaking: boolean;
+  inConversation: boolean;
   interimTranscript: string;
   startListening: () => void;
   stopListening: () => void;
@@ -35,15 +36,21 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState("");
 
+  // Track whether we're in an active voice conversation flow
+  // (user spoke → waiting for response → TTS playing → auto-restart mic)
+  const [inConversation, setInConversation] = useState(false);
+
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const textBufferRef = useRef("");
   const audioQueueRef = useRef<Blob[]>([]);
   const isPlayingRef = useRef(false);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const doneReceivedRef = useRef(false); // tracks if "done" event fired (response complete)
   const onTranscriptRef = useRef(onTranscript);
   onTranscriptRef.current = onTranscript;
   const voiceEnabledRef = useRef(voiceEnabled);
   voiceEnabledRef.current = voiceEnabled;
+  const startListeningRef = useRef<() => void>(() => {});
 
   // Clean up on unmount
   useEffect(() => {
@@ -61,9 +68,11 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
         // Turning off - stop everything
         recognitionRef.current?.stop();
         setIsListening(false);
+        setInConversation(false);
         currentAudioRef.current?.pause();
         audioQueueRef.current = [];
         isPlayingRef.current = false;
+        doneReceivedRef.current = false;
         setIsSpeaking(false);
       }
       return next;
@@ -87,6 +96,7 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     setIsSpeaking(false);
+    doneReceivedRef.current = false;
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
@@ -109,6 +119,7 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
         recognition.stop();
         setIsListening(false);
         setInterimTranscript("");
+        setInConversation(true); // enter conversation loop
         onTranscriptRef.current(final.trim());
       }
     };
@@ -130,9 +141,13 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
     setIsListening(true);
   }, []);
 
+  // Keep ref in sync so playNext can call it
+  startListeningRef.current = startListening;
+
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop();
     setIsListening(false);
+    setInConversation(false); // user manually stopped = exit conversation loop
     setInterimTranscript("");
   }, []);
 
@@ -142,6 +157,16 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
       setIsSpeaking(false);
+      // Auto-restart mic if conversation loop is active and response is fully done
+      if (doneReceivedRef.current && voiceEnabledRef.current) {
+        doneReceivedRef.current = false;
+        // Small delay before restarting mic so there's a natural pause
+        setTimeout(() => {
+          if (voiceEnabledRef.current) {
+            startListeningRef.current();
+          }
+        }, 600);
+      }
       return;
     }
 
@@ -237,12 +262,23 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
   const finishSpeaking = useCallback(() => {
     const remaining = textBufferRef.current.trim();
     textBufferRef.current = "";
+    doneReceivedRef.current = true;
 
     if (remaining.length > 2 && voiceEnabledRef.current) {
       const clean = cleanMarkdown(remaining);
       if (clean.trim()) {
         queueTTS(clean.trim());
+        return; // playNext will handle auto-restart after this last chunk
       }
+    }
+
+    // If nothing is playing/queued, auto-restart mic now
+    if (!isPlayingRef.current && audioQueueRef.current.length === 0 && voiceEnabledRef.current) {
+      setTimeout(() => {
+        if (voiceEnabledRef.current) {
+          startListeningRef.current();
+        }
+      }, 600);
     }
   }, [queueTTS]);
 
@@ -253,7 +289,9 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
     }
     audioQueueRef.current = [];
     isPlayingRef.current = false;
+    doneReceivedRef.current = false;
     setIsSpeaking(false);
+    setInConversation(false);
     textBufferRef.current = "";
   }, []);
 
@@ -262,6 +300,7 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
     toggleVoice,
     isListening,
     isSpeaking,
+    inConversation,
     interimTranscript,
     startListening,
     stopListening,
