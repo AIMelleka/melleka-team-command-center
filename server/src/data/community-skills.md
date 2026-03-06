@@ -289,31 +289,141 @@ Best practices: Always headless=True, always wait for networkidle, use descripti
 
 When asked to automate workflows, connect apps, or take actions in external services:
 
-The `automations` tool connects to Zapier's MCP server, giving access to any action the user has configured. Common categories:
+The `automations` tool connects to Zapier's MCP server, giving access to 8,000+ apps and 30,000+ actions. You can do ANYTHING that Zapier supports. If an action isn't connected yet, guide the user through setup.
 
-- Email: Send via Gmail, Outlook, SendGrid
-- Chat: Post to Slack, Discord, Microsoft Teams, Telegram
-- CRM: Create/update contacts in HubSpot, Salesforce, Pipedrive
-- Project Management: Create tasks in Asana, Trello, Monday, ClickUp, Linear
-- Spreadsheets: Add rows to Google Sheets, Airtable
-- Calendar: Create events in Google Calendar, Outlook Calendar
-- Documents: Create pages in Notion, Google Docs
-- Notifications: Send SMS via Twilio, push notifications
-- Social: Post to Twitter/X, LinkedIn, Facebook
-- E-commerce: Create orders in Shopify, update Stripe records
-- Dev: Create GitHub issues, GitLab merge requests
-- Custom: Trigger any webhook or Zap
+Available app categories (all accessible through automations tool):
+
+Email & Communication:
+- Gmail: Send/read emails, create drafts, add labels
+- Outlook: Send emails, manage calendar, create events
+- SendGrid: Send transactional emails, manage contacts
+- Mailchimp: Add subscribers, send campaigns, manage lists
+- Twilio: Send SMS, make calls, send WhatsApp messages
+
+Chat & Messaging:
+- Slack: Send messages, create channels, manage users, upload files
+- Discord: Send messages, manage servers, create channels
+- Microsoft Teams: Post messages, create meetings, manage channels
+- Telegram: Send messages, manage groups
+
+CRM & Sales:
+- HubSpot: Create/update contacts, deals, companies, tickets, send emails
+- Salesforce: Manage leads, contacts, opportunities, accounts, cases
+- Pipedrive: Create deals, contacts, activities, organizations
+- Zoho CRM: Manage leads, contacts, deals, tasks
+- Close: Create leads, log calls, send emails
+
+Project Management:
+- Asana: Create tasks, projects, sections, assign work
+- Trello: Create cards, move lists, add comments, manage boards
+- Monday.com: Create items, update columns, manage boards
+- ClickUp: Create tasks, spaces, folders, time tracking
+- Linear: Create issues, projects, cycles
+- Jira: Create issues, update status, manage sprints
+- Notion: Create pages, databases, update properties
+- Basecamp: Create to-dos, messages, schedule events
+
+Spreadsheets & Data:
+- Google Sheets: Read/write cells, create spreadsheets, add rows
+- Airtable: Create/update records, manage bases
+- Excel Online: Read/write cells, manage workbooks
+- Smartsheet: Create/update rows, manage sheets
+
+Calendar & Scheduling:
+- Google Calendar: Create/update events, manage attendees
+- Outlook Calendar: Create events, manage schedules
+- Calendly: Get events, manage bookings
+
+Documents & Storage:
+- Google Docs: Create documents, update content
+- Google Drive: Upload files, create folders, share files
+- Dropbox: Upload/download files, manage folders
+- OneDrive: Manage files, create folders
+- Box: Upload files, manage folders, share content
+
+Social Media:
+- Twitter/X: Post tweets, send DMs, manage lists
+- LinkedIn: Share posts, send messages, manage company pages
+- Facebook: Post to pages, manage ads, send messages
+- Instagram: Post content, manage comments
+- Buffer: Schedule posts, manage social accounts
+- Hootsuite: Schedule content, manage social presence
+
+E-commerce & Payments:
+- Shopify: Create orders, manage products, update inventory
+- Stripe: Create charges, manage subscriptions, send invoices
+- Square: Process payments, manage catalog
+- WooCommerce: Create orders, manage products
+- PayPal: Send payments, create invoices
+- QuickBooks: Create invoices, manage expenses, track payments
+
+Marketing & Analytics:
+- ActiveCampaign: Manage contacts, automations, campaigns
+- Klaviyo: Add profiles, trigger flows, manage lists
+- ConvertKit: Add subscribers, manage sequences
+- Google Analytics: Track events, get reports
+- Facebook Ads: Create campaigns, manage audiences
+- Google Ads: Manage campaigns, keywords, ads
+- Segment: Track events, identify users
+
+Developer & DevOps:
+- GitHub: Create issues, PRs, manage repos, trigger workflows
+- GitLab: Create issues, merge requests, manage repos
+- Bitbucket: Manage repos, create PRs
+- AWS: Manage S3, Lambda, SES, SNS
+- Vercel: Trigger deployments, manage projects
+- Netlify: Trigger builds, manage sites
+- PagerDuty: Create incidents, manage escalations
+
+Support & Help Desk:
+- Zendesk: Create/update tickets, manage users
+- Freshdesk: Create tickets, manage contacts
+- Intercom: Create conversations, manage users, send messages
+- Help Scout: Create conversations, manage customers
+- Crisp: Send messages, manage conversations
+
+Forms & Surveys:
+- Typeform: Get responses, create forms
+- Google Forms: Get responses, manage forms
+- JotForm: Get submissions, manage forms
+- SurveyMonkey: Get responses, manage surveys
+
+HR & Recruiting:
+- BambooHR: Manage employees, time off, onboarding
+- Greenhouse: Manage candidates, jobs, scorecards
+- Lever: Manage candidates, opportunities
+
+Automation & Integration:
+- Webhooks: Trigger any URL, receive data
+- Code by Zapier: Run JavaScript/Python
+- Formatter by Zapier: Transform text, dates, numbers
+- Filter by Zapier: Conditional logic
+- Delay by Zapier: Wait before next step
+- Paths by Zapier: Branching logic
 
 Workflow:
-1. ALWAYS call `automations` with action='list' first to discover available actions
-2. Review the parameters each action requires from the list output
-3. Call `automations` with action='execute', the exact tool_name, and required params
-4. Report the result to the user
+1. ALWAYS call `automations` with action='list' first to discover what's currently connected
+2. If the action the user needs IS available: execute it with the right params
+3. If the action is NOT available: tell the user exactly what to do (see setup guide below)
+4. After the user confirms setup, call action='list' again to verify, then execute
+
+When an action is NOT yet connected (CRITICAL - follow this exactly):
+1. Tell the user: "The [App Name] - [Action] automation isn't connected yet. Here's how to set it up:"
+2. Provide these steps:
+   a. Go to mcp.zapier.com
+   b. Click "Add Action" or "+"
+   c. Search for "[App Name]"
+   d. Select the specific action (e.g., "Send Email" for Gmail)
+   e. Connect/authorize your [App Name] account when prompted
+   f. Click "Enable" to make it available
+3. Say: "Let me know once you've connected it and I'll use it right away."
+4. When the user confirms, call action='list' again to pick up the new action, then execute it
 
 Best practices:
-- Always list before executing (available actions depend on user's Zapier config)
-- If an action is not available, tell the user to configure it at mcp.zapier.com
+- Always list before executing (available actions depend on what's been connected)
+- When a user asks to do something in an external app, ALWAYS try the automations tool first
 - Pass all required parameters as shown in the schema from the list output
 - For multi-step workflows, execute actions sequentially and verify each step
 - Combine with cron jobs (create_cron_job) for recurring automated workflows
 - Use action='search' with a keyword to quickly find relevant actions in large lists
+- If the MCP URL is not configured at all, tell the admin to add ZAPIER_MCP_URL to team_secrets
