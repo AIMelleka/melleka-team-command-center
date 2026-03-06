@@ -3,6 +3,10 @@ import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
 import { streamChat } from "../services/claude.js";
 import { supabase } from "../services/supabase.js";
+import {
+  registerJob, pushEvent, completeJob, failJob,
+  getJob, getActiveJobs, addListener, isConversationRunning,
+} from "../services/activeJobs.js";
 import fs from "fs/promises";
 import path from "path";
 import type Anthropic from "@anthropic-ai/sdk";
@@ -197,9 +201,14 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       }
     }
 
-    // Stream response from Claude
+    // Register active job so clients can reconnect
+    registerJob(convId!, memberName);
+
+    // Stream response from Claude (events also buffered for reconnect)
     console.log(`[chat] ${memberName} | starting streamChat with ${messages.length} messages`);
-    const fullResponse = await streamChat(memberName, messages, res);
+    const fullResponse = await streamChat(memberName, messages, res, (event) => {
+      pushEvent(convId!, event as any);
+    });
     console.log(`[chat] ${memberName} | streamChat done, response length=${fullResponse.length}, disconnected=${clientDisconnected}`);
 
     // Always save assistant response (even if client disconnected mid-stream)
@@ -211,16 +220,17 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       });
     }
 
+    completeJob(convId!, fullResponse);
+
     if (!clientDisconnected) {
       res.write(`data: ${JSON.stringify({ type: "done", conversationId: convId })}\n\n`);
     }
   } catch (err) {
     console.error(`Chat error for ${memberName}:`, err);
+    if (convId) failJob(convId, String(err));
     // Save partial response so conversation context isn't lost on reload
     if (convId) {
       try {
-        // fullResponse may not be available here since it's scoped to streamChat,
-        // but the error message itself provides context for the next conversation load
         await supabase.from("team_messages").insert({
           conversation_id: convId,
           role: "assistant",
@@ -240,6 +250,83 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
     clearInterval(keepalive);
     if (!clientDisconnected) res.end();
   }
+});
+
+// ── Reconnect endpoints for persistent background chats ──
+
+// Check if a conversation has an active agent job
+router.get("/status/:conversationId", requireAuth, async (req: AuthRequest, res) => {
+  const job = getJob(req.params.conversationId as string);
+  if (!job || job.memberName !== req.memberName!) {
+    res.json({ active: false });
+    return;
+  }
+  res.json({
+    active: job.status === "running",
+    status: job.status,
+    startedAt: job.startedAt,
+    eventCount: job.events.length,
+  });
+});
+
+// SSE endpoint: replay buffered events then stream live
+router.get("/reconnect/:conversationId", requireAuth, async (req: AuthRequest, res) => {
+  const convId = req.params.conversationId as string;
+  const job = getJob(convId);
+
+  if (!job || job.memberName !== req.memberName!) {
+    res.status(404).json({ error: "No active job for this conversation" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  // Replay buffered events
+  for (const event of job.events) {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  }
+
+  // If already done, close immediately
+  if (job.status !== "running") {
+    res.write(`data: ${JSON.stringify({ type: "done", conversationId: convId })}\n\n`);
+    res.end();
+    return;
+  }
+
+  // Subscribe to live events
+  const keepalive = setInterval(() => {
+    try { res.write(": keepalive\n\n"); } catch { /* gone */ }
+  }, 5000);
+
+  const removeListener = addListener(convId, (event) => {
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch {
+      removeListener();
+      clearInterval(keepalive);
+    }
+  });
+
+  res.on("close", () => {
+    removeListener();
+    clearInterval(keepalive);
+  });
+});
+
+// List conversation IDs with active agent loops for this member
+router.get("/active-jobs", requireAuth, async (req: AuthRequest, res) => {
+  const memberName = req.memberName!;
+  const active: string[] = [];
+  for (const [convId, job] of getActiveJobs()) {
+    if (job.memberName === memberName && job.status === "running") {
+      active.push(convId);
+    }
+  }
+  res.json({ activeConversationIds: active });
 });
 
 export default router;

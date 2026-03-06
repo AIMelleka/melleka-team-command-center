@@ -103,6 +103,10 @@ export interface SSEEvent {
   message?: string;
 }
 
+// Stale timeout: if no data (including keepalive pings) for this many ms, consider dead.
+// Server sends keepalive every 5s, so 20s means we missed 4 pings.
+const STALE_TIMEOUT_MS = 20_000;
+
 export function streamMessage(
   message: string,
   conversationId: string | null,
@@ -156,9 +160,28 @@ export function streamMessage(
       const decoder = new TextDecoder();
       let buffer = "";
 
+      // Stale connection detection: reset timer on every chunk received
+      let staleTimer: ReturnType<typeof setTimeout> | null = null;
+      const resetStaleTimer = () => {
+        if (staleTimer) clearTimeout(staleTimer);
+        staleTimer = setTimeout(() => {
+          // No data for STALE_TIMEOUT_MS - connection is dead
+          if (!receivedDone) {
+            controller.abort();
+            if (onDisconnect) onDisconnect();
+            onDone();
+          }
+        }, STALE_TIMEOUT_MS);
+      };
+      resetStaleTimer();
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+
+        // Got data - connection is alive, reset stale timer
+        resetStaleTimer();
+
         buffer += decoder.decode(value, { stream: true });
 
         const lines = buffer.split("\n");
@@ -172,10 +195,14 @@ export function streamMessage(
               onEvent(event);
             } catch { /* skip malformed */ }
           }
+          // keepalive comments (": keepalive") are parsed but ignored - they still reset the stale timer above
         }
       }
 
-      // Stream ended — if no "done" event, the connection dropped unexpectedly
+      // Clean up stale timer
+      if (staleTimer) clearTimeout(staleTimer);
+
+      // Stream ended - if no "done" event, the connection dropped unexpectedly
       if (!receivedDone && onDisconnect) {
         onDisconnect();
       }
@@ -187,6 +214,105 @@ export function streamMessage(
           : String(err);
         onEvent({ type: "error", message: msg });
         if (onDisconnect) onDisconnect();
+        onDone();
+      }
+    }
+  })();
+
+  return () => controller.abort();
+}
+
+// ── Persistent background chat: reconnect APIs ──
+
+export async function checkJobStatus(conversationId: string): Promise<{
+  active: boolean;
+  status?: string;
+  startedAt?: number;
+  eventCount?: number;
+}> {
+  try {
+    const res = await fetch(`${API_BASE}/chat/status/${conversationId}`, {
+      headers: await authHeaders(),
+    });
+    if (!res.ok) return { active: false };
+    return res.json();
+  } catch {
+    return { active: false };
+  }
+}
+
+export async function fetchActiveJobs(): Promise<string[]> {
+  try {
+    const res = await fetch(`${API_BASE}/chat/active-jobs`, {
+      headers: await authHeaders(),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.activeConversationIds ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export function reconnectToJob(
+  conversationId: string,
+  onEvent: (event: SSEEvent) => void,
+  onDone: () => void,
+): () => void {
+  const controller = new AbortController();
+
+  (async () => {
+    let receivedDone = false;
+
+    try {
+      const res = await fetch(`${API_BASE}/chat/reconnect/${conversationId}`, {
+        headers: await authHeaders(),
+        signal: controller.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        onDone();
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      let staleTimer: ReturnType<typeof setTimeout> | null = null;
+      const resetStaleTimer = () => {
+        if (staleTimer) clearTimeout(staleTimer);
+        staleTimer = setTimeout(() => {
+          if (!receivedDone) {
+            controller.abort();
+            onDone();
+          }
+        }, STALE_TIMEOUT_MS);
+      };
+      resetStaleTimer();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        resetStaleTimer();
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const event = JSON.parse(line.slice(6)) as SSEEvent;
+              if (event.type === "done") receivedDone = true;
+              onEvent(event);
+            } catch { /* skip */ }
+          }
+        }
+      }
+
+      if (staleTimer) clearTimeout(staleTimer);
+      onDone();
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") {
         onDone();
       }
     }

@@ -160,6 +160,15 @@ Example: write HTML to \`${scratchDir}/site/index.html\`, then call deploy_site 
 - **create_agent** — queue background tasks
 - **get_current_date** — get the exact current date/time (always call this before building date ranges)
 
+### Super Agent Task Tracker
+- **super_agent_task** — create, update, or list tasks on the shared Super Agent Dashboard visible to the whole team. Use this to:
+  - Create a task when starting significant work (action='create', include title, category, client_name, requested_by)
+  - Update task status as you progress (action='update', task_id, status='working_on_it'/'completed'/'error', add notes)
+  - Add links to deliverables (deployed URLs, sheets, docs) as you produce them
+  - Log errors when something fails (status='error', error_details='...')
+  - List your current tasks (action='list', optionally filter by status or client)
+  - IMPORTANT: Create exactly ONE task per user request at the start, then UPDATE that same task_id throughout. Never create duplicate tasks. Always list first to check for existing tasks before creating a new one.
+
 ## Melleka Turbo AI Platform (turbo.melleka.com):
 The main client-facing SaaS product. Key facts for the team:
 - **Stack**: React 18 + TypeScript + Vite (frontend), Supabase Edge Functions (backend), Supabase Postgres (DB)
@@ -386,6 +395,7 @@ ${marketingSkills}
 ${communitySkills}
 
 ## Guidelines:
+- CRITICAL — TASK TRACKING: For EVERY request that involves real work, create ONE super_agent_task at the START of the conversation (action='create', status defaults to 'not_started'). Then use action='update' with the returned task_id to change status to 'working_on_it', add notes, and finally set 'completed' or 'error'. DO NOT create multiple tasks for the same request — create exactly ONE task per user request, then UPDATE that same task as you progress. Before creating, call action='list' to check if a task already exists for this work. The team depends on the Super Agent Dashboard to track your activity.
 - Greet the team member by name at the start of new conversations
 - When someone asks to build a website: write the files to \`${scratchDir}/site/\`, then call \`deploy_site\` with that directory and a descriptive project_name — give them the branded melleka.app URL
 - When someone asks to send an email: use the send_email tool directly — just do it
@@ -833,9 +843,13 @@ async function runChat(
 export async function streamChat(
   memberName: string,
   messages: Anthropic.MessageParam[],
-  res: Response
+  res: Response,
+  onEvent?: (event: Record<string, unknown>) => void,
 ): Promise<string> {
-  const write: SseWriter = safeWrite((event) => res.write(`data: ${JSON.stringify(event)}\n\n`));
+  const write: SseWriter = safeWrite((event) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    if (onEvent) onEvent(event);
+  });
   return runChat(memberName, messages, write);
 }
 

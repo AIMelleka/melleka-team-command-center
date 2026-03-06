@@ -29,6 +29,9 @@ import {
   fetchNotifications as apiFetchNotifications,
   fetchCronJobs as apiFetchCronJobs,
   ensureTeamMember,
+  checkJobStatus,
+  fetchActiveJobs,
+  reconnectToJob,
   type SSEEvent,
   type Conversation as ApiConversation,
   type CronJob,
@@ -124,6 +127,9 @@ const Index = () => {
   const [cronJobs, setCronJobs] = useState<CronJob[]>([]);
   const [cronFolderOpen, setCronFolderOpen] = useState(false);
 
+  // Active background jobs
+  const [activeJobConvIds, setActiveJobConvIds] = useState<Set<string>>(new Set());
+
   // @mention state
   const [mentionedClients, setMentionedClients] = useState<string[]>([]);
   const [showMentionPopover, setShowMentionPopover] = useState(false);
@@ -185,12 +191,16 @@ const Index = () => {
     })();
   }, []);
 
-  // Poll notifications + cron jobs every 30s
+  // Poll notifications + cron jobs + active jobs every 30s
   useEffect(() => {
     const poll = async () => {
       try {
         const { count } = await apiFetchNotifications();
         setUnreadCount(count);
+      } catch { /* ignore */ }
+      try {
+        const ids = await fetchActiveJobs();
+        setActiveJobConvIds(new Set(ids));
       } catch { /* ignore */ }
       loadCronJobs();
     };
@@ -223,16 +233,99 @@ const Index = () => {
   };
 
   const selectConversation = async (convoId: string) => {
+    // Abort current stream if switching conversations (server-side loop keeps running)
+    if (abortRef.current) {
+      abortRef.current();
+      abortRef.current = null;
+    }
+    setIsStreaming(false);
     setActiveConvoId(convoId);
     if (isMobile) setSidebarOpen(false);
     try {
       const data = await apiFetchMessages(convoId);
-      // Convert flat messages to UIMessage format
       setMessages(data.map(m => ({
         id: m.id,
         role: m.role,
         parts: [{ type: 'text' as const, content: m.content }],
       })));
+
+      // Check if there's an active background agent job for this conversation
+      const status = await checkJobStatus(convoId);
+      if (status.active) {
+        const assistantId = uid();
+        setMessages(prev => [...prev, {
+          id: assistantId,
+          role: 'assistant',
+          parts: [],
+          streaming: true,
+        }]);
+        setIsStreaming(true);
+
+        const abort = reconnectToJob(
+          convoId,
+          (event: SSEEvent) => {
+            if (event.type === 'text' && event.delta) {
+              voiceFeedTextRef.current(event.delta);
+            } else if (event.type === 'done') {
+              voiceFinishRef.current();
+            }
+
+            setMessages(prev => {
+              const msgs = [...prev];
+              const aIdx = msgs.findIndex(m => m.id === assistantId);
+              if (aIdx === -1) return prev;
+              const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts] };
+
+              switch (event.type) {
+                case 'text': {
+                  const lastPart = assistant.parts[assistant.parts.length - 1];
+                  if (lastPart?.type === 'text') {
+                    assistant.parts[assistant.parts.length - 1] = {
+                      ...lastPart,
+                      content: (lastPart.content ?? '') + (event.delta ?? ''),
+                    };
+                  } else {
+                    assistant.parts.push({ type: 'text', content: event.delta ?? '' });
+                  }
+                  break;
+                }
+                case 'tool_start':
+                  assistant.parts.push({ type: 'tool_start', toolName: event.name });
+                  break;
+                case 'tool_result': {
+                  for (let i = assistant.parts.length - 1; i >= 0; i--) {
+                    if (assistant.parts[i].type === 'tool_start' && assistant.parts[i].toolName === event.name) {
+                      assistant.parts[i] = { type: 'tool_result', toolName: event.name, toolOutput: event.output };
+                      break;
+                    }
+                  }
+                  break;
+                }
+                case 'done':
+                  assistant.streaming = false;
+                  break;
+                case 'error':
+                  assistant.streaming = false;
+                  assistant.parts.push({ type: 'text', content: `\n\n**Error:** ${event.message}` });
+                  break;
+              }
+
+              msgs[aIdx] = assistant;
+              return msgs;
+            });
+          },
+          () => {
+            setIsStreaming(false);
+            loadConversations();
+            setActiveJobConvIds(prev => {
+              const next = new Set(prev);
+              next.delete(convoId);
+              return next;
+            });
+          },
+        );
+        abortRef.current = abort;
+      }
     } catch {
       toast.error('Failed to load messages');
     }
@@ -525,7 +618,11 @@ const Index = () => {
           : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
       }`}
     >
-      <MessageSquare className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+      {activeJobConvIds.has(c.id) ? (
+        <Loader2 className="w-3.5 h-3.5 shrink-0 text-primary animate-spin" />
+      ) : (
+        <MessageSquare className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+      )}
       {editing?.id === c.id ? (
         <input
           ref={editInputRef}
@@ -957,7 +1054,7 @@ const Index = () => {
                 </div>
               </div>
               <p className="text-[10px] text-muted-foreground text-center mt-2">
-                Powered by Claude Opus · Enter to send · Shift+Enter for new line{voiceChat.voiceEnabled ? ' · Voice mode active' : ''}
+                Powered By Melleka AI · Enter to send · Shift+Enter for new line{voiceChat.voiceEnabled ? ' · Voice mode active' : ''}
               </p>
             </div>
           </div>
