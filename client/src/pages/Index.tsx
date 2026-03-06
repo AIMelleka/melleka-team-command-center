@@ -4,7 +4,7 @@ import {
   Search, Plus, Loader2, MessageSquare, Trash2,
   PanelLeftClose, PanelLeft, ArrowRight, Check, X,
   Pencil, Brain, Bell, Square, Paperclip, FileText,
-  Clock, ChevronDown, ChevronRight, FolderClock,
+  Clock, ChevronDown, ChevronRight, FolderClock, Activity,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import AdminHeader from '@/components/AdminHeader';
@@ -150,6 +150,23 @@ const Index = () => {
   voiceFeedTextRef.current = voiceChat.feedText;
   const voiceFinishRef = useRef(voiceChat.finishSpeaking);
   voiceFinishRef.current = voiceChat.finishSpeaking;
+
+  // Spacebar hotkey: interrupt assistant and start listening
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!voiceChat.voiceEnabled) return;
+      if (e.code !== 'Space') return;
+      // Don't hijack space when typing in an input/textarea
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (voiceChat.isSpeaking) {
+        e.preventDefault();
+        voiceChat.interruptAndListen();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [voiceChat.voiceEnabled, voiceChat.isSpeaking, voiceChat.interruptAndListen]);
 
   // Open sidebar by default on desktop
   useEffect(() => {
@@ -755,8 +772,17 @@ const Index = () => {
             </div>
           )}
 
-          {/* Voice mode toggle */}
-          <div className="flex items-center justify-end px-3 pt-2">
+          {/* Top bar: Agent Dashboard + Voice toggle */}
+          <div className="flex items-center justify-between px-3 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => navigate('/super-agent-dashboard')}
+            >
+              <Activity className="h-3.5 w-3.5" />
+              Agent Dashboard
+            </Button>
             <VoiceModeToggle enabled={voiceChat.voiceEnabled} onToggle={voiceChat.toggleVoice} />
           </div>
 
@@ -896,8 +922,10 @@ const Index = () => {
                   {voiceChat.voiceEnabled && (
                     <MicButton
                       isListening={voiceChat.isListening}
+                      isSpeaking={voiceChat.isSpeaking}
                       disabled={isStreaming}
                       onToggle={() => voiceChat.isListening ? voiceChat.stopListening() : voiceChat.startListening()}
+                      onInterrupt={voiceChat.interruptAndListen}
                     />
                   )}
                   <textarea
