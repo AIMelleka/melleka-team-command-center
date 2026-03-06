@@ -427,3 +427,59 @@ Best practices:
 - Combine with cron jobs (create_cron_job) for recurring automated workflows
 - Use action='search' with a keyword to quickly find relevant actions in large lists
 - If the MCP URL is not configured at all, tell the admin to add ZAPIER_MCP_URL to team_secrets
+
+---
+
+## Voice & Audio (ElevenLabs)
+
+When asked to generate voiceovers, audio, sound effects, or anything voice-related:
+
+The `voice` tool connects to ElevenLabs for professional-quality audio generation.
+
+Available actions:
+
+1. speak - Text-to-speech voiceover generation
+   - Choose from hundreds of voices (use action='voices' to browse)
+   - Default voice: Rachel (professional female narrator)
+   - Models: eleven_v3 (best quality, 70+ languages), eleven_turbo_v2_5 (fast), eleven_flash_v2_5 (fastest)
+   - Adjustable: stability (0-1), similarity_boost (0-1)
+   - Returns a public URL to the MP3 file
+
+2. voices - Browse and search available voices
+   - Search by name or keyword (e.g. "british male", "narrator")
+   - Returns voice IDs needed for the speak action
+   - Shows voice category, labels (gender, age, accent), and description
+
+3. sound_effect - Generate sound effects from text descriptions
+   - Describe any sound: "thunder rumbling in the distance", "keyboard typing", "crowd cheering"
+   - Max 30 seconds per generation
+   - Returns a public URL to the audio file
+
+4. isolate - Remove background noise from audio
+   - Provide a URL to a noisy audio file
+   - Returns a cleaned-up version with isolated vocals
+   - Great for cleaning up recordings, interviews, podcasts
+
+5. clone - Clone a voice from an audio sample
+   - Provide a URL to 1-2 minutes of clear speech audio
+   - Creates a new voice that mimics the speaker
+   - Returns a voice_id to use with the speak action
+
+6. dub - Translate and dub audio to another language
+   - Provide a URL to the source audio and target language code
+   - Supports 32 languages (es, fr, de, ja, pt, zh, ko, it, etc.)
+   - Preserves speaker voice characteristics in the new language
+   - Asynchronous: returns a dubbing ID to check status
+
+Workflow for voiceovers:
+1. If the user wants a specific voice type, search with action='voices' first
+2. Use action='speak' with the chosen voice_id and text
+3. Share the audio URL with the user
+
+Tips:
+- For natural-sounding speech, keep stability around 0.5 and similarity_boost around 0.75
+- Lower stability = more expressive/emotional, higher = more consistent/monotone
+- Use eleven_v3 model for best quality, eleven_flash_v2_5 for speed
+- For long content (articles, scripts), break into paragraphs and generate separately
+- Sound effects work best with specific, descriptive prompts
+- Voice cloning needs clear audio with minimal background noise (1-2 min is enough)

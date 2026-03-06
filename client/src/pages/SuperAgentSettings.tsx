@@ -10,7 +10,7 @@ import {
   TrendingUp, MailOpen, Share2, LineChart, FlaskConical,
   HeartHandshake, DollarSign, Code2, ShoppingCart, BookOpen,
   FileSpreadsheet, Presentation, Image, Video, Lightbulb,
-  Monitor, FolderOpen, Lock, Users, Plug, Workflow,
+  Monitor, FolderOpen, Lock, Users, Plug, Workflow, Mic,
 } from 'lucide-react';
 
 // ─── Marketing Skills (from marketing-skills.md) ────────────────────────────
@@ -385,6 +385,19 @@ const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'automations (list)', description: 'List all available Zapier automations and their parameters' },
       { name: 'automations (search)', description: 'Search for specific automations by name or keyword' },
       { name: 'automations (execute)', description: 'Execute a Zapier action (send email, post to Slack, create CRM record, etc.)' },
+    ],
+  },
+  {
+    label: 'Voice & Audio (ElevenLabs)',
+    icon: Mic,
+    color: 'bg-violet-600/10 text-violet-700 dark:text-violet-300',
+    tools: [
+      { name: 'voice (speak)', description: 'Generate voiceovers with 100+ voices, adjustable style, 70+ languages' },
+      { name: 'voice (voices)', description: 'Browse and search available voices by name, accent, or style' },
+      { name: 'voice (sound_effect)', description: 'Generate sound effects from text descriptions (up to 30s)' },
+      { name: 'voice (isolate)', description: 'Remove background noise from audio files' },
+      { name: 'voice (clone)', description: 'Clone a voice from an audio sample (1-2 min of speech)' },
+      { name: 'voice (dub)', description: 'Translate and dub audio to 32+ languages preserving speaker voice' },
     ],
   },
   {

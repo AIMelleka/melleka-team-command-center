@@ -131,6 +131,58 @@ async function getGoogleSheetsAccessToken(): Promise<string> {
   return data.access_token;
 }
 
+/** ElevenLabs API helper — handles auth and returns raw response */
+async function elevenLabsRequest(
+  endpoint: string,
+  options: { method?: string; body?: unknown; headers?: Record<string, string>; isFormData?: boolean } = {}
+): Promise<Response> {
+  const apiKey = await requireSecret("ELEVENLABS_API_KEY", "ElevenLabs API Key");
+  const method = options.method || "GET";
+  const headers: Record<string, string> = { "xi-api-key": apiKey, ...options.headers };
+
+  let fetchBody: BodyInit | undefined;
+  if (options.isFormData) {
+    // FormData: let fetch set Content-Type with boundary
+    fetchBody = options.body as unknown as FormData;
+  } else if (options.body) {
+    if (!headers["Content-Type"]) headers["Content-Type"] = "application/json";
+    fetchBody = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120_000);
+  try {
+    return await fetch(`https://api.elevenlabs.io${endpoint}`, {
+      method,
+      headers: options.isFormData
+        ? Object.fromEntries(Object.entries(headers).filter(([k]) => k.toLowerCase() !== "content-type"))
+        : headers,
+      body: fetchBody,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Upload audio binary to Supabase Storage and return the public URL */
+async function uploadAudioToStorage(
+  audioBuffer: ArrayBuffer,
+  prefix: string,
+  ext: string = "mp3",
+  contentType: string = "audio/mpeg"
+): Promise<string> {
+  const { randomUUID } = await import("crypto");
+  const supabase = await getSupabaseClient();
+  const filePath = `${prefix}/${randomUUID()}.${ext}`;
+  const { error } = await supabase.storage
+    .from("creative-images")
+    .upload(filePath, new Uint8Array(audioBuffer), { contentType, upsert: true, cacheControl: "3600" });
+  if (error) throw new Error(`Storage upload failed: ${error.message}`);
+  const { data } = supabase.storage.from("creative-images").getPublicUrl(filePath);
+  return data.publicUrl;
+}
+
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "read_file",
@@ -980,6 +1032,69 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         query: {
           type: "string",
           description: "Search query to filter available automations. Used with action='search'.",
+        },
+      },
+      required: ["action"],
+    },
+  },
+  {
+    name: "voice",
+    description:
+      "Generate voiceovers, sound effects, clone voices, isolate audio, and dub/translate audio using ElevenLabs.\n\n" +
+      "Actions:\n" +
+      "- speak: Text-to-speech with voice selection and style control\n" +
+      "- voices: List or search available voices\n" +
+      "- sound_effect: Generate sound effects from a text description\n" +
+      "- isolate: Remove background noise from an audio file\n" +
+      "- clone: Clone a voice from an audio file URL\n" +
+      "- dub: Translate/dub audio to another language\n\n" +
+      "Returns a public URL to the generated audio file.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action: {
+          type: "string",
+          description: "Action: 'speak', 'voices', 'sound_effect', 'isolate', 'clone', or 'dub'.",
+        },
+        text: {
+          type: "string",
+          description: "Text to speak (for speak) or description of sound effect (for sound_effect).",
+        },
+        voice_id: {
+          type: "string",
+          description: "Voice ID to use for TTS. Use action='voices' to find IDs. Defaults to Rachel (professional female narrator).",
+        },
+        voice_search: {
+          type: "string",
+          description: "Search query to find voices by name (for voices action).",
+        },
+        model: {
+          type: "string",
+          description: "Model: 'eleven_v3' (best, default), 'eleven_multilingual_v2', 'eleven_turbo_v2_5' (fast), 'eleven_flash_v2_5' (fastest).",
+        },
+        stability: {
+          type: "number",
+          description: "Voice stability 0.0-1.0. Lower = more expressive, higher = more consistent. Default 0.5.",
+        },
+        similarity_boost: {
+          type: "number",
+          description: "Voice similarity 0.0-1.0. Higher = closer to original voice. Default 0.75.",
+        },
+        audio_url: {
+          type: "string",
+          description: "URL of source audio file (for isolate, clone, or dub actions).",
+        },
+        target_language: {
+          type: "string",
+          description: "Target language code for dubbing (e.g. 'es', 'fr', 'de', 'ja', 'pt', 'zh').",
+        },
+        voice_name: {
+          type: "string",
+          description: "Name for the cloned voice (for clone action).",
+        },
+        duration: {
+          type: "number",
+          description: "Duration in seconds for sound effects (max 30). Optional.",
         },
       },
       required: ["action"],
@@ -2379,6 +2494,172 @@ export async function executeTool(
         }
 
         return `Unknown action "${action}". Use "list", "search", or "execute".`;
+      }
+
+      case "voice": {
+        const action = toolInput.action as string;
+
+        if (action === "speak") {
+          const text = toolInput.text as string;
+          if (!text) return "Error: text is required for speak action.";
+          const voiceId = (toolInput.voice_id as string) || "21m00Tcm4TlvDq8ikWAM"; // Rachel
+          const model = (toolInput.model as string) || "eleven_v3";
+          const stability = (toolInput.stability as number) ?? 0.5;
+          const similarityBoost = (toolInput.similarity_boost as number) ?? 0.75;
+
+          const resp = await elevenLabsRequest(`/v1/text-to-speech/${voiceId}`, {
+            method: "POST",
+            body: {
+              text,
+              model_id: model,
+              voice_settings: { stability, similarity_boost: similarityBoost },
+            },
+            headers: { Accept: "audio/mpeg" },
+          });
+
+          if (!resp.ok) {
+            const errBody = await resp.text();
+            return `ElevenLabs TTS error (${resp.status}): ${errBody.slice(0, 500)}`;
+          }
+
+          const audioBuffer = await resp.arrayBuffer();
+          const url = await uploadAudioToStorage(audioBuffer, "audio-generated");
+          const duration = Math.ceil(audioBuffer.byteLength / (128 * 128)); // rough estimate
+          return `Voiceover generated!\nAudio URL: ${url}\nVoice: ${voiceId}\nModel: ${model}\nApprox size: ${Math.round(audioBuffer.byteLength / 1024)}KB`;
+        }
+
+        if (action === "voices") {
+          const search = toolInput.voice_search as string;
+          const endpoint = search
+            ? `/v1/voices?search=${encodeURIComponent(search)}`
+            : "/v1/voices";
+          const resp = await elevenLabsRequest(endpoint);
+          if (!resp.ok) {
+            const errBody = await resp.text();
+            return `ElevenLabs voices error (${resp.status}): ${errBody.slice(0, 500)}`;
+          }
+          const data = await resp.json() as { voices: Array<{ voice_id: string; name: string; category: string; labels: Record<string, string>; description: string }> };
+          if (!data.voices?.length) return search ? `No voices found matching "${search}".` : "No voices available.";
+
+          let output = `Available Voices (${data.voices.length}):\n\n`;
+          for (const v of data.voices.slice(0, 50)) {
+            const labels = v.labels ? Object.entries(v.labels).map(([k, val]) => `${k}: ${val}`).join(", ") : "";
+            output += `- ${v.name} (${v.voice_id})\n  Category: ${v.category || "unknown"}${labels ? ` | ${labels}` : ""}\n`;
+            if (v.description) output += `  ${v.description.slice(0, 100)}\n`;
+            output += "\n";
+          }
+          return output.length > 8000 ? output.slice(0, 8000) + "\n[...truncated]" : output;
+        }
+
+        if (action === "sound_effect") {
+          const text = toolInput.text as string;
+          if (!text) return "Error: text description is required for sound_effect action.";
+          const duration = toolInput.duration as number;
+
+          const body: Record<string, unknown> = { text };
+          if (duration) body.duration_seconds = Math.min(duration, 30);
+
+          const resp = await elevenLabsRequest("/v1/sound-generation", {
+            method: "POST",
+            body,
+            headers: { Accept: "audio/mpeg" },
+          });
+
+          if (!resp.ok) {
+            const errBody = await resp.text();
+            return `ElevenLabs SFX error (${resp.status}): ${errBody.slice(0, 500)}`;
+          }
+
+          const audioBuffer = await resp.arrayBuffer();
+          const url = await uploadAudioToStorage(audioBuffer, "audio-sfx");
+          return `Sound effect generated!\nAudio URL: ${url}\nDescription: ${text}\nSize: ${Math.round(audioBuffer.byteLength / 1024)}KB`;
+        }
+
+        if (action === "isolate") {
+          const audioUrl = toolInput.audio_url as string;
+          if (!audioUrl) return "Error: audio_url is required for isolate action.";
+
+          // Download the source audio first
+          const sourceResp = await fetch(audioUrl);
+          if (!sourceResp.ok) return `Failed to download source audio: ${sourceResp.status}`;
+          const sourceBuffer = await sourceResp.arrayBuffer();
+
+          // Send to ElevenLabs for isolation
+          const formData = new FormData();
+          formData.append("audio", new Blob([sourceBuffer]), "audio.mp3");
+
+          const resp = await elevenLabsRequest("/v1/audio-isolation", {
+            method: "POST",
+            body: formData,
+            isFormData: true,
+            headers: { Accept: "audio/mpeg" },
+          });
+
+          if (!resp.ok) {
+            const errBody = await resp.text();
+            return `ElevenLabs isolation error (${resp.status}): ${errBody.slice(0, 500)}`;
+          }
+
+          const audioBuffer = await resp.arrayBuffer();
+          const url = await uploadAudioToStorage(audioBuffer, "audio-isolated");
+          return `Audio isolated (background noise removed)!\nAudio URL: ${url}\nSize: ${Math.round(audioBuffer.byteLength / 1024)}KB`;
+        }
+
+        if (action === "clone") {
+          const audioUrl = toolInput.audio_url as string;
+          const voiceName = (toolInput.voice_name as string) || "Cloned Voice";
+          if (!audioUrl) return "Error: audio_url is required for clone action.";
+
+          // Download the source audio
+          const sourceResp = await fetch(audioUrl);
+          if (!sourceResp.ok) return `Failed to download source audio: ${sourceResp.status}`;
+          const sourceBuffer = await sourceResp.arrayBuffer();
+
+          const apiKey = await requireSecret("ELEVENLABS_API_KEY", "ElevenLabs API Key");
+          const formData = new FormData();
+          formData.append("name", voiceName);
+          formData.append("files", new Blob([sourceBuffer], { type: "audio/mpeg" }), "voice_sample.mp3");
+          formData.append("description", `Cloned voice: ${voiceName}`);
+
+          const resp = await fetch("https://api.elevenlabs.io/v1/voices/add", {
+            method: "POST",
+            headers: { "xi-api-key": apiKey },
+            body: formData,
+          });
+
+          if (!resp.ok) {
+            const errBody = await resp.text();
+            return `ElevenLabs clone error (${resp.status}): ${errBody.slice(0, 500)}`;
+          }
+
+          const data = await resp.json() as { voice_id: string };
+          return `Voice cloned successfully!\nVoice ID: ${data.voice_id}\nName: ${voiceName}\nUse this voice_id with action='speak' to generate speech with this voice.`;
+        }
+
+        if (action === "dub") {
+          const audioUrl = toolInput.audio_url as string;
+          const targetLang = toolInput.target_language as string;
+          if (!audioUrl) return "Error: audio_url is required for dub action.";
+          if (!targetLang) return "Error: target_language is required for dub action (e.g. 'es', 'fr', 'de', 'ja').";
+
+          const resp = await elevenLabsRequest("/v1/dubbing", {
+            method: "POST",
+            body: {
+              source_url: audioUrl,
+              target_lang: targetLang,
+            },
+          });
+
+          if (!resp.ok) {
+            const errBody = await resp.text();
+            return `ElevenLabs dubbing error (${resp.status}): ${errBody.slice(0, 500)}`;
+          }
+
+          const data = await resp.json() as { dubbing_id: string; expected_duration_sec: number };
+          return `Dubbing started!\nDubbing ID: ${data.dubbing_id}\nTarget language: ${targetLang}\nEstimated duration: ${data.expected_duration_sec}s\n\nNote: Dubbing is asynchronous. Use http_request to check status at: https://api.elevenlabs.io/v1/dubbing/${data.dubbing_id} (with xi-api-key header).`;
+        }
+
+        return `Unknown voice action "${action}". Use "speak", "voices", "sound_effect", "isolate", "clone", or "dub".`;
       }
 
       default:
