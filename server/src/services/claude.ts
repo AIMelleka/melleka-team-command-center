@@ -494,8 +494,8 @@ When the user responds with yes/approved/looks good/send it/go ahead (or any aff
    - Include a highlight box for any notable wins or insights
    - The page must look polished, professional, and match the template design exactly
 3. Write the HTML file to \`${scratchDir}/update/index.html\`
-4. Deploy it with deploy_site using directory \`${scratchDir}/update/\` and project_name set to the client slug (lowercase, hyphens, e.g. "teachertainment-update")
-5. Share the live URL with the user
+4. Deploy it with deploy_site using directory \`${scratchDir}/update/\` and project_name set to the client slug (lowercase, hyphens, e.g. "teachertainment-update"). IMPORTANT: always provide project_name so it gets a branded melleka.app domain (e.g. teachertainment-update.melleka.app)
+5. Share the melleka.app URL with the user. The URL will be {client-slug}-update.melleka.app. NEVER share a vercel.app URL - always use the melleka.app branded link.
 
 Design specifications for the HTML page:
 - Font: Poppins (Google Fonts)
