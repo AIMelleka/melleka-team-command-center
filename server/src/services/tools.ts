@@ -10,6 +10,20 @@ import { listZapierTools, callZapierTool } from "./zapier-mcp.js";
 
 const execAsync = promisify(exec);
 
+// Env vars stripped from child processes to prevent secret leakage
+const SENSITIVE_ENV_KEYS = [
+  "ANTHROPIC_API_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_AUTH_KEY",
+  "JWT_SECRET", "TEAM_PASSWORD", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
+  "GOOGLE_CLIENT_SECRET", "GOOGLE_SA_PRIVATE_KEY", "META_ACCESS_TOKEN",
+  "CANVA_CLIENT_SECRET", "ELEVENLABS_API_KEY", "RESEND_API_KEY",
+  "VERCEL_TOKEN", "NOTION_API_KEY", "SLACK_BOT_TOKEN",
+];
+function safeEnv(extra?: Record<string, string>): Record<string, string | undefined> {
+  const env = { ...process.env, ...extra };
+  for (const k of SENSITIVE_ENV_KEYS) delete env[k];
+  return env;
+}
+
 const MELLEKA_PROJECT = process.env.MELLEKA_PROJECT_DIR || "";
 const TEAM_TIMEZONE = "America/New_York";
 const GOOGLE_ADS_API_VERSION = process.env.GOOGLE_ADS_API_VERSION || "v23";
@@ -295,6 +309,84 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         note: { type: "string", description: "Note to append." },
       },
       required: ["note"],
+    },
+  },
+  {
+    name: "super_agent_task",
+    description:
+      "Create, update, or list Super Agent Dashboard tasks. Use this to track significant work items, update progress, log errors, and maintain a team-visible task board. Actions: 'create' (new task), 'update' (change status/add notes), 'list' (view tasks).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action: {
+          type: "string",
+          description: "Action to perform: 'create', 'update', or 'list'.",
+        },
+        title: {
+          type: "string",
+          description: "Task title (required for create).",
+        },
+        description: {
+          type: "string",
+          description: "Detailed description of the task.",
+        },
+        priority: {
+          type: "string",
+          description: "Priority: 'low', 'medium', 'high', 'urgent'. Defaults to 'medium'.",
+        },
+        category: {
+          type: "string",
+          description: "Category: 'Ad Campaign', 'SEO', 'Content', 'Client Work', 'Analytics', 'Website', 'Email', 'Report', 'PPC', 'Social Media', 'Development', 'Other'.",
+        },
+        client_name: {
+          type: "string",
+          description: "Client name this task is for (optional).",
+        },
+        requested_by: {
+          type: "string",
+          description: "Team member who requested this work.",
+        },
+        task_id: {
+          type: "string",
+          description: "UUID of the task to update (required for update).",
+        },
+        status: {
+          type: "string",
+          description: "New status: 'not_started', 'working_on_it', 'completed', 'in_review', 'error', 'blocked', 'cancelled'.",
+        },
+        note: {
+          type: "string",
+          description: "A progress note to append to the task's notes timeline.",
+        },
+        error_details: {
+          type: "string",
+          description: "Error details if status is 'error'.",
+        },
+        links: {
+          type: "array",
+          description: "Array of {label, url} objects to add to the task's links.",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string" },
+              url: { type: "string" },
+            },
+          },
+        },
+        filter_status: {
+          type: "string",
+          description: "Filter by status when listing.",
+        },
+        filter_client: {
+          type: "string",
+          description: "Filter by client_name when listing.",
+        },
+        limit: {
+          type: "number",
+          description: "Max rows to return (default 20).",
+        },
+      },
+      required: ["action"],
     },
   },
   {
@@ -1268,7 +1360,7 @@ export async function executeTool(
         const { stdout, stderr } = await execAsync(command, {
           cwd,
           timeout: 120000, // 2 min
-          env: { ...process.env, HOME: tmpDir },
+          env: safeEnv({ HOME: tmpDir }),
         });
         const output = [stdout, stderr].filter(Boolean).join("\n").trim();
         return output || "(no output)";
@@ -1287,9 +1379,10 @@ export async function executeTool(
         const searchPath =
           (toolInput.search_path as string) || MELLEKA_PROJECT || tmpDir;
         const glob = toolInput.file_glob as string | undefined;
-        const globFlag = glob ? `--glob '${glob}'` : "";
+        const shellEsc = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
+        const globFlag = glob ? `--glob ${shellEsc(glob)}` : "";
         const { stdout } = await execAsync(
-          `rg --max-count=5 --max-filesize=500K ${globFlag} '${pattern.replace(/'/g, "\\'")}' '${searchPath}'`,
+          `rg --max-count=5 --max-filesize=500K ${globFlag} ${shellEsc(pattern)} ${shellEsc(searchPath)}`,
           { timeout: 15000 }
         ).catch(() => ({ stdout: "(no matches)" }));
         return stdout || "(no matches)";
@@ -1305,7 +1398,7 @@ export async function executeTool(
         const { stdout, stderr } = await execAsync(cmd, {
           cwd: dir,
           timeout: 120000,
-          env: { ...process.env, HOME: tmpDir },
+          env: safeEnv({ HOME: tmpDir }),
         });
         const output = [stdout, stderr].filter(Boolean).join("\n").trim();
 
@@ -1319,7 +1412,7 @@ export async function executeTool(
           try {
             await execAsync(
               `vercel domains add ${brandedUrl} ${projectName} --token ${token}`,
-              { timeout: 30000, env: { ...process.env, HOME: tmpDir } }
+              { timeout: 30000, env: safeEnv({ HOME: tmpDir }) }
             );
             return `Live at: https://${brandedUrl}`;
           } catch (domainErr: any) {
@@ -1610,7 +1703,8 @@ export async function executeTool(
         // Build update query, applying filters manually to avoid complex type juggling
         let q: unknown = client.from(table).update(values);
         for (const f of filters) {
-          (q as Record<string, (...args: unknown[]) => unknown>)[f.op === "eq" ? "eq" : f.op === "neq" ? "neq" : f.op === "gt" ? "gt" : f.op === "gte" ? "gte" : f.op === "lt" ? "lt" : f.op === "lte" ? "lte" : "eq"](f.column, f.value);
+          const method = f.op === "eq" ? "eq" : f.op === "neq" ? "neq" : f.op === "gt" ? "gt" : f.op === "gte" ? "gte" : f.op === "lt" ? "lt" : f.op === "lte" ? "lte" : "eq";
+          q = (q as Record<string, (...args: unknown[]) => unknown>)[method](f.column, f.value);
         }
         const { data, error } = await (q as ReturnType<ReturnType<SupabaseClient["from"]>["select"]>).select();
         if (error) return `Supabase update error: ${(error as { message: string }).message}`;
@@ -1691,7 +1785,7 @@ export async function executeTool(
           : `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
 
         const resp = await fetch(url, {
-          method: "PUT",
+          method: append ? "POST" : "PUT",
           headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
           body: JSON.stringify({ range, values }),
         });
@@ -2453,7 +2547,7 @@ export async function executeTool(
         if (action === "list" || action === "search") {
           const tools = await listZapierTools();
           if (tools.length === 0) {
-            return "No Zapier automations configured. Visit mcp.zapier.com to set up actions, then add the MCP URL as ZAPIER_MCP_URL in team_secrets.";
+            return "No Zapier automations configured. To fix: 1) Go to zapier.com/mcp and create an MCP endpoint, 2) Save the endpoint URL (https://mcpp.zapier.app/YOUR-ID) as ZAPIER_MCP_URL in team_secrets, 3) Save the API key (zapier_mcp_key_xxx) as ZAPIER_MCP_API_KEY in team_secrets.";
           }
 
           let filtered = tools;
@@ -2660,6 +2754,98 @@ export async function executeTool(
         }
 
         return `Unknown voice action "${action}". Use "speak", "voices", "sound_effect", "isolate", "clone", or "dub".`;
+      }
+
+      case "super_agent_task": {
+        const client = await getSupabaseClient();
+        const action = toolInput.action as string;
+
+        if (action === "create") {
+          const title = toolInput.title as string;
+          if (!title) return "Error: 'title' is required for create action.";
+          const row: Record<string, unknown> = {
+            title,
+            description: (toolInput.description as string) || null,
+            status: "not_started",
+            priority: (toolInput.priority as string) || "medium",
+            category: (toolInput.category as string) || null,
+            client_name: (toolInput.client_name as string) || null,
+            requested_by: (toolInput.requested_by as string) || memberName,
+            assigned_to: "Super Agent",
+            links: toolInput.links || [],
+            notes: toolInput.note
+              ? [{ timestamp: new Date().toISOString(), text: toolInput.note as string }]
+              : [],
+          };
+          const { data, error } = await client.from("super_agent_tasks").insert(row).select().single();
+          if (error) return `Error creating task: ${error.message}`;
+          return `Task created!\nID: ${(data as Record<string, unknown>).id}\nTitle: ${title}\nStatus: not_started\nPriority: ${row.priority}`;
+        }
+
+        if (action === "update") {
+          const taskId = toolInput.task_id as string;
+          if (!taskId) return "Error: 'task_id' is required for update action.";
+
+          const { data: existing, error: fetchErr } = await client
+            .from("super_agent_tasks")
+            .select("*")
+            .eq("id", taskId)
+            .single();
+          if (fetchErr || !existing) return `Error: Task ${taskId} not found.`;
+
+          const ex = existing as Record<string, unknown>;
+          const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+
+          if (toolInput.status) {
+            updates.status = toolInput.status as string;
+            if (toolInput.status === "working_on_it" && !ex.started_at) {
+              updates.started_at = new Date().toISOString();
+            }
+            if (toolInput.status === "completed") {
+              updates.completed_at = new Date().toISOString();
+            }
+          }
+          if (toolInput.error_details) updates.error_details = toolInput.error_details as string;
+          if (toolInput.description) updates.description = toolInput.description as string;
+          if (toolInput.priority) updates.priority = toolInput.priority as string;
+          if (toolInput.category) updates.category = toolInput.category as string;
+          if (toolInput.client_name) updates.client_name = toolInput.client_name as string;
+
+          if (toolInput.note) {
+            const existingNotes = (ex.notes as Array<{ timestamp: string; text: string }>) || [];
+            existingNotes.push({ timestamp: new Date().toISOString(), text: toolInput.note as string });
+            updates.notes = existingNotes;
+          }
+
+          if (toolInput.links) {
+            const existingLinks = (ex.links as Array<{ label: string; url: string }>) || [];
+            existingLinks.push(...(toolInput.links as Array<{ label: string; url: string }>));
+            updates.links = existingLinks;
+          }
+
+          const { data, error } = await client
+            .from("super_agent_tasks")
+            .update(updates)
+            .eq("id", taskId)
+            .select()
+            .single();
+          if (error) return `Error updating task: ${error.message}`;
+          const d = data as Record<string, unknown>;
+          return `Task updated!\nID: ${taskId}\nTitle: ${d.title}\nStatus: ${d.status}${toolInput.note ? `\nNote added: ${toolInput.note}` : ""}`;
+        }
+
+        if (action === "list") {
+          let query = client.from("super_agent_tasks").select("id, title, status, priority, category, client_name, requested_by, created_at, updated_at, started_at, completed_at");
+          if (toolInput.filter_status) query = query.eq("status", toolInput.filter_status as string);
+          if (toolInput.filter_client) query = query.ilike("client_name", `%${toolInput.filter_client}%`);
+          query = query.order("created_at", { ascending: false }).limit((toolInput.limit as number) || 20);
+          const { data, error } = await query;
+          if (error) return `Error listing tasks: ${error.message}`;
+          if (!data || (data as unknown[]).length === 0) return "No super agent tasks found.";
+          return JSON.stringify(data, null, 2).slice(0, 8000);
+        }
+
+        return `Unknown action "${action}". Use "create", "update", or "list".`;
       }
 
       default:

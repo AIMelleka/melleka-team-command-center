@@ -39,6 +39,7 @@ const StrategistSettings = lazy(() => import("./pages/StrategistSettings"));
 const ClientSettings = lazy(() => import("./pages/ClientSettings"));
 const SuperAgentSettings = lazy(() => import("./pages/SuperAgentSettings"));
 const Tasks = lazy(() => import("./pages/Tasks"));
+const SuperAgentDashboard = lazy(() => import("./pages/SuperAgentDashboard"));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
@@ -230,6 +231,14 @@ const App = () => (
                   element={
                     <ProtectedRoute requireAdmin>
                       <Tasks />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/super-agent-dashboard"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <SuperAgentDashboard />
                     </ProtectedRoute>
                   }
                 />

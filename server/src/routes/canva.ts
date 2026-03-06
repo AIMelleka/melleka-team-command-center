@@ -71,6 +71,9 @@ router.get("/oauth", requireAuth, async (req: AuthRequest, res) => {
     authUrl.searchParams.set("code_challenge_method", "S256");
     authUrl.searchParams.set("state", state);
 
+    console.log("[canva-oauth] Redirect URI:", redirectUri);
+    console.log("[canva-oauth] Auth URL generated for", req.memberName);
+
     res.json({ url: authUrl.toString() });
   } catch (err: any) {
     console.error("[canva-oauth] Error:", err.message);
@@ -85,16 +88,35 @@ router.get("/oauth", requireAuth, async (req: AuthRequest, res) => {
  */
 router.get("/callback", async (req, res) => {
   try {
-    const { code, state } = req.query as { code?: string; state?: string };
+    console.log("[canva-callback] Query params:", JSON.stringify(req.query));
+    console.log("[canva-callback] Full URL:", req.originalUrl);
 
-    if (!code || !state) {
-      res.status(400).send("Missing code or state parameter.");
+    const { code, state, error, error_description } = req.query as {
+      code?: string; state?: string; error?: string; error_description?: string;
+    };
+
+    // Canva sends error params if the user denied or something went wrong
+    if (error) {
+      console.error("[canva-callback] Canva returned error:", error, error_description);
+      const frontendUrl = process.env.CLIENT_URL || "https://teams.melleka.com";
+      res.redirect(`${frontendUrl}?canva_error=${encodeURIComponent(error_description || error)}`);
       return;
     }
 
+    if (!code) {
+      console.error("[canva-callback] Missing code. Full query:", JSON.stringify(req.query));
+      res.status(400).send(`Missing authorization code. Received: ${JSON.stringify(req.query)}`);
+      return;
+    }
+
+    // Look up PKCE entry by state — state is required for CSRF protection
+    if (!state) {
+      res.status(400).send("Missing OAuth state parameter. Please try connecting again.");
+      return;
+    }
     const pkce = pkceStore.get(state);
     if (!pkce) {
-      res.status(400).send("Invalid or expired state. Please try connecting again.");
+      res.status(400).send("Invalid or expired OAuth session. Please try connecting again.");
       return;
     }
     pkceStore.delete(state);
@@ -192,8 +214,7 @@ router.get("/status", requireAuth, async (req: AuthRequest, res) => {
       .from("oauth_connections")
       .select("access_token, token_expires_at, account_name")
       .eq("provider", "canva")
-      .order("created_at", { ascending: false })
-      .limit(1)
+      .eq("user_id", req.memberName!.toLowerCase())
       .maybeSingle();
 
     if (!data) {

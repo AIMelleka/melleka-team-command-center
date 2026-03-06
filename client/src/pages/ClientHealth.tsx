@@ -369,7 +369,7 @@ function FleetRunHistory() {
               onClick={() => setExpandedRun(isExpanded ? null : run.id)}
             >
               <div className="flex items-center gap-3 min-w-0">
-                <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${run.status === 'complete' ? 'bg-emerald-500' : run.status === 'processing' ? 'bg-amber-400 animate-pulse' : 'bg-red-500'}`} />
+                <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${run.status === 'complete' || run.status === 'completed' ? 'bg-emerald-500' : run.status === 'processing' ? 'bg-amber-400 animate-pulse' : 'bg-red-500'}`} />
                 <div className="min-w-0">
                   <div className="text-sm font-medium truncate">
                     {format(new Date(run.created_at), 'MMM d, yyyy · h:mm a')}
@@ -439,6 +439,71 @@ function FleetRunHistory() {
   );
 }
 
+
+// ===== Latest Fleet Report Card =====
+function LatestFleetReportCard() {
+  const [report, setReport] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from('fleet_run_jobs')
+        .select('id, report_summary, completed_at, total_clients, status')
+        .not('report_summary', 'is', null)
+        .order('completed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data?.report_summary) setReport(data);
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading || !report) return null;
+
+  const s = report.report_summary;
+  const completedAgo = report.completed_at ? (() => {
+    const diffH = Math.round((Date.now() - new Date(report.completed_at).getTime()) / 3600000);
+    return diffH < 1 ? 'just now' : diffH < 24 ? `${diffH}h ago` : `${Math.round(diffH / 24)}d ago`;
+  })() : '';
+
+  return (
+    <Card className="mx-4 mb-3 bg-gradient-to-r from-card to-card/80 border-primary/20">
+      <CardContent className="py-3 px-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Brain className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">Latest Fleet Report</span>
+            {completedAgo && <span className="text-xs text-muted-foreground">{completedAgo}</span>}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+          <div className="flex flex-col">
+            <span className="text-muted-foreground">Clients</span>
+            <span className="font-semibold text-sm">{s.success}/{s.totalClients} OK</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-muted-foreground">Changes Made</span>
+            <span className="font-semibold text-sm">{s.autoExecuted} auto / {s.totalChanges} total</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-muted-foreground">Pending Review</span>
+            <span className="font-semibold text-sm">{s.pendingReview}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-muted-foreground">New Learnings</span>
+            <span className="font-semibold text-sm text-primary">{s.newLearnings}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-muted-foreground">Errors</span>
+            <span className={`font-semibold text-sm ${s.errors > 0 ? 'text-red-500' : 'text-emerald-500'}`}>{s.errors}</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 const ClientHealth = () => {
   const { toast } = useToast();
@@ -521,6 +586,9 @@ const ClientHealth = () => {
   // Last Auto (autopilot) Ad Review per client
   const [lastAutoReviewByClient, setLastAutoReviewByClient] = useState<Record<string, { review_date: string; created_at: string }>>({}); 
   const [runningAdReviewClient, setRunningAdReviewClient] = useState<string | null>(null);
+
+  // AI memory counts per client
+  const [memoryCountByClient, setMemoryCountByClient] = useState<Record<string, number>>({});
 
   // Strategist scorecard per client (fleet-level)
   interface StrategistScore { improved: number; neutral: number; worsened: number; total: number; winRate: number; sessions: number; aiStrategyScore: number; }
@@ -1246,6 +1314,20 @@ const ClientHealth = () => {
     } catch (err) { console.error('Failed to load ad reviews:', err); }
   }, []);
 
+  // Load AI memory counts per client
+  const loadMemoryCounts = useCallback(async () => {
+    try {
+      const { data } = await supabase.from('client_ai_memory').select('client_name');
+      if (data) {
+        const counts: Record<string, number> = {};
+        for (const row of data) {
+          counts[row.client_name] = (counts[row.client_name] || 0) + 1;
+        }
+        setMemoryCountByClient(counts);
+      }
+    } catch (err) { console.error('Failed to load memory counts:', err); }
+  }, []);
+
   // Load strategist scores fleet-wide
   const loadStrategistScores = useCallback(async () => {
     try {
@@ -1302,7 +1384,7 @@ const ClientHealth = () => {
     } catch (err) { console.error('Failed to load strategist scores:', err); }
   }, []);
 
-  useEffect(() => { loadClients(); loadSmAccounts(); loadManualMappings(); loadManagedClients(); loadClientTiers(); loadLastAutoRuns(); loadLastAdReviews(); loadStrategistScores(); loadAutoModeStatus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadClients(); loadSmAccounts(); loadManualMappings(); loadManagedClients(); loadClientTiers(); loadLastAutoRuns(); loadLastAdReviews(); loadStrategistScores(); loadAutoModeStatus(); loadMemoryCounts(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load fleet coverage from most recent run (any status)
   const loadFleetCoverage = useCallback(async () => {
@@ -1682,7 +1764,8 @@ const ClientHealth = () => {
         status: data.status,
       });
 
-      if (data.status === 'complete' || data.status === 'error') {
+      const isDone = data.status === 'complete' || data.status === 'completed' || data.status === 'error';
+      if (isDone) {
         // Done — clean up
         if (fleetPollRef.current) clearInterval(fleetPollRef.current);
         setFleetJobId(null);
@@ -1701,7 +1784,7 @@ const ClientHealth = () => {
         }
 
         toast({
-          title: data.status === 'complete' ? '✅ Fleet Run Complete' : '⚠️ Fleet Run Finished with Errors',
+          title: data.status !== 'error' ? '✅ Fleet Run Complete' : '⚠️ Fleet Run Finished with Errors',
           description: desc,
         });
 
@@ -3568,7 +3651,7 @@ const ClientHealth = () => {
                   );
                 }
                 const fullyCovered = success;
-                const allGood = partial === 0 && error === 0 && (runStatus === 'completed' || runStatus === 'complete');
+                const allGood = partial === 0 && error === 0 && (runStatus === 'complete' || runStatus === 'completed');
                 const timeStr = completedAt ? (() => {
                   const diffH = Math.round((Date.now() - new Date(completedAt).getTime()) / 3600000);
                   return diffH < 1 ? 'just now' : diffH < 24 ? `${diffH}h ago` : `${Math.round(diffH / 24)}d ago`;
@@ -3740,7 +3823,7 @@ const ClientHealth = () => {
                 className="gap-1.5 shrink-0"
                 title="Run full fleet: strategist + ad review + AI memory for every client sequentially"
               >
-                {fleetProgress && fleetProgress.status !== 'complete'
+                {fleetProgress && fleetProgress.status !== 'complete' && fleetProgress.status !== 'completed'
                   ? <><Loader2 className="h-4 w-4 animate-spin" /><span className="hidden sm:inline">{fleetProgress.progress}/{fleetProgress.total}</span></>
                   : <><Rocket className="h-4 w-4" /><span className="hidden sm:inline">Full Fleet</span></>
                 }
@@ -3761,7 +3844,7 @@ const ClientHealth = () => {
         </div>
 
         {/* ===== Fleet Run Progress Bar ===== */}
-        {fleetProgress && fleetProgress.status !== 'complete' && (
+        {fleetProgress && fleetProgress.status !== 'complete' && fleetProgress.status !== 'completed' && (
           <div className="mx-4 mb-3 p-3 rounded-lg border bg-card">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-sm font-medium">
@@ -3809,6 +3892,11 @@ const ClientHealth = () => {
               ))}
             </div>
           </div>
+        )}
+
+        {/* ===== Latest Fleet Report Card ===== */}
+        {fleetCoverage && fleetCoverage.runStatus !== 'processing' && (
+          <LatestFleetReportCard />
         )}
 
         {activeTab === 'seo' && (
@@ -4047,6 +4135,12 @@ const ClientHealth = () => {
                                                   {autoModeEnabledClients.has(client.name) && (
                                                     <span className="inline-flex items-center justify-center h-4 w-4 rounded bg-primary/15 border border-primary/20 animate-pulse" title="Auto Mode">
                                                       <Zap className="h-2.5 w-2.5 text-primary" />
+                                                    </span>
+                                                  )}
+                                                  {memoryCountByClient[client.name] > 0 && (
+                                                    <span className="inline-flex items-center justify-center h-4 rounded bg-violet-500/10 border border-violet-500/20 px-1 gap-0.5" title={`${memoryCountByClient[client.name]} AI memories`}>
+                                                      <Brain className="h-2.5 w-2.5 text-violet-400" />
+                                                      <span className="text-[8px] font-bold text-violet-400">{memoryCountByClient[client.name]}</span>
                                                     </span>
                                                   )}
                                                   {hasAdIssues && !hasBlocker && (

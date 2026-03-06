@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import rateLimit from "express-rate-limit";
 import authRouter from "./routes/auth.js";
 import chatRouter from "./routes/chat.js";
 import conversationsRouter from "./routes/conversations.js";
@@ -9,14 +10,21 @@ import notificationsRouter from "./routes/notifications.js";
 import tasksRouter from "./routes/tasks.js";
 import canvaRouter from "./routes/canva.js";
 import ttsRouter from "./routes/tts.js";
+import superAgentTasksRouter from "./routes/super-agent-tasks.js";
 import { getActiveSseConnections } from "./routes/chat.js";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
+// Rate limiting
+app.use("/api/auth", rateLimit({ windowMs: 60_000, max: 10, message: { error: "Too many requests" } }));
+app.use("/api/chat", rateLimit({ windowMs: 60_000, max: 10, message: { error: "Too many requests" } }));
+app.use("/api/tts", rateLimit({ windowMs: 60_000, max: 20, message: { error: "Too many requests" } }));
+app.use("/api", rateLimit({ windowMs: 60_000, max: 100, message: { error: "Too many requests" } }));
+
 // CORS — manual middleware (replaces cors package for reliable origin reflection)
 const allowedOrigins = new Set(
-  (process.env.CLIENT_ORIGIN ?? "*").split(",").map((o) => o.trim())
+  (process.env.CLIENT_ORIGIN ?? "https://teams.melleka.com").split(",").map((o) => o.trim())
 );
 
 app.use((req, res, next) => {
@@ -60,6 +68,7 @@ app.use("/api/notifications", notificationsRouter);
 app.use("/api/tasks", tasksRouter);
 app.use("/api/canva", canvaRouter);
 app.use("/api/tts", ttsRouter);
+app.use("/api/super-agent-tasks", superAgentTasksRouter);
 
 const server = app.listen(PORT, () => {
   console.log(`Melleka Teams server running on http://localhost:${PORT}`);

@@ -34,6 +34,7 @@ import { useState } from 'react';
 const navItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/', label: 'Home', icon: Home },
   { path: '/tasks', label: 'Tasks', icon: ListTodo },
+  { path: '/super-agent-dashboard', label: 'Agent Dashboard', icon: Bot },
   { path: '/client-health', label: 'Command Center', icon: Activity },
   { path: '/proposal-builder', label: 'Proposal Builder', icon: FileText },
   { path: '/deck-builder', label: 'Deck Builder', icon: Presentation },

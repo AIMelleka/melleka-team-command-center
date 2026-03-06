@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Progress } from '@/components/ui/progress';
 import { toast } from '@/hooks/use-toast';
 import {
-  Brain, Save, Trash2, Plus, Search, RefreshCw, Rocket,
+  Brain, Save, Trash2, Plus, Search, RefreshCw, Rocket, Pencil,
   CheckCircle, XCircle, Clock, Shield, Zap, BarChart3,
   AlertTriangle, Filter, ChevronDown, ChevronUp,
   FileUp, FileText, BookOpen, Eye, Loader2, Database, Globe,
@@ -123,7 +123,143 @@ function TrainingTab() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Research Sources */}
+      <ResearchSourcesSection />
     </div>
+  );
+}
+
+// ─── Research Sources Section ──────────────────────────────────────────────────
+
+function ResearchSourcesSection() {
+  const queryClient = useQueryClient();
+  const [selectedClient, setSelectedClient] = useState('');
+  const [domains, setDomains] = useState('');
+  const [names, setNames] = useState('');
+  const [dirty, setDirty] = useState(false);
+
+  const { data: clients = [] } = useQuery({
+    queryKey: ['managed-clients-list'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('managed_clients')
+        .select('client_name')
+        .order('client_name');
+      return (data || []).map((c: any) => c.client_name);
+    },
+  });
+
+  const { data: settings, isLoading } = useQuery({
+    queryKey: ['ppc-client-settings', selectedClient],
+    enabled: !!selectedClient,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('ppc_client_settings')
+        .select('competitor_domains, competitor_names')
+        .eq('client_name', selectedClient)
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  useEffect(() => {
+    if (settings) {
+      setDomains((settings.competitor_domains || []).join(', '));
+      setNames((settings.competitor_names || []).join(', '));
+      setDirty(false);
+    } else if (selectedClient) {
+      setDomains('');
+      setNames('');
+      setDirty(false);
+    }
+  }, [settings, selectedClient]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const competitorDomains = domains.split(',').map(d => d.trim()).filter(Boolean);
+      const competitorNames = names.split(',').map(n => n.trim()).filter(Boolean);
+
+      const { data: existing } = await supabase
+        .from('ppc_client_settings')
+        .select('id')
+        .eq('client_name', selectedClient)
+        .maybeSingle();
+
+      if (existing) {
+        const { error } = await supabase
+          .from('ppc_client_settings')
+          .update({ competitor_domains: competitorDomains, competitor_names: competitorNames })
+          .eq('client_name', selectedClient);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('ppc_client_settings')
+          .insert({ client_name: selectedClient, competitor_domains: competitorDomains, competitor_names: competitorNames });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ppc-client-settings'] });
+      setDirty(false);
+      toast({ title: 'Saved', description: 'Competitor research sources updated. Research runs on Mondays during fleet runs.' });
+    },
+    onError: (e: any) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Search className="h-5 w-5 text-primary" />
+          Competitor Research Sources
+        </CardTitle>
+        <CardDescription>
+          Set competitor domains and company names per client. The Strategist will research these competitors every Monday during fleet runs and use the insights to inform PPC strategy.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Select value={selectedClient} onValueChange={setSelectedClient}>
+          <SelectTrigger className="w-[250px]"><SelectValue placeholder="Select a client..." /></SelectTrigger>
+          <SelectContent>
+            {clients.map((c: string) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+          </SelectContent>
+        </Select>
+
+        {selectedClient && (
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm font-medium">Competitor Domains (comma-separated)</label>
+              <Input
+                value={domains}
+                onChange={(e) => { setDomains(e.target.value); setDirty(true); }}
+                placeholder="competitor1.com, competitor2.com"
+                className="mt-1"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Used for SEO keyword and traffic analysis</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Competitor Company Names (comma-separated)</label>
+              <Input
+                value={names}
+                onChange={(e) => { setNames(e.target.value); setDirty(true); }}
+                placeholder="Competitor Inc, Rival LLC"
+                className="mt-1"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Used for ad transparency and creative analysis</p>
+            </div>
+            <Button
+              onClick={() => saveMutation.mutate()}
+              disabled={!dirty || saveMutation.isPending}
+              size="sm"
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {saveMutation.isPending ? 'Saving...' : 'Save Research Sources'}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -472,6 +608,20 @@ function MemoryTab() {
     },
   });
 
+  const [editingMemory, setEditingMemory] = useState<{ id: string; content: string } | null>(null);
+
+  const editMemoryMutation = useMutation({
+    mutationFn: async ({ id, content }: { id: string; content: string }) => {
+      const { error } = await supabase.from('client_ai_memory').update({ content }).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-memories'] });
+      setEditingMemory(null);
+      toast({ title: 'Memory updated' });
+    },
+  });
+
   const addMemoryMutation = useMutation({
     mutationFn: async (mem: { client_name: string; content: string; memory_type: string }) => {
       const { error } = await supabase.from('client_ai_memory').insert({
@@ -575,6 +725,7 @@ function MemoryTab() {
                   <SelectItem value="metric_snapshot">📈 Metric Snapshot</SelectItem>
                   <SelectItem value="strategy_note">🧠 Strategy Note</SelectItem>
                   <SelectItem value="benchmark">📏 Benchmark</SelectItem>
+                  <SelectItem value="strategist_learning">🎓 Strategist Learning</SelectItem>
                 </SelectContent>
               </Select>
               <Button
@@ -635,11 +786,25 @@ function MemoryTab() {
                       <TableCell className="font-medium text-xs">{m.client_name}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-xs">
-                          {m.memory_type === 'win' ? '✅' : m.memory_type === 'concern' ? '⚠️' : m.memory_type === 'recommendation' ? '💡' : m.memory_type === 'strategy_note' ? '🧠' : m.memory_type === 'benchmark' ? '📏' : '📊'} {m.memory_type}
+                          {m.memory_type === 'win' ? '✅' : m.memory_type === 'concern' ? '⚠️' : m.memory_type === 'recommendation' ? '💡' : m.memory_type === 'strategy_note' ? '🧠' : m.memory_type === 'benchmark' ? '📏' : m.memory_type === 'strategist_learning' ? '🎓' : m.memory_type === 'competitive_research' ? '🔍' : '📊'} {m.memory_type}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-xs max-w-[400px]">
-                        {expandedId === m.id ? m.content : m.content.slice(0, 120) + (m.content.length > 120 ? '...' : '')}
+                        {editingMemory?.id === m.id ? (
+                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <Textarea
+                              value={editingMemory.content}
+                              onChange={(e) => setEditingMemory({ ...editingMemory, content: e.target.value })}
+                              className="min-h-[60px] text-xs"
+                            />
+                            <div className="flex flex-col gap-1">
+                              <Button size="sm" className="h-6 px-2 text-[10px]" onClick={() => editMemoryMutation.mutate({ id: m.id, content: editingMemory.content })} disabled={editMemoryMutation.isPending}>Save</Button>
+                              <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => setEditingMemory(null)}>Cancel</Button>
+                            </div>
+                          </div>
+                        ) : (
+                          expandedId === m.id ? m.content : m.content.slice(0, 120) + (m.content.length > 120 ? '...' : '')
+                        )}
                       </TableCell>
                       <TableCell className="text-xs">{Number(m.relevance_score).toFixed(1)}</TableCell>
                       <TableCell>
@@ -647,14 +812,24 @@ function MemoryTab() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">{format(new Date(m.updated_at), 'MMM d')}</TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100"
-                          onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(m.id); }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                        </Button>
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={(e) => { e.stopPropagation(); setEditingMemory({ id: m.id, content: m.content }); }}
+                          >
+                            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(m.id); }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -801,6 +976,56 @@ function PerformanceTab() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Success rate over time (last 30 days) */}
+      {(() => {
+        // Group results by week to show success rate trend
+        const resultsByChangeId = new Map(results.map(r => [r.change_id, r.outcome]));
+        const executedChanges = changes.filter(c => c.executed_at).map(c => ({
+          date: c.executed_at!.split('T')[0],
+          outcome: resultsByChangeId.get(c.id) || 'pending',
+        }));
+
+        // Group by week
+        const weekMap = new Map<string, { improved: number; total: number }>();
+        for (const ec of executedChanges) {
+          const d = new Date(ec.date);
+          const weekStart = new Date(d);
+          weekStart.setDate(d.getDate() - d.getDay());
+          const key = weekStart.toISOString().split('T')[0];
+          if (!weekMap.has(key)) weekMap.set(key, { improved: 0, total: 0 });
+          const entry = weekMap.get(key)!;
+          entry.total++;
+          if (ec.outcome === 'improved' || ec.outcome === 'positive') entry.improved++;
+        }
+
+        const chartData = [...weekMap.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .slice(-8)
+          .map(([week, data]) => ({
+            week: week.slice(5), // MM-DD
+            'Win Rate': data.total > 0 ? Math.round((data.improved / data.total) * 100) : 0,
+            'Total Changes': data.total,
+          }));
+
+        if (chartData.length < 2) return null;
+
+        return (
+          <Card>
+            <CardHeader><CardTitle className="text-sm">Success Rate Over Time</CardTitle></CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={chartData}>
+                  <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
+                  <Tooltip />
+                  <Bar dataKey="Win Rate" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       <Card>
         <CardHeader><CardTitle className="text-sm">Per-Client Breakdown</CardTitle></CardHeader>

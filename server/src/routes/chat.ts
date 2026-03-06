@@ -112,7 +112,8 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       await supabase
         .from("team_conversations")
         .update({ updated_at: new Date().toISOString() })
-        .eq("id", convId);
+        .eq("id", convId)
+        .eq("member_name", memberName.toLowerCase());
     }
 
     // Save user message (with file annotations embedded)
@@ -241,7 +242,7 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
     if (!clientDisconnected) {
       try {
         res.write(
-          `data: ${JSON.stringify({ type: "error", message: String(err) })}\n\n`
+          `data: ${JSON.stringify({ type: "error", message: "An internal error occurred. Please try again." })}\n\n`
         );
       } catch { /* response already gone */ }
     }

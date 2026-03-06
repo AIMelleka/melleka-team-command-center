@@ -1363,7 +1363,7 @@ const AdReview = () => {
                 <div className="text-center p-8">
                   <Loader2 className="h-16 w-16 mx-auto mb-4 animate-spin text-primary" />
                   <h3 className="text-lg font-medium mb-2">{isFetchingData ? 'Fetching Data' : 'Running Deep Analysis'}</h3>
-                  <p className="text-sm text-muted-foreground">{isFetchingData ? 'Pulling from Google Sheets, Looker Studio, and Semrush...' : 'AI analyzing with gemini-2.5-pro for comprehensive insights...'}</p>
+                  <p className="text-sm text-muted-foreground">{isFetchingData ? 'Pulling from Google Sheets, Looker Studio, and Semrush...' : 'AI analyzing with Claude Sonnet 4.6 for comprehensive insights...'}</p>
                 </div>
               </Card>
             )}

@@ -11,7 +11,7 @@ import {
   getCheckbox,
   getDescription,
   getSecondaryStatus,
-  notionTagStyle,
+  colorClass,
   notionDotColor,
   useUpdateTask,
 } from "@/hooks/useNotionTasks";
@@ -22,6 +22,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
+} from "@/components/ui/table";
 
 interface Props {
   tasks: NotionTask[];
@@ -35,22 +38,10 @@ interface Props {
   groupBy: string | null;
 }
 
-// ── Column widths ────────────────────────────────────────────────────────
-const W: Record<string, number> = {
-  "Task name": 340, STATUS: 200, CLIENTS: 160, Priority: 120,
-  Teammate: 130, Managers: 130, Due: 140, "Done ?": 60,
-  "Secondary Status": 160, Description: 200,
-};
-
 // ── Tag/pill for select values ───────────────────────────────────────────
 function Pill({ name, color }: { name: string; color: string }) {
   return (
-    <span style={{
-      ...notionTagStyle(color),
-      display: "inline-flex", alignItems: "center", height: 20,
-      borderRadius: 3, padding: "0 6px", fontSize: 12, lineHeight: "20px",
-      whiteSpace: "nowrap", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis",
-    }}>
+    <span className={`inline-flex items-center h-5 rounded px-1.5 text-xs leading-5 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis ${colorClass(color)}`}>
       {name}
     </span>
   );
@@ -71,17 +62,13 @@ function EditableText({ value, onSave, strike }: { value: string; onSave: (v: st
         if (e.key === "Enter") { setEditing(false); if (draft.trim() !== value) onSave(draft.trim()); }
         if (e.key === "Escape") { setDraft(value); setEditing(false); }
       }}
-      style={{ width: "100%", background: "none", border: "none", outline: "none",
-        fontSize: 14, lineHeight: "34px", color: "rgba(255,255,255,0.91)", padding: 0 }}
+      className="w-full bg-transparent border-none outline-none text-sm leading-[34px] text-foreground p-0"
     />
   );
 
   return (
     <div onClick={e => { e.stopPropagation(); setDraft(value); setEditing(true); }}
-      style={{ fontSize: 14, lineHeight: "34px", cursor: "text", overflow: "hidden",
-        textOverflow: "ellipsis", whiteSpace: "nowrap",
-        textDecoration: strike ? "line-through" : "none",
-        color: strike ? "rgba(255,255,255,0.38)" : "rgba(255,255,255,0.91)" }}>
+      className={`text-sm leading-[34px] cursor-text overflow-hidden text-ellipsis whitespace-nowrap ${strike ? "line-through text-muted-foreground" : "text-foreground"}`}>
       {value || "\u00A0"}
     </div>
   );
@@ -96,8 +83,7 @@ function SelectCell({ current, options, onSelect }: {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button style={{ display: "flex", alignItems: "center", height: 34,
-          background: "none", border: "none", cursor: "pointer", outline: "none", width: "100%", padding: 0 }}>
+        <button className="flex items-center h-[34px] bg-transparent border-none cursor-pointer outline-none w-full p-0">
           {current ? <Pill name={current.name} color={current.color} /> : null}
         </button>
       </DropdownMenuTrigger>
@@ -116,18 +102,14 @@ function SelectCell({ current, options, onSelect }: {
 function Avatars({ people }: { people: { name: string; avatar_url?: string }[] }) {
   if (!people.length) return null;
   return (
-    <div style={{ display: "flex", alignItems: "center" }}>
+    <div className="flex items-center">
       {people.slice(0, 5).map((p, i) =>
         p.avatar_url ? (
           <img key={p.name} src={p.avatar_url} alt={p.name} title={p.name}
-            style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover",
-              border: "2px solid var(--background-raw, #111)", marginLeft: i > 0 ? -6 : 0 }} />
+            className={`w-6 h-6 rounded-full object-cover border-2 border-background ${i > 0 ? "-ml-1.5" : ""}`} />
         ) : (
           <div key={p.name} title={p.name}
-            style={{ width: 24, height: 24, borderRadius: "50%", marginLeft: i > 0 ? -6 : 0,
-              background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center",
-              justifyContent: "center", fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.55)",
-              border: "2px solid var(--background-raw, #111)" }}>
+            className={`w-6 h-6 rounded-full border-2 border-background bg-muted flex items-center justify-center text-[11px] font-medium text-muted-foreground ${i > 0 ? "-ml-1.5" : ""}`}>
             {p.name.charAt(0).toUpperCase()}
           </div>
         )
@@ -146,14 +128,13 @@ function DateCell({ value, onSave }: { value: string | null; onSave: (v: string 
     <input ref={ref} type="date" defaultValue={value || ""}
       onBlur={e => { setEditing(false); const v = e.target.value || null; if (v !== value) onSave(v); }}
       onKeyDown={e => { if (e.key === "Escape") setEditing(false); }}
-      style={{ background: "none", border: "none", outline: "none", fontSize: 13,
-        color: "rgba(255,255,255,0.72)", lineHeight: "34px" }}
+      className="bg-transparent border-none outline-none text-sm text-muted-foreground leading-[34px]"
     />
   );
 
   return (
     <div onClick={() => setEditing(true)}
-      style={{ fontSize: 14, lineHeight: "34px", color: "rgba(255,255,255,0.72)", cursor: "pointer" }}>
+      className="text-sm leading-[34px] text-muted-foreground cursor-pointer">
       {value ? new Date(value + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "\u00A0"}
     </div>
   );
@@ -190,12 +171,9 @@ const TaskTableView = memo(({
         return <DateCell value={getDue(p)} onSave={v => mut(task.id, { Due: v ? { date: { start: v } } : { date: null } })} />;
       case "Done ?":
         return (
-          <div style={{ display: "flex", justifyContent: "center", height: 34, alignItems: "center" }}
+          <div className="flex justify-center h-[34px] items-center"
             onClick={e => { e.stopPropagation(); mut(task.id, { "Done ?": { checkbox: !getCheckbox(p) } }); }}>
-            <div style={{ width: 16, height: 16, borderRadius: 3, cursor: "pointer", display: "flex",
-              alignItems: "center", justifyContent: "center",
-              background: getCheckbox(p) ? "#2383e2" : "transparent",
-              border: getCheckbox(p) ? "none" : "1.5px solid rgba(255,255,255,0.28)" }}>
+            <div className={`w-4 h-4 rounded cursor-pointer flex items-center justify-center ${getCheckbox(p) ? "bg-primary" : "border-2 border-muted-foreground/40"}`}>
               {getCheckbox(p) && <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M3 7L6 10L11 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
             </div>
           </div>
@@ -205,68 +183,53 @@ const TaskTableView = memo(({
         return ss ? <Pill name={ss.name} color={ss.color} /> : null;
       }
       case "Description":
-        return <div style={{ fontSize: 14, lineHeight: "34px", color: "rgba(255,255,255,0.55)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{getDescription(p)}</div>;
+        return <div className="text-sm leading-[34px] text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap">{getDescription(p)}</div>;
       default: return null;
     }
   };
 
   // Group tasks
   const groups = buildGroups(tasks, groupBy);
-  const totalW = visibleColumns.reduce((s, c) => s + (W[c] || 140), 0) + 44;
 
   return (
-    <div style={{ width: "100%", overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", minWidth: totalW }}>
-        <colgroup>
-          {visibleColumns.map(col => <col key={col} style={{ width: W[col] || 140 }} />)}
-          <col style={{ width: 44 }} />
-        </colgroup>
-        <thead>
-          <tr>
-            {visibleColumns.map(col => (
-              <th key={col} style={{
-                textAlign: "left", padding: "0 8px", height: 33,
-                fontSize: 12, fontWeight: 400, color: "rgba(255,255,255,0.44)",
-                borderBottom: "1px solid rgba(255,255,255,0.09)",
-                borderRight: "1px solid rgba(255,255,255,0.06)",
-                whiteSpace: "nowrap", overflow: "hidden",
-              }}>
-                {col === "Done ?" ? "Done" : col}
-              </th>
-            ))}
-            <th style={{ borderBottom: "1px solid rgba(255,255,255,0.09)", width: 44 }} />
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((g, gi) => {
-            const isCollapsed = collapsed.has(g.label);
-            return (
-              <GroupRows key={g.label || gi}
-                group={g} groupBy={groupBy} isCollapsed={isCollapsed}
-                onToggle={() => setCollapsed(prev => { const n = new Set(prev); n.has(g.label) ? n.delete(g.label) : n.add(g.label); return n; })}
-                visibleColumns={visibleColumns} hovered={hovered}
-                setHovered={setHovered} renderCell={renderCell}
-                onTaskClick={onTaskClick} onDelete={onDelete}
-              />
-            );
-          })}
-          <tr>
-            <td colSpan={visibleColumns.length + 1}
-              style={{ padding: "0 8px", height: 34, cursor: "pointer" }}
-              onClick={onNewTask}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, color: "rgba(255,255,255,0.28)" }}>
-                <Plus style={{ width: 14, height: 14 }} />
-                <span style={{ fontSize: 14 }}>New</span>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <Table className="table-fixed">
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          {visibleColumns.map(col => (
+            <TableHead key={col} className="h-8 px-2 text-xs font-normal text-muted-foreground whitespace-nowrap border-r border-border/50 last:border-r-0">
+              {col === "Done ?" ? "Done" : col}
+            </TableHead>
+          ))}
+          <TableHead className="w-11 h-8" />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {groups.map((g, gi) => {
+          const isCollapsed = collapsed.has(g.label);
+          return (
+            <GroupRows key={g.label || gi}
+              group={g} groupBy={groupBy} isCollapsed={isCollapsed}
+              onToggle={() => setCollapsed(prev => { const n = new Set(prev); n.has(g.label) ? n.delete(g.label) : n.add(g.label); return n; })}
+              visibleColumns={visibleColumns} hovered={hovered}
+              setHovered={setHovered} renderCell={renderCell}
+              onTaskClick={onTaskClick} onDelete={onDelete}
+            />
+          );
+        })}
+        <TableRow className="hover:bg-transparent border-0">
+          <TableCell colSpan={visibleColumns.length + 1} className="px-2 h-[34px] cursor-pointer" onClick={onNewTask}>
+            <div className="flex items-center gap-1.5 text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+              <Plus className="h-3.5 w-3.5" />
+              <span className="text-sm">New</span>
+            </div>
+          </TableCell>
+        </TableRow>
+      </TableBody>
+    </Table>
   );
 });
 
-// Separate component for group rows to avoid React key issues with fragments
+// Separate component for group rows
 function GroupRows({ group, groupBy, isCollapsed, onToggle, visibleColumns, hovered, setHovered, renderCell, onTaskClick, onDelete }: {
   group: { label: string; color?: string; tasks: NotionTask[] };
   groupBy: string | null;
@@ -282,44 +245,37 @@ function GroupRows({ group, groupBy, isCollapsed, onToggle, visibleColumns, hove
   return (
     <>
       {groupBy && (
-        <tr>
-          <td colSpan={visibleColumns.length + 1}
-            style={{ padding: "0 8px", height: 34, cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.06)" }}
-            onClick={onToggle}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <TableRow className="hover:bg-transparent cursor-pointer" onClick={onToggle}>
+          <TableCell colSpan={visibleColumns.length + 1} className="px-2 h-[34px]">
+            <div className="flex items-center gap-1.5">
               {isCollapsed
-                ? <ChevronRight style={{ width: 12, height: 12, color: "rgba(255,255,255,0.44)" }} />
-                : <ChevronDown style={{ width: 12, height: 12, color: "rgba(255,255,255,0.44)" }} />}
-              {group.color && <span style={{ width: 8, height: 8, borderRadius: "50%", background: notionDotColor(group.color), flexShrink: 0 }} />}
-              <span style={{ fontSize: 14, fontWeight: 500, color: "rgba(255,255,255,0.81)" }}>{group.label}</span>
-              <span style={{ fontSize: 12, color: "rgba(255,255,255,0.28)" }}>{group.tasks.length}</span>
+                ? <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                : <ChevronDown className="w-3 h-3 text-muted-foreground" />}
+              {group.color && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: notionDotColor(group.color) }} />}
+              <span className="text-sm font-medium text-foreground">{group.label}</span>
+              <span className="text-xs text-muted-foreground">{group.tasks.length}</span>
             </div>
-          </td>
-        </tr>
+          </TableCell>
+        </TableRow>
       )}
       {!isCollapsed && group.tasks.map(task => (
-        <tr key={task.id}
-          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)",
-            background: hovered === task.id ? "rgba(255,255,255,0.024)" : "transparent",
-            transition: "background 0.1s" }}
+        <TableRow key={task.id}
+          className={hovered === task.id ? "bg-muted/30" : ""}
           onMouseEnter={() => setHovered(task.id)}
           onMouseLeave={() => setHovered(null)}>
           {visibleColumns.map(col => (
-            <td key={col}
-              style={{ padding: "0 8px", height: 34, verticalAlign: "middle",
-                borderRight: "1px solid rgba(255,255,255,0.06)",
-                cursor: col === "Task name" ? "pointer" : "default",
-                overflow: "hidden" }}
+            <TableCell key={col}
+              className={`px-2 h-[34px] py-0 border-r border-border/30 last:border-r-0 overflow-hidden ${col === "Task name" ? "cursor-pointer" : ""}`}
               onClick={col === "Task name" ? () => onTaskClick(task) : undefined}>
               {renderCell(task, col)}
-            </td>
+            </TableCell>
           ))}
-          <td style={{ width: 44, textAlign: "center", verticalAlign: "middle" }}>
+          <TableCell className="w-11 text-center py-0">
             {hovered === task.id && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button style={{ padding: 4, background: "none", border: "none", cursor: "pointer", outline: "none", borderRadius: 3 }}>
-                    <MoreHorizontal style={{ width: 14, height: 14, color: "rgba(255,255,255,0.38)" }} />
+                  <button className="p-1 bg-transparent border-none cursor-pointer outline-none rounded hover:bg-muted">
+                    <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="min-w-[160px]">
@@ -335,8 +291,8 @@ function GroupRows({ group, groupBy, isCollapsed, onToggle, visibleColumns, hove
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-          </td>
-        </tr>
+          </TableCell>
+        </TableRow>
       ))}
     </>
   );

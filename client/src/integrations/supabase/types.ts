@@ -338,6 +338,7 @@ export type Database = {
           current_client: string | null
           id: string
           progress: number
+          report_summary: Json | null
           results: Json
           status: string
           total_clients: number
@@ -348,6 +349,7 @@ export type Database = {
           current_client?: string | null
           id?: string
           progress?: number
+          report_summary?: Json | null
           results?: Json
           status?: string
           total_clients?: number
@@ -358,6 +360,7 @@ export type Database = {
           current_client?: string | null
           id?: string
           progress?: number
+          report_summary?: Json | null
           results?: Json
           status?: string
           total_clients?: number
@@ -637,6 +640,8 @@ export type Database = {
           auto_mode_platform: string | null
           auto_mode_schedule: string | null
           client_name: string
+          competitor_domains: string[]
+          competitor_names: string[]
           confidence_threshold: string | null
           created_at: string
           created_by: string | null
@@ -651,6 +656,8 @@ export type Database = {
           auto_mode_platform?: string | null
           auto_mode_schedule?: string | null
           client_name: string
+          competitor_domains?: string[]
+          competitor_names?: string[]
           confidence_threshold?: string | null
           created_at?: string
           created_by?: string | null
@@ -665,6 +672,8 @@ export type Database = {
           auto_mode_platform?: string | null
           auto_mode_schedule?: string | null
           client_name?: string
+          competitor_domains?: string[]
+          competitor_names?: string[]
           confidence_threshold?: string | null
           created_at?: string
           created_by?: string | null

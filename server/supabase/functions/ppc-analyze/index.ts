@@ -317,14 +317,12 @@ serve(async (req) => {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const SUPERMETRICS_API_KEY = Deno.env.get('SUPERMETRICS_API_KEY')!;
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 
-    if (!LOVABLE_API_KEY) throw new Error('LOVABLE_API_KEY is not configured');
     if (!SUPERMETRICS_API_KEY) throw new Error('SUPERMETRICS_API_KEY is not configured');
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const { clientName, platform, accountId: providedAccountId, dateStart, dateEnd, createdBy, autoMode } = await req.json();
+    const { clientName, platform, accountId: providedAccountId, dateStart, dateEnd, createdBy, autoMode, researchContext } = await req.json();
 
     if (!clientName || !platform || !dateStart || !dateEnd) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
@@ -601,18 +599,20 @@ ${Object.entries(metaEntityMap.adSets).map(([name, id]) => `- "${name}" → "${i
         });
 
         if (successfulChanges.length > 0) {
-          historyEntries.push(`\nSTRATEGIES THAT WORKED (repeat/expand these):`);
+          historyEntries.push(`\nCHANGES THAT IMPROVED PERFORMANCE (repeat/expand these):`);
           for (const c of successfulChanges.slice(0, 8)) {
             const r = resultsByChangeId[c.id];
-            historyEntries.push(`  ✅ ${c.change_type} on "${c.entity_name}": ${r.ai_assessment || c.expected_impact}`);
+            const deltaInfo = r.delta ? ` | CPA change: ${r.delta.cpaChangePercent != null ? `${r.delta.cpaChangePercent > 0 ? '+' : ''}${r.delta.cpaChangePercent.toFixed(1)}%` : 'N/A'}, conv change: ${r.delta.conversionChange || 0}` : '';
+            historyEntries.push(`  ✅ ${c.change_type} on "${c.entity_name}": ${r.ai_assessment || c.expected_impact}${deltaInfo}`);
           }
         }
 
         if (failedChanges.length > 0) {
-          historyEntries.push(`\nSTRATEGIES THAT FAILED (avoid repeating):`);
+          historyEntries.push(`\nCHANGES THAT WORSENED OR HAD NO EFFECT (avoid repeating):`);
           for (const c of failedChanges.slice(0, 8)) {
             const r = resultsByChangeId[c.id];
-            historyEntries.push(`  ❌ ${c.change_type} on "${c.entity_name}": ${r.ai_assessment || 'no improvement'}`);
+            const deltaInfo = r.delta ? ` | CPA change: ${r.delta.cpaChangePercent != null ? `${r.delta.cpaChangePercent > 0 ? '+' : ''}${r.delta.cpaChangePercent.toFixed(1)}%` : 'N/A'}, conv change: ${r.delta.conversionChange || 0}` : '';
+            historyEntries.push(`  ❌ ${c.change_type} on "${c.entity_name}": ${r.ai_assessment || 'no improvement'}${deltaInfo}`);
           }
         }
 
@@ -695,6 +695,137 @@ ${docSummaries.join('\n\n---\n\n')}
     // ═══════════════════════════════════════════════════════════════════════════
     // FETCH CLIENT'S TRACKED CONVERSION TYPES
     // ═══════════════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 1A: INJECT AI MEMORY BANK — Everything the AI has learned about this client
+    // ═══════════════════════════════════════════════════════════════════════════
+    let memoryBankBlock = '';
+    try {
+      const { data: memories } = await supabase
+        .from('client_ai_memory')
+        .select('memory_type, content, source, created_at, context')
+        .eq('client_name', clientName)
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (memories && memories.length > 0) {
+        const memoryLines = memories.map((m: any) => {
+          const date = m.created_at?.split('T')[0] || 'unknown';
+          const category = m.memory_type || 'general';
+          return `[${date}] [${category}] ${m.content}`;
+        });
+        memoryBankBlock = `\n\nMEMORY BANK — Your accumulated knowledge about ${clientName}\n${'='.repeat(60)}\n${memoryLines.join('\n')}\n${'='.repeat(60)}`;
+        console.log(`[MEMORY] Injected ${memories.length} memories for ${clientName}`);
+      }
+    } catch (e) {
+      console.warn('[MEMORY] Failed to fetch AI memories (non-fatal):', e);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 1B: INJECT DAILY SNAPSHOT TRENDS — 30-day performance with deltas
+    // ═══════════════════════════════════════════════════════════════════════════
+    let snapshotTrendsBlock = '';
+    try {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const { data: snapshots } = await supabase
+        .from('ppc_daily_snapshots')
+        .select('snapshot_date, spend, impressions, clicks, conversions, cost_per_conversion, leads, purchases, calls')
+        .eq('client_name', clientName)
+        .eq('platform', platform)
+        .gte('snapshot_date', thirtyDaysAgo)
+        .order('snapshot_date', { ascending: true });
+
+      if (snapshots && snapshots.length >= 2) {
+        const recent7 = snapshots.slice(-7);
+        const prior7 = snapshots.length >= 8 ? snapshots.slice(-14, -7) : [];
+
+        const avg = (arr: any[], key: string) => {
+          const vals = arr.map(s => s[key] || 0);
+          return vals.length > 0 ? vals.reduce((a: number, b: number) => a + b, 0) / vals.length : 0;
+        };
+
+        const metricKeys = ['spend', 'impressions', 'clicks', 'conversions', 'cost_per_conversion'];
+        const trendLines: string[] = [];
+
+        for (const m of metricKeys) {
+          const recentAvg = avg(recent7, m);
+          const label = m.replace(/_/g, ' ').toUpperCase();
+          if (prior7.length === 0) {
+            // Not enough data for WoW comparison
+            trendLines.push(`  ${label}: ${recentAvg.toFixed(2)} avg/day (no prior period for comparison)`);
+          } else {
+            const priorAvg = avg(prior7, m);
+            const delta = priorAvg > 0 ? ((recentAvg - priorAvg) / priorAvg * 100) : (recentAvg > 0 ? 100 : 0);
+            const direction = delta > 2 ? (m === 'cost_per_conversion' ? '(worse)' : '(better)') : delta < -2 ? (m === 'cost_per_conversion' ? '(better)' : '(worse)') : '(stable)';
+            trendLines.push(`  ${label}: ${recentAvg.toFixed(2)} avg/day (${delta >= 0 ? '+' : ''}${delta.toFixed(1)}% WoW) ${direction}`);
+          }
+        }
+
+        const dailyLines = recent7.map((s: any) =>
+          `  ${s.snapshot_date}: $${(s.spend || 0).toFixed(0)} spend, ${s.clicks || 0} clicks, ${s.conversions || 0} conv, CPA: ${s.conversions > 0 ? `$${(s.spend / s.conversions).toFixed(2)}` : 'N/A'}`
+        );
+
+        snapshotTrendsBlock = `\n\nPERFORMANCE TRENDS (${snapshots.length} days of snapshots)\n${'='.repeat(60)}\n7-DAY ROLLING AVERAGES vs PRIOR 7 DAYS:\n${trendLines.join('\n')}\n\nDAILY DETAIL (last 7 days):\n${dailyLines.join('\n')}\n${'='.repeat(60)}`;
+        console.log(`[SNAPSHOTS] Injected ${snapshots.length} daily snapshots for ${clientName}/${platform}`);
+      }
+    } catch (e) {
+      console.warn('[SNAPSHOTS] Failed to fetch daily snapshots (non-fatal):', e);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 2A: CROSS-CLIENT LEARNING — Anonymized insights from other accounts
+    // ═══════════════════════════════════════════════════════════════════════════
+    let crossClientBlock = '';
+    try {
+      const { data: crossLearnings } = await supabase
+        .from('client_ai_memory')
+        .select('content, memory_type, created_at')
+        .eq('memory_type', 'strategist_learning')
+        .neq('client_name', clientName)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (crossLearnings && crossLearnings.length > 0) {
+        const anonymizedLines = crossLearnings.map((m: any, i: number) => {
+          const date = m.created_at?.split('T')[0] || '';
+          return `  ${i + 1}. [${date}] ${m.content}`;
+        });
+        crossClientBlock = `\n\nINDUSTRY INSIGHTS (anonymized learnings from other accounts)\n${'='.repeat(60)}\n${anonymizedLines.join('\n')}\n${'='.repeat(60)}`;
+        console.log(`[CROSS-CLIENT] Injected ${crossLearnings.length} cross-client learnings`);
+      }
+    } catch (e) {
+      console.warn('[CROSS-CLIENT] Failed to fetch cross-client learnings (non-fatal):', e);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 3B: COMPETITIVE INTELLIGENCE (from research phase in run-full-fleet)
+    // ═══════════════════════════════════════════════════════════════════════════
+    let competitiveIntelBlock = '';
+    if (researchContext) {
+      try {
+        const parts: string[] = [];
+        if (researchContext.seoData) {
+          for (const comp of researchContext.seoData) {
+            if (comp.domain && comp.data) {
+              parts.push(`Competitor SEO - ${comp.domain}:\n  Organic Keywords: ${comp.data.organicKeywords || 'N/A'}\n  Organic Traffic: ${comp.data.organicTraffic || 'N/A'}\n  Top Keywords: ${(comp.data.topKeywords || []).slice(0, 5).join(', ') || 'N/A'}`);
+            }
+          }
+        }
+        if (researchContext.adTransparency) {
+          for (const comp of researchContext.adTransparency) {
+            if (comp.name && comp.data) {
+              parts.push(`Competitor Ads - ${comp.name}:\n  Active Ad Count: ${comp.data.adCount || 'N/A'}\n  Ad Themes: ${(comp.data.themes || []).slice(0, 5).join(', ') || 'N/A'}\n  Key Messaging: ${(comp.data.headlines || []).slice(0, 3).join(' | ') || 'N/A'}`);
+            }
+          }
+        }
+        if (parts.length > 0) {
+          competitiveIntelBlock = `\n\nCOMPETITIVE INTELLIGENCE (gathered this week)\n${'='.repeat(60)}\n${parts.join('\n\n')}\n${'='.repeat(60)}`;
+          console.log(`[RESEARCH] Injected competitive intel: ${parts.length} competitor entries`);
+        }
+      } catch (e) {
+        console.warn('[RESEARCH] Failed to format research context (non-fatal):', e);
+      }
+    }
+
     let trackedConversionTypes: string[] = ['leads', 'purchases', 'calls'];
     let primaryConversionGoal = 'all';
     try {
@@ -824,7 +955,22 @@ REQUIRED after_value FORMAT PER CHANGE TYPE:
 - flag_keyword_opportunity: { "keywords": ["keyword1", "keyword2"], "rationale": "why" }
 
 Aim for 5-12 specific, actionable changes. Rank by priority (high first).
-NEVER output change types not in the allowed list. You will be penalized for any budget or pause recommendations.`;
+NEVER output change types not in the allowed list. You will be penalized for any budget or pause recommendations.
+
+═══════════════════════════════════════════════════════════════
+LEARNING PROTOCOL
+═══════════════════════════════════════════════════════════════
+
+1. Review your Memory Bank before making recommendations. Do NOT repeat strategies that previously failed on the same entities.
+2. Reference specific trend data from the Performance Trends section when justifying changes.
+3. For each recommendation, cite which historical outcome or trend informed your decision.
+4. If competitive intelligence is available, reference it when suggesting keyword additions, negative keywords, or ad copy angles.
+5. End your analysis with a "learnings" array in the JSON output (see format below).
+
+ADDITIONAL OUTPUT FIELDS (add these to your JSON response):
+- "learnings": ["string1", "string2", ...] — 1-3 NEW insights you discovered THIS session that should be remembered for future runs. Be specific and actionable.
+- "confidence_summary": { "high_count": N, "medium_count": N, "low_count": N, "overall_risk": "low|medium|high", "risk_notes": "string" }`;
+
 
     const convBreakdownLine = platform === 'meta' && (totalLeads > 0 || totalPurchases > 0)
       ? `\n- Conversion Breakdown: ${totalLeads} leads, ${totalPurchases} purchases`
@@ -865,41 +1011,74 @@ ${topCampaigns.length > 0 ? `BEST PERFORMING CAMPAIGNS:
 ${topCampaigns.map((c: any) => `- ${c.name}: CPA $${c.cpa.toFixed(2)}, ${c.conversions} conv, CTR: ${c.ctr.toFixed(2)}%`).join('\n')}` : ''}
 ${historyBlock}
 ${entityReferenceBlock}
+${memoryBankBlock}
+${snapshotTrendsBlock}
+${crossClientBlock}
+${competitiveIntelBlock}
 
-REMINDER: You MUST NOT propose any budget changes, pauses, or status changes. Only: adjust_bid, add_negative_keyword, change_match_type, flag_creative_issue, flag_keyword_opportunity.`;
+REMINDER: You MUST NOT propose any budget changes, pauses, or status changes. Only: adjust_bid, add_negative_keyword, change_match_type, flag_creative_issue, flag_keyword_opportunity.
+Include "learnings" and "confidence_summary" in your JSON response as specified in the Learning Protocol.`;
 
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-pro',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.3,
-      }),
-    });
-
-    if (!aiResponse.ok) {
-      if (aiResponse.status === 429) {
-        return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please try again shortly.' }), {
-          status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      if (aiResponse.status === 402) {
-        return new Response(JSON.stringify({ error: 'AI usage limit reached. Please add credits.' }), {
-          status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      throw new Error(`AI gateway error: ${aiResponse.status}`);
+    // AI ENGINE: Claude Sonnet 4.6 via Anthropic API
+    const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
+    if (!ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY is not configured');
     }
 
-    const aiJson = await aiResponse.json();
-    const rawContent = aiJson.choices?.[0]?.message?.content || '{}';
+    const modelUsed = 'claude-sonnet-4-6';
+    let rawContent = '{}';
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: modelUsed,
+            max_tokens: 8192,
+            system: systemPrompt,
+            messages: [{ role: 'user', content: userPrompt }],
+            temperature: 0.3,
+          }),
+        });
+
+        if (anthropicRes.ok) {
+          const anthropicJson = await anthropicRes.json();
+          rawContent = anthropicJson.content?.[0]?.text || '{}';
+          console.log(`[AI] Claude Sonnet 4.6 response OK (attempt ${attempt + 1})`);
+          break;
+        }
+
+        if (anthropicRes.status === 429) {
+          if (attempt === 0) {
+            console.warn('[AI] Rate limited, retrying in 3s...');
+            await new Promise(r => setTimeout(r, 3000));
+            continue;
+          }
+          return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please try again shortly.' }), {
+            status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        const errBody = await anthropicRes.text().catch(() => '');
+        console.warn(`[AI] Claude attempt ${attempt + 1} failed: ${anthropicRes.status} ${errBody.slice(0, 200)}`);
+        if (attempt === 0) {
+          await new Promise(r => setTimeout(r, 2000));
+        } else {
+          throw new Error(`Claude API error: ${anthropicRes.status}`);
+        }
+      } catch (e: any) {
+        if (attempt === 1) throw e;
+        console.warn(`[AI] Claude attempt ${attempt + 1} error:`, e.message);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
+    console.log(`[AI] Using model: ${modelUsed}`);
 
     let analysisResult: any = { reasoning: '', summary: '', changes: [] };
     try {
@@ -966,6 +1145,53 @@ REMINDER: You MUST NOT propose any budget changes, pauses, or status changes. On
 
     analysisResult.changes = enrichedChanges;
 
+    // 1D + 2C: EXTRACT AND SAVE LEARNINGS from AI response
+    try {
+      // Robust learnings extraction: handle array of strings, array of objects, single string
+      let rawLearnings = analysisResult.learnings;
+      let learnings: string[] = [];
+      if (Array.isArray(rawLearnings)) {
+        learnings = rawLearnings
+          .map((l: any) => typeof l === 'string' ? l : (l?.content || l?.text || l?.description || (typeof l === 'object' ? JSON.stringify(l) : String(l))))
+          .filter((l: string) => l && l.length > 5 && l !== '{}');
+      } else if (typeof rawLearnings === 'string' && rawLearnings.length > 5) {
+        learnings = [rawLearnings];
+      }
+
+      if (learnings.length > 0) {
+        const learningInserts = learnings.slice(0, 3).map((learning: string) => ({
+          client_name: clientName,
+          memory_type: 'strategist_learning',
+          content: String(learning).substring(0, 500),
+          source: 'ppc_analyze',
+          context: {
+            date: new Date().toISOString().split('T')[0],
+            platform,
+            model: modelUsed,
+          },
+          relevance_score: 1.0,
+        }));
+
+        await supabase.from('client_ai_memory').insert(learningInserts);
+        console.log(`[LEARNING] Saved ${learningInserts.length} new learnings for ${clientName}`);
+
+        // Trim old memories if over cap (keep most recent 50 per client)
+        const { data: allMemories } = await supabase
+          .from('client_ai_memory')
+          .select('id')
+          .eq('client_name', clientName)
+          .order('created_at', { ascending: true });
+
+        if (allMemories && allMemories.length > 50) {
+          const toDelete = allMemories.slice(0, allMemories.length - 50).map((m: any) => m.id);
+          await supabase.from('client_ai_memory').delete().in('id', toDelete);
+          console.log(`[LEARNING] Trimmed ${toDelete.length} old memories for ${clientName}`);
+        }
+      }
+    } catch (e) {
+      console.warn('[LEARNING] Failed to save learnings (non-fatal):', e);
+    }
+
     // --- Store session in DB ---
     const { data: session, error: sessionErr } = await supabase
       .from('ppc_optimization_sessions')
@@ -975,7 +1201,7 @@ REMINDER: You MUST NOT propose any budget changes, pauses, or status changes. On
         account_id: accountId || null,
         date_range_start: dateStart,
         date_range_end: dateEnd,
-        supermetrics_data: { campaigns: campaignData, keywords: keywordData, totalSpend, totalConversions },
+        supermetrics_data: { campaigns: campaignData, keywords: keywordData, totalSpend, totalConversions, modelUsed, confidenceSummary: analysisResult.confidence_summary || null },
         ai_reasoning: analysisResult.reasoning || '',
         ai_summary: analysisResult.summary || '',
         status: autoMode ? 'auto_executing' : 'pending_review',

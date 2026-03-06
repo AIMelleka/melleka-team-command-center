@@ -1,4 +1,4 @@
-import { PenTool, Megaphone, Search, FileText, Mail, Video, Image, Globe, BarChart3, Activity, Layers, Target, ClipboardList, Users, type LucideIcon } from 'lucide-react';
+import { PenTool, Megaphone, Search, FileText, Mail, Video, Image, Globe, BarChart3, Activity, Layers, Target, ClipboardList, Users, Palette, type LucideIcon } from 'lucide-react';
 
 export interface ToolDefinition {
   key: string;
@@ -15,9 +15,7 @@ export const TOOL_CATALOG: ToolDefinition[] = [
   // Content
   { key: 'seo-writer', label: 'SEO Writer', description: 'Generate SEO-optimized articles up to 6,000 words', icon: PenTool, route: '/seo-writer', category: 'content' },
   { key: 'email-writer', label: 'Email Writer', description: 'Create professional email campaigns', icon: Mail, route: '/email-writer', category: 'content' },
-  { key: 'ad-generator', label: 'Ad Generator', description: 'Generate ad copy and creatives', icon: Megaphone, route: '/ad-generator', category: 'content' },
-  { key: 'image-generator', label: 'Image Generator', description: 'AI-powered image creation', icon: Image, route: '/image-generator', category: 'content' },
-  { key: 'video-generator', label: 'Video Generator', description: 'Create marketing videos', icon: Video, route: '/video-generator', category: 'content' },
+  { key: 'creative-studio', label: 'Creative Studio', description: 'AI-powered ads, images, and videos with smart brief analysis', icon: Palette, route: '/creative-studio', category: 'content' },
 
   // Marketing
   { key: 'ad-review', label: 'Ad Review', description: 'Review and analyze ad performance', icon: Search, route: '/ad-review', category: 'marketing' },
@@ -31,9 +29,7 @@ export const TOOL_CATALOG: ToolDefinition[] = [
   { key: 'ppc-optimizer', label: 'PPC Optimizer', description: 'Optimize pay-per-click campaigns', icon: Target, route: '/ppc-optimizer', category: 'analytics' },
 
   // Management
-  { key: 'proposals', label: 'Proposals', description: 'Create and manage proposals', icon: FileText, route: '/proposals', category: 'management' },
-  { key: 'proposal-builder', label: 'Proposal Builder', description: 'Build detailed proposals', icon: FileText, route: '/proposal-builder', category: 'management' },
-  { key: 'proposal-qa', label: 'Proposal QA', description: 'Quality check proposals', icon: ClipboardList, route: '/proposal-qa', category: 'management' },
+  { key: 'proposal-builder', label: 'Proposal Builder', description: 'Build and manage proposals', icon: FileText, route: '/proposal-builder', category: 'management' },
   { key: 'decks', label: 'Decks', description: 'Performance report decks', icon: Layers, route: '/decks', category: 'management' },
   { key: 'deck-builder', label: 'Deck Builder', description: 'Build performance decks', icon: Layers, route: '/deck-builder', category: 'management' },
   { key: 'portfolio-manager', label: 'Portfolio Manager', description: 'Manage portfolio images', icon: Image, route: '/portfolio-manager', category: 'management' },

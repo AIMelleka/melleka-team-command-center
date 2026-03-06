@@ -156,23 +156,36 @@ const Index = () => {
   voiceFeedTextRef.current = voiceChat.feedText;
   const voiceFinishRef = useRef(voiceChat.finishSpeaking);
   voiceFinishRef.current = voiceChat.finishSpeaking;
+  const voiceEnabledRef = useRef(voiceChat.voiceEnabled);
+  voiceEnabledRef.current = voiceChat.voiceEnabled;
 
-  // Spacebar hotkey: interrupt assistant and start listening
+  // Spacebar hotkey: interrupt agent / toggle mic during voice mode
+  // Works globally — when voice is on, spacebar always controls the mic
+  // (textarea is blurred in voice mode so spacebar won't type a space)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!voiceChat.voiceEnabled) return;
       if (e.code !== 'Space') return;
-      // Don't hijack space when typing in an input/textarea
+      // Don't hijack space when user is typing in a non-voice input
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (tag === 'INPUT' || tag === 'SELECT') return;
+      // In voice mode, always capture spacebar (even in textarea)
+      e.preventDefault();
+
       if (voiceChat.isSpeaking) {
-        e.preventDefault();
+        // Agent is talking — interrupt and take over
         voiceChat.interruptAndListen();
+      } else if (voiceChat.isListening) {
+        // Already listening — stop
+        voiceChat.stopListening();
+      } else {
+        // Idle — start listening
+        voiceChat.startListening();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [voiceChat.voiceEnabled, voiceChat.isSpeaking, voiceChat.interruptAndListen]);
+  }, [voiceChat.voiceEnabled, voiceChat.isSpeaking, voiceChat.isListening, voiceChat.interruptAndListen, voiceChat.stopListening, voiceChat.startListening]);
 
   // Open sidebar by default on desktop
   useEffect(() => {
@@ -488,6 +501,22 @@ const Index = () => {
       currentMentions.length > 0 ? currentMentions : undefined,
       () => {
         // SSE stream ended without a "done" event — connection dropped
+        // In voice mode, do NOT auto-reconnect (it creates a loop where
+        // "continue where you left off" gets sent repeatedly)
+        if (voiceEnabledRef.current) {
+          console.log('[SSE] Connection dropped during voice mode — not auto-reconnecting');
+          voiceChat.stopEverything();
+          setMessages(prev => {
+            const msgs = [...prev];
+            const aIdx = msgs.findIndex(m => m.id === assistantId);
+            if (aIdx === -1) return prev;
+            const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts], streaming: false };
+            msgs[aIdx] = assistant;
+            return msgs;
+          });
+          return;
+        }
+
         reconnectAttemptsRef.current += 1;
         if (reconnectAttemptsRef.current <= MAX_RECONNECT_ATTEMPTS && activeConvoId) {
           // Auto-reconnect: send "continue" to the same conversation
@@ -531,6 +560,8 @@ const Index = () => {
     }
     setIsStreaming(false);
     setMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m));
+    // Kill voice audio + mic when user hits stop
+    voiceChat.stopEverything();
   };
 
   // ── Input handlers ─────────────────────────────────
@@ -668,6 +699,29 @@ const Index = () => {
           <Loader2 className="w-4 h-4 animate-spin" />
           <span className="text-sm">Thinking...</span>
         </div>
+      );
+    }
+
+    // Voice mode: show compact speaking indicator while streaming
+    if (voiceChat.voiceEnabled && msg.streaming && (voiceChat.isSpeaking || voiceChat.inConversation)) {
+      // Show tool calls but collapse text into a voice indicator
+      const toolParts = msg.parts.filter(p => p.type === 'tool_start' || p.type === 'tool_result');
+      return (
+        <>
+          {toolParts.map((part, i) => {
+            if (part.type === 'tool_start') return <ToolCallBlock key={i} name={part.toolName ?? 'unknown'} pending />;
+            if (part.type === 'tool_result') return <ToolCallBlock key={i} name={part.toolName ?? 'unknown'} output={part.toolOutput} />;
+            return null;
+          })}
+          <div className="flex items-center gap-3 py-2">
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+              <span className="w-2 h-2 bg-primary rounded-full animate-pulse [animation-delay:150ms]" />
+              <span className="w-2 h-2 bg-primary rounded-full animate-pulse [animation-delay:300ms]" />
+            </div>
+            <span className="text-sm text-muted-foreground">Speaking...</span>
+          </div>
+        </>
       );
     }
 

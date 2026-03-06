@@ -51,3 +51,31 @@ alter table team_conversations disable row level security;
 alter table team_messages disable row level security;
 alter table team_memory disable row level security;
 alter table team_secrets disable row level security;
+
+-- Super Agent task tracker (shared across all team members)
+create table if not exists super_agent_tasks (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  description text,
+  status text not null default 'not_started',
+  priority text not null default 'medium',
+  requested_by text,
+  assigned_to text not null default 'Super Agent',
+  category text,
+  client_name text,
+  conversation_id uuid references team_conversations(id) on delete set null,
+  links jsonb default '[]'::jsonb,
+  error_details text,
+  notes jsonb default '[]'::jsonb,
+  started_at timestamptz,
+  completed_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+create index if not exists idx_super_agent_tasks_status on super_agent_tasks(status);
+create index if not exists idx_super_agent_tasks_category on super_agent_tasks(category);
+create index if not exists idx_super_agent_tasks_client on super_agent_tasks(client_name);
+create index if not exists idx_super_agent_tasks_created on super_agent_tasks(created_at desc);
+create index if not exists idx_super_agent_tasks_conversation on super_agent_tasks(conversation_id);
+
+alter table super_agent_tasks disable row level security;
