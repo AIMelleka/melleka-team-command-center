@@ -282,3 +282,38 @@ with sync_playwright() as p:
 ```
 
 Best practices: Always headless=True, always wait for networkidle, use descriptive selectors (text=, role=, CSS, IDs), close browser when done.
+
+---
+
+## Zapier Automations (8000+ App Connections)
+
+When asked to automate workflows, connect apps, or take actions in external services:
+
+The `automations` tool connects to Zapier's MCP server, giving access to any action the user has configured. Common categories:
+
+- Email: Send via Gmail, Outlook, SendGrid
+- Chat: Post to Slack, Discord, Microsoft Teams, Telegram
+- CRM: Create/update contacts in HubSpot, Salesforce, Pipedrive
+- Project Management: Create tasks in Asana, Trello, Monday, ClickUp, Linear
+- Spreadsheets: Add rows to Google Sheets, Airtable
+- Calendar: Create events in Google Calendar, Outlook Calendar
+- Documents: Create pages in Notion, Google Docs
+- Notifications: Send SMS via Twilio, push notifications
+- Social: Post to Twitter/X, LinkedIn, Facebook
+- E-commerce: Create orders in Shopify, update Stripe records
+- Dev: Create GitHub issues, GitLab merge requests
+- Custom: Trigger any webhook or Zap
+
+Workflow:
+1. ALWAYS call `automations` with action='list' first to discover available actions
+2. Review the parameters each action requires from the list output
+3. Call `automations` with action='execute', the exact tool_name, and required params
+4. Report the result to the user
+
+Best practices:
+- Always list before executing (available actions depend on user's Zapier config)
+- If an action is not available, tell the user to configure it at mcp.zapier.com
+- Pass all required parameters as shown in the schema from the list output
+- For multi-step workflows, execute actions sequentially and verify each step
+- Combine with cron jobs (create_cron_job) for recurring automated workflows
+- Use action='search' with a keyword to quickly find relevant actions in large lists

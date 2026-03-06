@@ -10,7 +10,7 @@ import {
   TrendingUp, MailOpen, Share2, LineChart, FlaskConical,
   HeartHandshake, DollarSign, Code2, ShoppingCart, BookOpen,
   FileSpreadsheet, Presentation, Image, Video, Lightbulb,
-  Monitor, FolderOpen, Lock, Users, Plug,
+  Monitor, FolderOpen, Lock, Users, Plug, Workflow,
 } from 'lucide-react';
 
 // ─── Marketing Skills (from marketing-skills.md) ────────────────────────────
@@ -375,6 +375,16 @@ const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'canva_upload_asset', description: 'Upload images/videos to Canva from a URL' },
       { name: 'canva_list_brand_templates', description: 'List Canva brand templates for autofill' },
       { name: 'canva_autofill_design', description: 'Auto-fill brand templates with custom text and images' },
+    ],
+  },
+  {
+    label: 'Automations (Zapier)',
+    icon: Workflow,
+    color: 'bg-orange-600/10 text-orange-700 dark:text-orange-300',
+    tools: [
+      { name: 'automations (list)', description: 'List all available Zapier automations and their parameters' },
+      { name: 'automations (search)', description: 'Search for specific automations by name or keyword' },
+      { name: 'automations (execute)', description: 'Execute a Zapier action (send email, post to Slack, create CRM record, etc.)' },
     ],
   },
   {

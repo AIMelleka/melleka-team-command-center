@@ -6,6 +6,7 @@ import path from "path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { appendMemory, writeMemory } from "./memory.js";
 import { getSecret, requireSecret } from "./secrets.js";
+import { listZapierTools, callZapierTool } from "./zapier-mcp.js";
 
 const execAsync = promisify(exec);
 
@@ -947,6 +948,41 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         },
       },
       required: ["brand_template_id", "data"],
+    },
+  },
+  {
+    name: "automations",
+    description:
+      "Execute automations via connected Zapier actions (8000+ apps). Supports listing available automations, searching for actions, and executing them.\n\n" +
+      "Examples:\n" +
+      "- List all available actions: action='list'\n" +
+      "- Search for actions: action='search', query='gmail'\n" +
+      "- Execute an action: action='execute', tool_name='gmail_send_email', params={to:'user@example.com', subject:'Hello', body:'Test'}\n\n" +
+      "IMPORTANT: Always call action='list' first to see what automations are available and what parameters each accepts.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action: {
+          type: "string",
+          description:
+            "Action to perform: 'list' (show all available automations), 'search' (find by name/keyword), or 'execute' (run a specific automation).",
+        },
+        tool_name: {
+          type: "string",
+          description:
+            "The exact name of the Zapier tool to execute (e.g. 'gmail_send_email'). Required when action='execute'.",
+        },
+        params: {
+          type: "object",
+          description:
+            "Parameters to pass to the Zapier action. Each action has different required params — use action='list' first to see the schema.",
+        },
+        query: {
+          type: "string",
+          description: "Search query to filter available automations. Used with action='search'.",
+        },
+      },
+      required: ["action"],
     },
   },
 ];
@@ -2287,6 +2323,55 @@ export async function executeTool(
           `View URL: ${design.urls?.view_url}`,
           design.thumbnail?.url ? `Thumbnail: ${design.thumbnail.url}` : "",
         ].filter(Boolean).join("\n");
+      }
+
+      case "automations": {
+        const action = toolInput.action as string;
+
+        if (action === "list" || action === "search") {
+          const tools = await listZapierTools();
+          if (tools.length === 0) {
+            return "No Zapier automations configured. Visit mcp.zapier.com to set up actions, then add the MCP URL as ZAPIER_MCP_URL in team_secrets.";
+          }
+
+          let filtered = tools;
+          if (action === "search" && toolInput.query) {
+            const q = (toolInput.query as string).toLowerCase();
+            filtered = tools.filter(
+              (t) => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q)
+            );
+            if (filtered.length === 0) {
+              return `No automations matching "${toolInput.query}". Available: ${tools.map((t) => t.name).join(", ")}`;
+            }
+          }
+
+          let output = `Available Zapier Automations (${filtered.length}):\n\n`;
+          for (const t of filtered) {
+            output += `- ${t.name}\n  ${t.description}\n`;
+            if (t.inputSchema?.properties) {
+              const props = t.inputSchema.properties as Record<string, { type?: string; description?: string }>;
+              const required = (t.inputSchema.required as string[]) || [];
+              const paramList = Object.entries(props)
+                .map(([k, v]) => `    ${k}${required.includes(k) ? " (required)" : ""}: ${v.description || v.type || ""}`)
+                .join("\n");
+              if (paramList) output += `  Parameters:\n${paramList}\n`;
+            }
+            output += "\n";
+          }
+          return output.length > 12000 ? output.slice(0, 12000) + "\n[...truncated]" : output;
+        }
+
+        if (action === "execute") {
+          const toolName = toolInput.tool_name as string;
+          if (!toolName) return "Error: tool_name is required when action='execute'. Call action='list' first to see available tools.";
+          const params = (toolInput.params as Record<string, unknown>) || {};
+          const result = await callZapierTool(toolName, params);
+          if (typeof result === "string") return result;
+          const resultStr = JSON.stringify(result, null, 2);
+          return resultStr.length > 8000 ? resultStr.slice(0, 8000) + "\n[...truncated]" : resultStr;
+        }
+
+        return `Unknown action "${action}". Use "list", "search", or "execute".`;
       }
 
       default:
