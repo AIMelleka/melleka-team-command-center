@@ -8,6 +8,9 @@ import {
   deleteConversation,
   fetchMemory,
   fetchNotifications,
+  fetchActiveJobs,
+  checkJobStatus,
+  reconnectToJob,
   streamMessage,
   type Conversation,
   type SSEEvent,
@@ -32,7 +35,9 @@ export function Chat({ memberName, onLogout }: ChatProps) {
   const [showMemory, setShowMemory] = useState(false);
   const [unreadConvs, setUnreadConvs] = useState<Conversation[]>([]);
   const [showBell, setShowBell] = useState(false);
+  const [activeJobConvIds, setActiveJobConvIds] = useState<Set<string>>(new Set());
   const bellRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<(() => void) | null>(null);
 
   const loadConversations = useCallback(async () => {
     const data = await fetchConversations().catch(() => []);
@@ -47,6 +52,9 @@ export function Chat({ memberName, onLogout }: ChatProps) {
     setUnreadConvs(data.conversations);
     // Also refresh conversation list so sidebar badges update
     if (data.count > 0) loadConversations();
+    // Fetch active jobs for sidebar spinner indicators
+    const activeIds = await fetchActiveJobs().catch(() => [] as string[]);
+    setActiveJobConvIds(new Set(activeIds));
   }, [loadConversations]);
 
   useEffect(() => {
@@ -67,6 +75,11 @@ export function Chat({ memberName, onLogout }: ChatProps) {
   }, []);
 
   async function selectConversation(id: string) {
+    // Abort any existing stream
+    if (abortRef.current) { abortRef.current(); abortRef.current = null; }
+    if (stopFn) { stopFn(); setStopFn(null); }
+    setLoading(false);
+
     setActiveId(id);
     const msgs = await fetchMessages(id).catch(() => []);
     const uiMsgs: UIMessage[] = msgs.map((m) => ({
@@ -75,6 +88,68 @@ export function Chat({ memberName, onLogout }: ChatProps) {
       parts: [{ type: "text" as const, content: m.content }],
     }));
     setMessages(uiMsgs);
+
+    // Check if there's an active agent job for this conversation and reconnect
+    const jobStatus = await checkJobStatus(id).catch(() => ({ active: false }));
+    if (jobStatus.active) {
+      const assistantMsgId = `reconnect-${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        { id: assistantMsgId, role: "assistant", parts: [{ type: "text", content: "" }], streaming: true },
+      ]);
+      setLoading(true);
+
+      const abort = reconnectToJob(
+        id,
+        (event: SSEEvent) => {
+          if (event.type === "text" && event.delta) {
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantMsgId) return m;
+                const parts = [...m.parts];
+                const lastPart = parts[parts.length - 1];
+                if (lastPart?.type === "text") {
+                  parts[parts.length - 1] = { ...lastPart, content: (lastPart.content ?? "") + event.delta! };
+                } else {
+                  parts.push({ type: "text", content: event.delta! });
+                }
+                return { ...m, parts };
+              })
+            );
+          } else if (event.type === "tool_start" && event.name) {
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantMsgId) return m;
+                return { ...m, parts: [...m.parts, { type: "tool_start" as const, toolName: event.name! }] };
+              })
+            );
+          } else if (event.type === "tool_result" && event.name) {
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantMsgId) return m;
+                return { ...m, parts: [...m.parts, { type: "tool_result" as const, toolName: event.name!, toolOutput: event.output }] };
+              })
+            );
+          } else if (event.type === "error" && event.message) {
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantMsgId) return m;
+                return { ...m, parts: [...m.parts, { type: "text" as const, content: `\n\n Error: ${event.message}` }] };
+              })
+            );
+          }
+        },
+        () => {
+          setLoading(false);
+          abortRef.current = null;
+          setMessages((prev) =>
+            prev.map((m) => (m.id === assistantMsgId ? { ...m, streaming: false } : m))
+          );
+          loadConversations();
+        },
+      );
+      abortRef.current = abort;
+    }
   }
 
   function newConversation() {
@@ -214,6 +289,7 @@ export function Chat({ memberName, onLogout }: ChatProps) {
         memberName={memberName}
         conversations={conversations}
         activeId={activeId}
+        activeJobConvIds={activeJobConvIds}
         onSelect={selectConversation}
         onNew={newConversation}
         onDelete={handleDelete}

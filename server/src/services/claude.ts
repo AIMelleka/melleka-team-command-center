@@ -376,9 +376,13 @@ async function runChat(
 export async function streamChat(
   memberName: string,
   messages: Anthropic.MessageParam[],
-  res: Response
+  res: Response,
+  onEvent?: (event: Record<string, unknown>) => void,
 ): Promise<string> {
-  const write: SseWriter = safeWrite((event) => res.write(`data: ${JSON.stringify(event)}\n\n`));
+  const write: SseWriter = safeWrite((event) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    if (onEvent) onEvent(event);
+  });
   return runChat(memberName, messages, write);
 }
 

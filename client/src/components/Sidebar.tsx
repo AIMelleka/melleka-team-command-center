@@ -1,11 +1,12 @@
 import React from "react";
-import { Plus, MessageSquare, Trash2, LogOut, Brain } from "lucide-react";
+import { Plus, MessageSquare, Trash2, LogOut, Brain, Loader2 } from "lucide-react";
 import type { Conversation } from "../lib/api.ts";
 
 interface SidebarProps {
   memberName: string;
   conversations: Conversation[];
   activeId: string | null;
+  activeJobConvIds?: Set<string>;
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
@@ -27,6 +28,7 @@ export function Sidebar({
   memberName,
   conversations,
   activeId,
+  activeJobConvIds,
   onSelect,
   onNew,
   onDelete,
@@ -71,7 +73,11 @@ export function Sidebar({
                 : "hover:bg-surface-2"
             }`}
           >
-            <MessageSquare size={13} className="text-muted flex-shrink-0 mt-0.5" />
+            {activeJobConvIds?.has(conv.id) ? (
+              <Loader2 size={13} className="text-accent flex-shrink-0 mt-0.5 animate-spin" />
+            ) : (
+              <MessageSquare size={13} className="text-muted flex-shrink-0 mt-0.5" />
+            )}
             <div className="flex-1 min-w-0">
               <p className={`text-xs truncate leading-tight ${conv.has_unread ? "text-white font-semibold" : "text-text"}`}>
                 {conv.title || "Untitled"}
