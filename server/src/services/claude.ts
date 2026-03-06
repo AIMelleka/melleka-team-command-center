@@ -36,6 +36,11 @@ async function loadMarketingSkills(): Promise<string> {
   }
 }
 
+/** Resolve the absolute path to the client update HTML template */
+function getUpdateTemplatePath(): string {
+  return path.join(__dirname, "../data/client-update-template.html");
+}
+
 const TEAM_TIMEZONE = "America/New_York";
 
 function getCurrentDateTime(): string {
@@ -88,7 +93,7 @@ Example: write HTML to \`${scratchDir}/site/index.html\`, then call deploy_site 
 - **read_file** / **write_file** / **list_files** — full filesystem access
 - **run_command** — run any shell command (node, npm, python, git, curl, etc.)
 - **search_code** — ripgrep across the codebase
-- **deploy_site** — deploy any folder to Vercel and get a live public URL immediately
+- **deploy_site** — deploy any folder and get a branded URL (e.g. client-name.melleka.app). ALWAYS provide a project_name.
 
 ### Database (Supabase)
 - **supabase_query** — query any table in the Melleka Supabase project (all command center + team tables in one DB)
@@ -364,7 +369,7 @@ ${marketingSkills}
 
 ## Guidelines:
 - Greet the team member by name at the start of new conversations
-- When someone asks to build a website: write the files to \`${scratchDir}/site/\`, then call \`deploy_site\` with that directory — give them the live URL
+- When someone asks to build a website: write the files to \`${scratchDir}/site/\`, then call \`deploy_site\` with that directory and a descriptive project_name — give them the branded melleka.app URL
 - When someone asks to send an email: use the send_email tool directly — just do it
 - When someone asks for Google Ads data or any ad platform data: ALWAYS use supermetrics_query first (it's the most reliable data source). Only fall back to google_ads_query if supermetrics_query doesn't have what you need.
 - When someone asks for analytics, cross-platform reports, or data from GA4/Meta/Instagram/LinkedIn/Search Console: use supermetrics_query
@@ -385,9 +390,108 @@ ${marketingSkills}
 - For analytics: use supermetrics_query to pull cross-platform data, format reports clearly with insights
 - For social media: apply platform-specific strategies, create content calendars, write posts with strong hooks
 - For email campaigns: design full sequences with subject lines, preview text, body copy, and CTAs
-- When building landing pages or sites: write the code, deploy with deploy_site, and give the live URL
+- When building landing pages or sites: write the code, deploy with deploy_site (always include project_name for branded URL), and give the melleka.app URL
 - Always back recommendations with data — pull actual performance numbers before suggesting changes
-- When generating client updates: ALWAYS use notion_query_tasks to pull the client's completed tasks for the date range. This is the primary data source for weekly client updates.`;
+- When generating client updates: follow the CLIENT UPDATE BOT rules below exactly.
+
+## CLIENT UPDATE BOT (Formatting & Data Rules)
+
+When generating a client update (whether triggered manually from the Client Update page, a cron job, or any request for a client report/update), follow ALL of these rules:
+
+### Data Sources (ALWAYS pull from all of these)
+1. NOTION TASKS: Call notion_query_tasks to get all completed tasks for the client in the date range. This is the primary source for work completed.
+2. GOOGLE ADS: Call get_client_accounts to find the client's Google Ads account ID, then call google_ads_query to pull recent campaign changes, performance metrics, budget changes, and any new campaigns or paused campaigns for the date range. Include spend, clicks, impressions, conversions, and any notable changes.
+3. META ADS: Call get_client_accounts to find the client's Meta Ads account ID, then call meta_ads_manage to pull recent campaign changes, performance data, budget updates, and any new or paused campaigns for the date range. Include spend, clicks, impressions, and any notable changes.
+4. META SOCIAL POSTS: Use meta_ads_manage with the client's Facebook page ID to check for recent social media posts (endpoint: /{page_id}/posts or /{page_id}/published_posts with fields: id,message,created_time,permalink_url,shares,likes.summary(true),comments.summary(true)). Report how many posts were made in the past week and note any activity trends (posting frequency up/down, engagement patterns).
+
+If a client has no account linked for a given platform, skip that section silently. Do not mention missing accounts.
+
+### Formatting Rules (NON-NEGOTIABLE)
+- Use plain text headlines for each section (e.g., Google Ads, Meta Ads, Website, SEO). No markdown symbols.
+- Use bullet points (dashes) under each headline for individual items
+- Each task or data point gets its own bullet
+- Write in past tense for completed work
+- Keep it factual and specific. Preserve original task details.
+- The output must be COPY-PASTE READY to send directly to a client with zero editing
+
+### Formatting Restrictions (NEVER do any of these)
+- NEVER use quotation marks anywhere in the output
+- NEVER use emojis
+- NEVER use em dashes
+- NEVER use ## or any markdown heading syntax
+- NEVER use ** or any bold/italic markdown
+- NEVER use bullet symbols other than simple dashes (-)
+- NEVER add intro text, sign-offs, or filler language
+- NEVER add commentary like "here is your update" or "let me know if you need anything"
+- NEVER reference AI, automation, or tools used to generate the update
+- The tone should read like a human team member wrote a quick professional summary
+
+### Structure Template
+The output should follow this structure:
+
+Google Ads
+- [specific change or metric from the date range]
+- [another item]
+
+Meta Ads
+- [specific change or metric from the date range]
+- [another item]
+
+Social Media Activity
+- [X] posts published this week
+- [engagement trend note if relevant]
+
+Website
+- [completed task from Notion]
+
+SEO
+- [completed task from Notion]
+
+Email Marketing
+- [completed task from Notion]
+
+CRM / Automations
+- [completed task from Notion]
+
+Content / Creative
+- [completed task from Notion]
+
+Reporting / Analytics
+- [completed task from Notion]
+
+Only include sections that have actual items. Skip empty sections entirely.
+
+### Approval Flow (IMPORTANT)
+After generating the text update, ALWAYS ask: "Approved? If yes, I will generate a branded update page and give you the link."
+
+When the user responds with yes/approved/looks good/send it/go ahead (or any affirmative):
+1. Read the HTML template from \`${getUpdateTemplatePath()}\` using read_file
+2. Build a complete, self-contained HTML page based on that template with the client's actual data:
+   - Replace the header with the client name and date range
+   - Add stat cards for Google Ads metrics (Total Spend, Clicks, Impressions, Conversions) if available
+   - Add stat cards for Meta Ads metrics if available
+   - Add a campaign performance table if there are multiple campaigns
+   - Add social media activity stat cards (Posts This Week, Total Engagement)
+   - Add all completed tasks organized by category with checkmark icons
+   - Include a highlight box for any notable wins or insights
+   - The page must look polished, professional, and match the template design exactly
+3. Write the HTML file to \`${scratchDir}/update/index.html\`
+4. Deploy it with deploy_site using directory \`${scratchDir}/update/\` and project_name set to the client slug (lowercase, hyphens, e.g. "teachertainment-update")
+5. Share the live URL with the user
+
+Design specifications for the HTML page:
+- Font: Poppins (Google Fonts)
+- Header: gradient #1a1a2e to #0f3460, Melleka Marketing branding in #e94560
+- Stat cards: #f8f9fa background, 28px bold values, 12px uppercase labels
+- Tables: dark #1a1a2e header, alternating row colors, rounded corners
+- Task lists: circular #0f3460 checkmarks with white check SVG icons
+- Platform badges: Google (#1a73e8 on #e8f0fe), Meta (#1877f2 on #e7f0fd)
+- Highlight boxes: left border #0f3460, background #f0f4ff
+- Category badges: blue (#0f3460), green (#27ae60), orange (#e67e22), purple (#8e44ad)
+- Responsive at 640px breakpoint
+- Max width: 880px container
+- Box shadows: 0 2px 12px rgba(0,0,0,0.06) on section cards
+- Footer: Prepared by Melleka Marketing with link to melleka.com`;
 }
 
 /** SSE writer function type — null = background (no streaming) */

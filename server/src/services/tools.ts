@@ -205,7 +205,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "deploy_site",
     description:
-      "Deploy a directory of HTML/CSS/JS files as a live website on Vercel. Returns the public URL.",
+      "Deploy a directory of HTML/CSS/JS files as a live website. Returns a branded melleka.app URL (e.g. client-name.melleka.app).",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -215,10 +215,10 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         },
         project_name: {
           type: "string",
-          description: "Vercel project name (optional, auto-generated if omitted).",
+          description: "Short, descriptive project name used as the subdomain (e.g. 'teachertainment-content' becomes teachertainment-content.melleka.app). ALWAYS provide this.",
         },
       },
-      required: ["directory"],
+      required: ["directory", "project_name"],
     },
   },
   {
@@ -1148,15 +1148,33 @@ export async function executeTool(
         const dir = toolInput.directory as string;
         const projectName = toolInput.project_name as string | undefined;
         const token = await requireSecret("VERCEL_TOKEN", "Vercel Token");
-        // Build the vercel deploy command
+        // Build the vercel deploy command (production so custom domains work)
         const nameFlag = projectName ? `--name "${projectName}"` : "";
-        const cmd = `vercel deploy --yes --token ${token} ${nameFlag}`.trim();
+        const cmd = `vercel deploy --yes --prod --token ${token} ${nameFlag}`.trim();
         const { stdout, stderr } = await execAsync(cmd, {
           cwd: dir,
           timeout: 120000,
           env: { ...process.env, HOME: tmpDir },
         });
         const output = [stdout, stderr].filter(Boolean).join("\n").trim();
+
+        // Assign branded domain if project_name is provided
+        const BRANDED_DOMAIN = "melleka.app";
+        if (projectName) {
+          const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+          const brandedUrl = `${slug}.${BRANDED_DOMAIN}`;
+          try {
+            await execAsync(
+              `vercel alias set ${output.split("\n").pop()?.trim()} ${brandedUrl} --token ${token}`,
+              { timeout: 30000, env: { ...process.env, HOME: tmpDir } }
+            );
+            return `Live at: https://${brandedUrl}`;
+          } catch (aliasErr: any) {
+            // Alias failed (domain not configured yet) — fall back to default URL
+            return `${output}\n\n(Branded domain ${brandedUrl} not yet configured — using default Vercel URL above)`;
+          }
+        }
+
         return output || "(deploy completed, check Vercel dashboard for URL)";
       }
 
