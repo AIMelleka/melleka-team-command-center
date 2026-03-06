@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import path from "path";
 import { fileURLToPath } from "url";
 import authRouter from "./routes/auth.js";
@@ -14,8 +15,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN ?? "*" }));
+app.use(cors({ origin: process.env.CLIENT_ORIGIN ?? "https://anthonymelleka.com" }));
 app.use(express.json());
+
+// Rate limiting
+app.use("/api/auth", rateLimit({ windowMs: 60_000, max: 10, message: { error: "Too many requests" } }));
+app.use("/api/chat", rateLimit({ windowMs: 60_000, max: 10, message: { error: "Too many requests" } }));
+app.use("/api", rateLimit({ windowMs: 60_000, max: 100, message: { error: "Too many requests" } }));
 
 // Health check
 app.get("/health", (_req, res) => res.json({ ok: true }));

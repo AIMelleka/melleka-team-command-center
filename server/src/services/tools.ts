@@ -9,6 +9,19 @@ import { getSecret, requireSecret } from "./secrets.js";
 
 const execAsync = promisify(exec);
 
+const SENSITIVE_ENV_KEYS = [
+  "ANTHROPIC_API_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_AUTH_KEY",
+  "JWT_SECRET", "TEAM_PASSWORD", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
+  "GOOGLE_CLIENT_SECRET", "GOOGLE_SA_PRIVATE_KEY", "META_ACCESS_TOKEN",
+  "CANVA_CLIENT_SECRET", "ELEVENLABS_API_KEY", "RESEND_API_KEY",
+  "VERCEL_TOKEN", "NOTION_API_KEY", "SLACK_BOT_TOKEN",
+];
+function safeEnv(extra?: Record<string, string>): Record<string, string | undefined> {
+  const env = { ...process.env, ...extra };
+  for (const k of SENSITIVE_ENV_KEYS) delete env[k];
+  return env;
+}
+
 const MELLEKA_PROJECT = process.env.MELLEKA_PROJECT_DIR || "";
 const TEAM_TIMEZONE = "America/New_York";
 
@@ -682,7 +695,7 @@ export async function executeTool(
         const { stdout, stderr } = await execAsync(command, {
           cwd,
           timeout: 120000, // 2 min
-          env: { ...process.env, HOME: tmpDir },
+          env: safeEnv({ HOME: tmpDir }),
         });
         const output = [stdout, stderr].filter(Boolean).join("\n").trim();
         return output || "(no output)";
@@ -701,9 +714,10 @@ export async function executeTool(
         const searchPath =
           (toolInput.search_path as string) || MELLEKA_PROJECT || tmpDir;
         const glob = toolInput.file_glob as string | undefined;
-        const globFlag = glob ? `--glob '${glob}'` : "";
+        const shellEsc = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
+        const globFlag = glob ? `--glob ${shellEsc(glob)}` : "";
         const { stdout } = await execAsync(
-          `rg --max-count=5 --max-filesize=500K ${globFlag} '${pattern.replace(/'/g, "\\'")}' '${searchPath}'`,
+          `rg --max-count=5 --max-filesize=500K ${globFlag} ${shellEsc(pattern)} ${shellEsc(searchPath)}`,
           { timeout: 15000 }
         ).catch(() => ({ stdout: "(no matches)" }));
         return stdout || "(no matches)";
@@ -719,7 +733,7 @@ export async function executeTool(
         const { stdout, stderr } = await execAsync(cmd, {
           cwd: dir,
           timeout: 120000,
-          env: { ...process.env, HOME: tmpDir },
+          env: safeEnv({ HOME: tmpDir }),
         });
         const output = [stdout, stderr].filter(Boolean).join("\n").trim();
         return output || "(deploy completed, check Vercel dashboard for URL)";
@@ -986,7 +1000,8 @@ export async function executeTool(
         // Build update query, applying filters manually to avoid complex type juggling
         let q: unknown = client.from(table).update(values);
         for (const f of filters) {
-          (q as Record<string, (...args: unknown[]) => unknown>)[f.op === "eq" ? "eq" : f.op === "neq" ? "neq" : f.op === "gt" ? "gt" : f.op === "gte" ? "gte" : f.op === "lt" ? "lt" : f.op === "lte" ? "lte" : "eq"](f.column, f.value);
+          const method = f.op === "eq" ? "eq" : f.op === "neq" ? "neq" : f.op === "gt" ? "gt" : f.op === "gte" ? "gte" : f.op === "lt" ? "lt" : f.op === "lte" ? "lte" : "eq";
+          q = (q as Record<string, (...args: unknown[]) => unknown>)[method](f.column, f.value);
         }
         const { data, error } = await (q as ReturnType<ReturnType<SupabaseClient["from"]>["select"]>).select();
         if (error) return `Supabase update error: ${(error as { message: string }).message}`;
@@ -1067,7 +1082,7 @@ export async function executeTool(
           : `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
 
         const resp = await fetch(url, {
-          method: "PUT",
+          method: append ? "POST" : "PUT",
           headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
           body: JSON.stringify({ range, values }),
         });
