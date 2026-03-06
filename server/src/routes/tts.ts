@@ -54,22 +54,11 @@ router.post("/", requireAuth, async (req, res) => {
         return;
       }
 
+      const audioBuffer = await upstream.arrayBuffer();
       res.setHeader("Content-Type", "audio/mpeg");
       res.setHeader("Cache-Control", "no-cache");
-
-      // Stream the audio through
-      const reader = upstream.body?.getReader();
-      if (!reader) {
-        res.status(500).json({ error: "No response body from ElevenLabs" });
-        return;
-      }
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(value);
-      }
-      res.end();
+      res.setHeader("Content-Length", audioBuffer.byteLength.toString());
+      res.end(Buffer.from(audioBuffer));
     } finally {
       clearTimeout(timeout);
     }

@@ -141,10 +141,15 @@ const Index = () => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Voice chat
+  // Voice chat — use refs for callbacks to avoid stale closures
+  const sendMessageRef = useRef<(text?: string) => void>(() => {});
   const voiceChat = useVoiceChat({
-    onTranscript: (text) => sendMessage(text),
+    onTranscript: (text) => sendMessageRef.current(text),
   });
+  const voiceFeedTextRef = useRef(voiceChat.feedText);
+  voiceFeedTextRef.current = voiceChat.feedText;
+  const voiceFinishRef = useRef(voiceChat.finishSpeaking);
+  voiceFinishRef.current = voiceChat.finishSpeaking;
 
   // Open sidebar by default on desktop
   useEffect(() => {
@@ -304,6 +309,13 @@ const Index = () => {
       msgText,
       activeConvoId,
       (event: SSEEvent) => {
+        // Voice TTS side effects (via refs to avoid stale closures)
+        if (event.type === 'text' && event.delta) {
+          voiceFeedTextRef.current(event.delta);
+        } else if (event.type === 'done') {
+          voiceFinishRef.current();
+        }
+
         setMessages(prev => {
           const msgs = [...prev];
           const aIdx = msgs.findIndex(m => m.id === assistantId);
@@ -312,8 +324,6 @@ const Index = () => {
 
           switch (event.type) {
             case 'text': {
-              // Feed delta to voice chat for TTS
-              if (event.delta) voiceChat.feedText(event.delta);
               // Find or create the last text part
               const lastPart = assistant.parts[assistant.parts.length - 1];
               if (lastPart?.type === 'text') {
@@ -346,7 +356,6 @@ const Index = () => {
             case 'done':
               assistant.streaming = false;
               reconnectAttemptsRef.current = 0; // Reset on successful completion
-              voiceChat.finishSpeaking(); // Flush remaining TTS buffer
               if (event.conversationId && !activeConvoId) {
                 setActiveConvoId(event.conversationId);
               }
@@ -402,6 +411,8 @@ const Index = () => {
 
     abortRef.current = abort;
   }, [input, files, isStreaming, activeConvoId, mentionedClients]);
+
+  sendMessageRef.current = sendMessage;
 
   const stopStreaming = () => {
     if (abortRef.current) {

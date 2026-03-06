@@ -42,6 +42,8 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const onTranscriptRef = useRef(onTranscript);
   onTranscriptRef.current = onTranscript;
+  const voiceEnabledRef = useRef(voiceEnabled);
+  voiceEnabledRef.current = voiceEnabled;
 
   // Clean up on unmount
   useEffect(() => {
@@ -199,8 +201,17 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
 
   // ── Feed streaming text for TTS ──────────────────
 
+  const cleanMarkdown = (text: string) =>
+    text
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/\*(.*?)\*/g, "$1")
+      .replace(/`(.*?)`/g, "$1")
+      .replace(/#{1,6}\s/g, "")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/[*_~]/g, "");
+
   const feedText = useCallback((delta: string) => {
-    if (!voiceEnabled) return;
+    if (!voiceEnabledRef.current) return;
 
     textBufferRef.current += delta;
 
@@ -215,39 +226,25 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
       textBufferRef.current = buffer.slice(splitAt);
 
       if (sentence.length > 2) {
-        // Strip markdown formatting for cleaner speech
-        const clean = sentence
-          .replace(/\*\*(.*?)\*\*/g, "$1")
-          .replace(/\*(.*?)\*/g, "$1")
-          .replace(/`(.*?)`/g, "$1")
-          .replace(/#{1,6}\s/g, "")
-          .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-          .replace(/[*_~]/g, "");
+        const clean = cleanMarkdown(sentence);
         if (clean.trim()) {
           queueTTS(clean.trim());
         }
       }
     }
-  }, [voiceEnabled, queueTTS]);
+  }, [queueTTS]);
 
   const finishSpeaking = useCallback(() => {
-    // Flush any remaining text in buffer
     const remaining = textBufferRef.current.trim();
     textBufferRef.current = "";
 
-    if (remaining.length > 2 && voiceEnabled) {
-      const clean = remaining
-        .replace(/\*\*(.*?)\*\*/g, "$1")
-        .replace(/\*(.*?)\*/g, "$1")
-        .replace(/`(.*?)`/g, "$1")
-        .replace(/#{1,6}\s/g, "")
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-        .replace(/[*_~]/g, "");
+    if (remaining.length > 2 && voiceEnabledRef.current) {
+      const clean = cleanMarkdown(remaining);
       if (clean.trim()) {
         queueTTS(clean.trim());
       }
     }
-  }, [voiceEnabled, queueTTS]);
+  }, [queueTTS]);
 
   const stopSpeaking = useCallback(() => {
     if (currentAudioRef.current) {
