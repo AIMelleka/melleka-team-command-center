@@ -1194,19 +1194,26 @@ export async function executeTool(
         });
         const output = [stdout, stderr].filter(Boolean).join("\n").trim();
 
-        // Assign branded domain if project_name is provided
+        // Assign branded domain as a proper project domain (not just an alias)
+        // Using `vercel domains add` ensures the subdomain is treated as a
+        // custom domain, which bypasses Vercel's SSO deployment protection.
         const BRANDED_DOMAIN = "melleka.app";
         if (projectName) {
           const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
           const brandedUrl = `${slug}.${BRANDED_DOMAIN}`;
           try {
             await execAsync(
-              `vercel alias set ${output.split("\n").pop()?.trim()} ${brandedUrl} --token ${token}`,
+              `vercel domains add ${brandedUrl} ${projectName} --token ${token}`,
               { timeout: 30000, env: { ...process.env, HOME: tmpDir } }
             );
             return `Live at: https://${brandedUrl}`;
-          } catch (aliasErr: any) {
-            // Alias failed (domain not configured yet) — fall back to default URL
+          } catch (domainErr: any) {
+            // Domain might already be assigned — check if it was a "duplicate" error
+            const errMsg = domainErr?.stderr || domainErr?.message || "";
+            if (errMsg.includes("already") || errMsg.includes("exists")) {
+              return `Live at: https://${brandedUrl}`;
+            }
+            // Fall back to default Vercel URL
             return `${output}\n\n(Branded domain ${brandedUrl} not yet configured — using default Vercel URL above)`;
           }
         }
