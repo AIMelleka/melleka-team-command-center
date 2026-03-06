@@ -34,6 +34,7 @@ import {
   type CronJob,
 } from '@/lib/chatApi';
 import { ToolCallBlock } from '@/components/chat/ToolCallBlock';
+import { useVoiceChat, VoiceModeToggle, MicButton } from '@/components/chat/VoiceChat';
 
 // ── Types ────────────────────────────────────────────
 
@@ -139,6 +140,11 @@ const Index = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Voice chat
+  const voiceChat = useVoiceChat({
+    onTranscript: (text) => sendMessage(text),
+  });
 
   // Open sidebar by default on desktop
   useEffect(() => {
@@ -306,6 +312,8 @@ const Index = () => {
 
           switch (event.type) {
             case 'text': {
+              // Feed delta to voice chat for TTS
+              if (event.delta) voiceChat.feedText(event.delta);
               // Find or create the last text part
               const lastPart = assistant.parts[assistant.parts.length - 1];
               if (lastPart?.type === 'text') {
@@ -338,6 +346,7 @@ const Index = () => {
             case 'done':
               assistant.streaming = false;
               reconnectAttemptsRef.current = 0; // Reset on successful completion
+              voiceChat.finishSpeaking(); // Flush remaining TTS buffer
               if (event.conversationId && !activeConvoId) {
                 setActiveConvoId(event.conversationId);
               }
@@ -735,6 +744,11 @@ const Index = () => {
             </div>
           )}
 
+          {/* Voice mode toggle */}
+          <div className="flex items-center justify-end px-3 pt-2">
+            <VoiceModeToggle enabled={voiceChat.voiceEnabled} onToggle={voiceChat.toggleVoice} />
+          </div>
+
           {isEmptyChat ? (
             <div className="flex-1 flex flex-col items-center justify-center px-4">
               <img src={teamPitLogo} alt="The Team Pit" className="w-12 h-12 md:w-16 md:h-16 mb-4 drop-shadow-lg" />
@@ -868,12 +882,19 @@ const Index = () => {
                     className="hidden"
                     onChange={handleFileSelect}
                   />
+                  {voiceChat.voiceEnabled && (
+                    <MicButton
+                      isListening={voiceChat.isListening}
+                      disabled={isStreaming}
+                      onToggle={() => voiceChat.isListening ? voiceChat.stopListening() : voiceChat.startListening()}
+                    />
+                  )}
                   <textarea
                     ref={inputRef}
-                    value={input}
+                    value={voiceChat.isListening && voiceChat.interimTranscript ? voiceChat.interimTranscript : input}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
-                    placeholder="Ask anything..."
+                    placeholder={voiceChat.isListening ? "Listening..." : "Ask anything..."}
                     rows={1}
                     className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none max-h-[200px]"
                   />
@@ -897,7 +918,7 @@ const Index = () => {
                 </div>
               </div>
               <p className="text-[10px] text-muted-foreground text-center mt-2">
-                Powered by Claude Opus · Enter to send · Shift+Enter for new line
+                Powered by Claude Opus · Enter to send · Shift+Enter for new line{voiceChat.voiceEnabled ? ' · Voice mode active' : ''}
               </p>
             </div>
           </div>
