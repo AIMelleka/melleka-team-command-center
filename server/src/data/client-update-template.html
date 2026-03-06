@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{CLIENT_NAME}} Weekly Update</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Poppins', sans-serif;
+    background: #f0f2f5;
+    color: #2d3436;
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .container {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 0 24px 40px;
+  }
+
+  /* ── Header ── */
+  .header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    padding: 60px 40px;
+    text-align: center;
+    margin-bottom: 0;
+  }
+  .header .agency {
+    color: #e94560;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+  .header h1 {
+    color: #fff;
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .header .date-range {
+    color: rgba(255,255,255,0.7);
+    font-size: 16px;
+  }
+
+  /* ── Sections ── */
+  .section {
+    background: #fff;
+    border-radius: 12px;
+    padding: 36px;
+    margin-bottom: 28px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  }
+  .section-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1a1a2e;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #e94560;
+    display: inline-block;
+    margin-bottom: 20px;
+  }
+
+  /* ── Stat Cards ── */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+  }
+  .stat-card .label {
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888;
+    margin-bottom: 6px;
+  }
+  .stat-card .value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1a1a2e;
+  }
+  .stat-card .sub {
+    font-size: 12px;
+    color: #888;
+    margin-top: 4px;
+  }
+
+  /* ── Tables ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  thead th {
+    background: #1a1a2e;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 12px 14px;
+    text-align: left;
+  }
+  thead th:first-child { border-radius: 8px 0 0 0; }
+  thead th:last-child { border-radius: 0 8px 0 0; }
+  tbody td {
+    padding: 12px 14px;
+    border-bottom: 1px solid #eee;
+  }
+  tbody tr:nth-child(even) { background: #fafafa; }
+  tbody tr.total-row {
+    font-weight: 700;
+    background: #f0f4ff;
+    border-top: 2px solid #0f3460;
+  }
+
+  /* ── Task Lists ── */
+  .task-list {
+    list-style: none;
+    padding: 0;
+  }
+  .task-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 14px;
+    color: #444;
+  }
+  .task-list li:last-child { border-bottom: none; }
+  .task-check {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    background: #0f3460;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+  }
+  .task-check svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: #fff;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* ── Badges ── */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-radius: 4px;
+    color: #fff;
+    background: #e94560;
+  }
+  .badge.blue { background: #0f3460; }
+  .badge.green { background: #27ae60; }
+  .badge.orange { background: #e67e22; }
+  .badge.purple { background: #8e44ad; }
+
+  /* ── Platform Labels ── */
+  .platform-label {
+    display: inline-block;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+  }
+  .platform-label.google { background: #e8f0fe; color: #1a73e8; }
+  .platform-label.meta { background: #e7f0fd; color: #1877f2; }
+
+  /* ── Highlight Box ── */
+  .highlight-box {
+    border-left: 4px solid #0f3460;
+    background: #f0f4ff;
+    padding: 20px 24px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+  }
+  .highlight-box p {
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: #2d3436;
+  }
+  .highlight-box p:last-child { margin-bottom: 0; }
+
+  /* ── Two Column ── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  /* ── Dark Section ── */
+  .section.dark {
+    background: linear-gradient(135deg, #1a1a2e, #0f3460);
+    color: rgba(255,255,255,0.85);
+  }
+  .section.dark .section-title {
+    color: #fff;
+  }
+  .section.dark ul li {
+    color: rgba(255,255,255,0.85);
+  }
+
+  /* ── General Lists ── */
+  .section ul {
+    padding-left: 20px;
+    margin: 16px 0;
+  }
+  .section ul li {
+    font-size: 14px;
+    color: #444;
+    margin-bottom: 10px;
+  }
+  .section p {
+    margin-bottom: 16px;
+    color: #444;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center;
+    padding: 40px 24px;
+    color: #999;
+    font-size: 13px;
+  }
+  .footer a {
+    color: #e94560;
+    text-decoration: none;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 640px) {
+    .header { padding: 40px 20px; }
+    .header h1 { font-size: 24px; }
+    .section { padding: 28px 20px; }
+    .section-title { font-size: 18px; }
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    .two-col { grid-template-columns: 1fr; }
+    table { font-size: 12px; }
+    thead th, tbody td { padding: 8px 6px; }
+    .container { padding: 0 20px 36px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="agency">Melleka Marketing</div>
+  <h1>{{CLIENT_NAME}} Weekly Update</h1>
+  <div class="date-range">{{DATE_RANGE}}</div>
+</div>
+
+<div class="container">
+
+  <!-- SUMMARY SECTION -->
+  <div class="section">
+    <div class="section-title">Summary</div>
+    <p>{{SUMMARY_TEXT}}</p>
+  </div>
+
+  <!--
+  TEMPLATE INSTRUCTIONS FOR CLAUDE:
+
+  Use the sections below as building blocks. Include only sections that have data.
+  Replace all {{PLACEHOLDER}} values with real client data.
+
+  For stat cards, use this pattern:
+  <div class="stat-card">
+    <div class="label">METRIC NAME</div>
+    <div class="value">VALUE</div>
+    <div class="sub">context</div>
+  </div>
+
+  For task lists, use this pattern:
+  <li>
+    <span class="task-check"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+    Task description here
+  </li>
+
+  For tables, use standard HTML table with thead/tbody.
+  Add class="total-row" to summary/total rows.
+
+  For highlight boxes:
+  <div class="highlight-box">
+    <p>Important note or insight here</p>
+  </div>
+
+  For platform labels above sections:
+  <span class="platform-label google">Google Ads</span>
+  <span class="platform-label meta">Meta Ads</span>
+  -->
+
+  <!-- GOOGLE ADS SECTION (include if client has Google Ads data) -->
+  <div class="section">
+    <span class="platform-label google">Google Ads</span>
+    <div class="section-title">Google Ads Performance</div>
+    <div class="stat-grid">
+      <!-- Add stat cards for: Total Spend, Clicks, Impressions, Conversions, CTR, CPC -->
+    </div>
+    <!-- Optional: campaign breakdown table -->
+    <table>
+      <thead>
+        <tr>
+          <th>Campaign</th>
+          <th>Status</th>
+          <th>Spend</th>
+          <th>Clicks</th>
+          <th>Impr.</th>
+          <th>Conv.</th>
+          <th>CPA</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- One row per campaign -->
+      </tbody>
+    </table>
+  </div>
+
+  <!-- META ADS SECTION (include if client has Meta Ads data) -->
+  <div class="section">
+    <span class="platform-label meta">Meta Ads</span>
+    <div class="section-title">Meta Ads Performance</div>
+    <div class="stat-grid">
+      <!-- Add stat cards for: Total Spend, Clicks, Impressions, CTR, CPC -->
+    </div>
+    <!-- Optional: campaign breakdown table -->
+  </div>
+
+  <!-- SOCIAL MEDIA ACTIVITY (include if post data available) -->
+  <div class="section">
+    <div class="section-title">Social Media Activity</div>
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="label">Posts This Week</div>
+        <div class="value">{{POST_COUNT}}</div>
+        <div class="sub">across all platforms</div>
+      </div>
+      <!-- Add more stat cards for engagement metrics -->
+    </div>
+    <ul class="task-list">
+      <!-- List individual posts or engagement highlights -->
+    </ul>
+  </div>
+
+  <!-- WORK COMPLETED SECTION (from Notion tasks) -->
+  <div class="section">
+    <div class="section-title">Work Completed This Week</div>
+
+    <!-- Repeat this block for each category that has tasks -->
+    <!-- Categories: Website, SEO, Email Marketing, CRM/Automations, Content/Creative, Reporting/Analytics -->
+    <h4 style="font-size:14px; font-weight:600; color:#1a1a2e; margin:20px 0 10px; text-transform:uppercase; letter-spacing:0.5px;">
+      <span class="badge blue">Category Name</span>
+    </h4>
+    <ul class="task-list">
+      <li>
+        <span class="task-check"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+        Task description here
+      </li>
+    </ul>
+  </div>
+
+  <!-- COMING UP NEXT WEEK (dark section, optional) -->
+  <div class="section dark">
+    <div class="section-title">Coming Up Next Week</div>
+    <ul>
+      <li>Priority item for next week</li>
+    </ul>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    Prepared by <a href="https://melleka.com">Melleka Marketing</a>
+  </div>
+</div>
+
+</body>
+</html>

@@ -63,13 +63,19 @@ const DEFAULT_NOTION_DATABASE_ID = '9e7cd72f-e62c-4514-9456-5f51cbcfe981';
 // Default master prompt
 const DEFAULT_MASTER_PROMPT = `OBJECTIVE (NON-NEGOTIABLE)
 
-Produce a COMPLETE, ACCURATE, ONE-TO-ONE list of all completed tasks for a single client within a specific date range.
+Produce a COMPLETE client update that includes all completed tasks from Notion, plus recent Google Ads and Meta Ads activity, plus social media posting activity.
 
-Never summarize. Never merge. Never invent. Never omit.
+Never summarize tasks. Never merge tasks. Never invent. Never omit completed tasks.
 
-If even one qualifying task is missing, the output is invalid.
+DATA SOURCES (ALWAYS PULL FROM ALL OF THESE)
+1. NOTION TASKS: Pull all completed tasks for the client in the date range
+2. GOOGLE ADS: Look up the client's Google Ads account via get_client_accounts, then query for campaign performance, spend, clicks, impressions, conversions, and any changes made during the date range
+3. META ADS: Look up the client's Meta Ads account via get_client_accounts, then query for campaign performance, spend, clicks, impressions, and any changes made during the date range
+4. SOCIAL MEDIA POSTS: Check Meta for recent posts on the client's Facebook page. Report how many posts were published during the date range and note any engagement or activity trends
 
-FILTERING RULES (MANDATORY)
+If a client has no account linked for a platform, skip that section silently.
+
+NOTION FILTERING RULES (MANDATORY)
 - Date field: Last edited time
 - Date range: User-provided range
 - Status: STATUS contains "Done"
@@ -84,34 +90,30 @@ A task is completed if STATUS contains "Done" or clearly implies completion. Ign
 CATEGORIZATION (STRICT PLATFORM RULES)
 Tasks must be categorized by the platform actually modified, not implied.
 
-GOOGLE: Google Ads, Analytics/GA4, Tag Manager, Search Console, Business Profile, Sitelinks, conversions, ad groups
-META: Facebook, Instagram, Meta Ads, Business Manager, Pixel
+GOOGLE ADS: Google Ads campaigns, ad groups, keywords, budget changes, performance metrics
+META ADS: Meta/Facebook/Instagram ad campaigns, ad sets, budget changes, performance metrics
+SOCIAL MEDIA ACTIVITY: Posts published, engagement trends, posting frequency
 WEBSITE: Website banners, page edits, copy changes, UX/UI, videos added to site, link replacements
 SEO: Keywords, metadata, rankings, on-page optimization, SEO-related structured snippets
 EMAIL MARKETING: Campaigns, automations, templates, newsletters
 CRM / AUTOMATIONS: HubSpot, Zapier, pipelines, integrations
 CONTENT / CREATIVE: Copywriting, video creation, graphics, creative assets
-REPORTING / ANALYTICS: Reports, dashboards, tracking verification
+REPORTING / ANALYTICS: Reports, dashboards, tracking verification, Google Analytics/GA4, Tag Manager, Search Console, Business Profile
 
 OUTPUT FORMAT (LOCKED)
-- Bold platform headers
-- Bullet list under each header
-- 1 task = 1 bullet
+- Plain text section headers (no markdown, no ## or **)
+- Bullet list (dashes) under each header
+- 1 task = 1 bullet, ad metrics get their own bullets
 - Past tense only
 - Original task specificity preserved
-- No summaries, no intro text, no client names, no interpretation
+- NEVER use quotation marks anywhere
+- NEVER use emojis
+- NEVER use em dashes
+- NEVER use ## or ** or any markdown formatting
+- No summaries, no intro text, no sign-offs, no filler
 - NO URLs in task bullets (strip all links)
-
-At the end, add:
-Source
-Database: IN HOUSE TO-DO
-Client filter: [client name + aliases]
-Date field: Last edited time
-Date range: [exact range]
-Status filter: STATUS contains "Done"
-Hard exclusion: STATUS does NOT contain "NON-ESSENTIAL"
-
-Reminder: Don't forget to include social media posts in the update.`;
+- The output must be copy-paste ready to send directly to a client
+- Only include sections that have actual items. Skip empty sections.`;
 
 // ── Component ────────────────────────────────────────
 
@@ -166,8 +168,13 @@ const ClientUpdate = () => {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [followUpInput, setFollowUpInput] = useState('');
   const [copied, setCopied] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const retryCountRef = useRef(0);
+  const lastMessageRef = useRef('');
+  const lastConvIdRef = useRef<string | null>(null);
+  const MAX_RETRIES = 3;
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -282,7 +289,11 @@ const ClientUpdate = () => {
         }
         case 'done':
           updated.streaming = false;
-          if (event.conversationId) setConversationId(event.conversationId);
+          retryCountRef.current = 0; // reset retries on success
+          if (event.conversationId) {
+            setConversationId(event.conversationId);
+            lastConvIdRef.current = event.conversationId;
+          }
           break;
         case 'error':
           updated.parts.push({ type: 'text', content: `\n\nError: ${event.message}` });
@@ -294,6 +305,87 @@ const ClientUpdate = () => {
       return msgs;
     });
   }, []);
+
+  // ── Auto-reconnect on disconnect ───────────────────
+
+  const handleDisconnect = useCallback(() => {
+    // Don't retry if we've hit the max or user manually aborted
+    if (retryCountRef.current >= MAX_RETRIES) {
+      setIsStreaming(false);
+      setReconnecting(false);
+      toast({ title: 'Connection lost after multiple retries', variant: 'destructive' });
+      return;
+    }
+
+    retryCountRef.current += 1;
+    setReconnecting(true);
+
+    // Wait a moment then reconnect
+    const delay = Math.min(2000 * retryCountRef.current, 6000);
+    setTimeout(() => {
+      const convId = lastConvIdRef.current;
+      if (!convId) {
+        // No conversation yet - restart with original message
+        setReconnecting(false);
+        if (lastMessageRef.current) {
+          startStream(lastMessageRef.current, null);
+        } else {
+          setIsStreaming(false);
+        }
+        return;
+      }
+
+      // We have a conversation - send "continue" to resume
+      const continueMsg: UIMessage = {
+        id: uid(),
+        role: 'assistant',
+        parts: [],
+        streaming: true,
+      };
+      setMessages(prev => [...prev, continueMsg]);
+
+      const abort = streamMessage(
+        'Continue from where you left off. Do not repeat what was already generated.',
+        convId,
+        handleSSEEvent,
+        () => { setIsStreaming(false); setReconnecting(false); },
+        undefined,
+        undefined,
+        handleDisconnect,
+      );
+      abortRef.current = abort;
+      setReconnecting(false);
+    }, delay);
+  }, [handleSSEEvent, toast]);
+
+  // ── Start stream helper ────────────────────────────
+
+  const startStream = useCallback((message: string, convId: string | null) => {
+    setIsStreaming(true);
+    const abort = streamMessage(
+      message,
+      convId,
+      handleSSEEvent,
+      () => { setIsStreaming(false); setReconnecting(false); },
+      undefined,
+      undefined,
+      handleDisconnect,
+    );
+    abortRef.current = abort;
+  }, [handleSSEEvent, handleDisconnect]);
+
+  // ── Page Visibility: keep connection alive in background ───
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isStreaming && !reconnecting) {
+        // Tab came back to foreground - the stale timer in chatApi will handle
+        // detection. Nothing extra needed here since we have auto-reconnect.
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isStreaming, reconnecting]);
 
   // ── Generate update ────────────────────────────────
 
@@ -319,9 +411,13 @@ const ClientUpdate = () => {
       `Generate a client update for "${clientName}" covering ${startDate} to ${endDate}.`,
       ``,
       `Steps:`,
-      `1. Call notion_query_tasks with client_name="${clientName}", start_date="${startDate}", end_date="${endDate}", status_filter="completed"${dbOverride}`,
-      `2. Review ALL returned tasks carefully - do not skip any`,
-      `3. Format the update EXACTLY according to the instructions above`,
+      `1. Call get_client_accounts with client_name="${clientName}" to find their linked Google Ads, Meta Ads, and other account IDs`,
+      `2. Call notion_query_tasks with client_name="${clientName}", start_date="${startDate}", end_date="${endDate}", status_filter="completed"${dbOverride}`,
+      `3. If the client has a Google Ads account, call google_ads_query to get campaign performance for the date range (spend, clicks, impressions, conversions, and any changes)`,
+      `4. If the client has a Meta Ads account, call meta_ads_manage to get campaign performance and any changes for the date range`,
+      `5. Check Meta for social media posts published during the date range and report the count and engagement trends`,
+      `6. Review ALL returned data carefully - do not skip any tasks or metrics`,
+      `7. Format the update EXACTLY according to the instructions above - plain text, no markdown, no quotes, copy-paste ready`,
       aliasInfo,
       additionalContext ? `\nAdditional context from team: ${additionalContext}` : '',
     ].filter(Boolean).join('\n');
@@ -329,8 +425,11 @@ const ClientUpdate = () => {
     // Reset for new generation
     setMessages([]);
     setConversationId(null);
-    setIsStreaming(true);
+    lastConvIdRef.current = null;
+    retryCountRef.current = 0;
+    lastMessageRef.current = message;
     setCopied(false);
+    setReconnecting(false);
 
     const userMsg: UIMessage = {
       id: uid(),
@@ -346,14 +445,7 @@ const ClientUpdate = () => {
     };
 
     setMessages([userMsg, assistantMsg]);
-
-    const abort = streamMessage(
-      message,
-      null, // new conversation each time
-      handleSSEEvent,
-      () => setIsStreaming(false),
-    );
-    abortRef.current = abort;
+    startStream(message, null);
   };
 
   // ── Follow-up ──────────────────────────────────────
@@ -363,6 +455,8 @@ const ClientUpdate = () => {
 
     const text = followUpInput.trim();
     setFollowUpInput('');
+    lastMessageRef.current = text;
+    retryCountRef.current = 0;
 
     const userMsg: UIMessage = {
       id: uid(),
@@ -378,15 +472,7 @@ const ClientUpdate = () => {
     };
 
     setMessages(prev => [...prev, userMsg, assistantMsg]);
-    setIsStreaming(true);
-
-    const abort = streamMessage(
-      text,
-      conversationId,
-      handleSSEEvent,
-      () => setIsStreaming(false),
-    );
-    abortRef.current = abort;
+    startStream(text, conversationId);
   };
 
   // ── New update ─────────────────────────────────────
@@ -688,7 +774,7 @@ const ClientUpdate = () => {
                     {msg.streaming && (
                       <div className="flex items-center gap-2 mt-2 text-muted-foreground text-sm">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Working...</span>
+                        <span>{reconnecting ? `Reconnecting (attempt ${retryCountRef.current}/${MAX_RETRIES})...` : 'Working...'}</span>
                       </div>
                     )}
                   </div>
