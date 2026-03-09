@@ -187,13 +187,13 @@ export function WebsiteAnalyzer({ onBrandingExtracted }: WebsiteAnalyzerProps) {
       {/* URL Input */}
       <div className="flex gap-2">
         <div className="flex-1 relative">
-          <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-purple-400" />
+          <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" />
           <Input
             type="url"
             placeholder="https://example.com"
             value={websiteUrl}
             onChange={(e) => setWebsiteUrl(e.target.value)}
-            className="pl-10 bg-white/5 border-white/10 text-white placeholder:text-purple-300/30 focus:border-purple-400/50 rounded-xl"
+            className="pl-10 bg-muted/30 border-border focus:border-primary/50 rounded-xl"
           />
         </div>
         <Button
@@ -214,30 +214,30 @@ export function WebsiteAnalyzer({ onBrandingExtracted }: WebsiteAnalyzerProps) {
 
       {/* Progress */}
       {isAnalyzing && (
-        <div className="space-y-2 p-3 rounded-xl bg-white/5 border border-white/10">
-          <div className="relative h-2 rounded-full overflow-hidden bg-white/10">
+        <div className="space-y-2 p-3 rounded-xl bg-muted/30 border border-border">
+          <div className="relative h-2 rounded-full overflow-hidden bg-muted">
             <div 
               className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all duration-500"
               style={{ width: `${analyzeProgress}%` }}
             />
           </div>
-          <p className="text-xs text-center text-purple-200/70">{analyzeMessage}</p>
+          <p className="text-xs text-center text-muted-foreground">{analyzeMessage}</p>
         </div>
       )}
 
       {/* Extracted Data */}
       {extractedData && !isAnalyzing && (
-        <div className="space-y-4 p-4 rounded-xl bg-white/5 border border-white/10">
+        <div className="space-y-4 p-4 rounded-xl bg-muted/30 border border-border">
           {/* Screenshots Section */}
           {extractedData.screenshots.length > 0 && (
             <div>
-              <Label className="flex items-center gap-2 mb-3 text-sm text-purple-200/70">
+              <Label className="flex items-center gap-2 mb-3 text-sm text-muted-foreground">
                 <Camera className="h-4 w-4" />
                 Website Screenshots ({extractedData.screenshots.length})
               </Label>
               
               {/* Main screenshot display */}
-              <div className="relative rounded-xl overflow-hidden border border-white/10 mb-3">
+              <div className="relative rounded-xl overflow-hidden border border-border mb-3">
                 {extractedData.screenshots[selectedScreenshotIndex]?.screenshot && (
                   <img 
                     src={extractedData.screenshots[selectedScreenshotIndex].screenshot}
@@ -262,7 +262,7 @@ export function WebsiteAnalyzer({ onBrandingExtracted }: WebsiteAnalyzerProps) {
                       className={`flex-shrink-0 w-16 h-12 rounded-lg overflow-hidden border-2 transition-all ${
                         selectedScreenshotIndex === index 
                           ? 'border-purple-400 ring-2 ring-purple-400/30' 
-                          : 'border-white/10 hover:border-white/30'
+                          : 'border-border hover:border-primary/30'
                       }`}
                     >
                       {screenshot.screenshot ? (
@@ -272,8 +272,8 @@ export function WebsiteAnalyzer({ onBrandingExtracted }: WebsiteAnalyzerProps) {
                           className="w-full h-full object-cover object-top"
                         />
                       ) : (
-                        <div className="w-full h-full bg-white/5 flex items-center justify-center">
-                          <ImageIcon className="h-4 w-4 text-white/30" />
+                        <div className="w-full h-full bg-muted/30 flex items-center justify-center">
+                          <ImageIcon className="h-4 w-4 text-muted-foreground/40" />
                         </div>
                       )}
                     </button>
@@ -281,7 +281,7 @@ export function WebsiteAnalyzer({ onBrandingExtracted }: WebsiteAnalyzerProps) {
                 </div>
               )}
               
-              <p className="text-xs text-purple-300/40 mt-1">
+              <p className="text-xs text-muted-foreground/60 mt-1">
                 Screenshots help AI understand your brand's visual style
               </p>
             </div>
@@ -292,7 +292,7 @@ export function WebsiteAnalyzer({ onBrandingExtracted }: WebsiteAnalyzerProps) {
             <div className="flex-shrink-0">
               {extractedData.logo ? (
                 <div className="relative">
-                  <div className={`w-16 h-16 rounded-xl overflow-hidden border-2 ${useLogo ? 'border-purple-400' : 'border-white/20 opacity-50'} bg-white/10 flex items-center justify-center`}>
+                  <div className={`w-16 h-16 rounded-xl overflow-hidden border-2 ${useLogo ? 'border-purple-400' : 'border-border opacity-50'} bg-muted flex items-center justify-center`}>
                     <img 
                       src={extractedData.logo} 
                       alt="Logo" 
@@ -311,27 +311,27 @@ export function WebsiteAnalyzer({ onBrandingExtracted }: WebsiteAnalyzerProps) {
                   </button>
                 </div>
               ) : (
-                <div className="w-16 h-16 rounded-xl border border-dashed border-white/20 flex items-center justify-center">
-                  <ImageIcon className="h-6 w-6 text-white/30" />
+                <div className="w-16 h-16 rounded-xl border border-dashed border-border flex items-center justify-center">
+                  <ImageIcon className="h-6 w-6 text-muted-foreground/40" />
                 </div>
               )}
             </div>
             <div className="flex-1 space-y-2">
               <div>
-                <Label className="text-xs text-purple-200/50">Business Name</Label>
+                <Label className="text-xs text-muted-foreground">Business Name</Label>
                 <Input
                   value={editedBusinessName}
                   onChange={(e) => setEditedBusinessName(e.target.value)}
-                  className="h-8 text-sm bg-white/5 border-white/10 text-white focus:border-purple-400/50 rounded-lg"
+                  className="h-8 text-sm bg-muted/30 border-border focus:border-primary/50 rounded-lg"
                 />
               </div>
               <div>
-                <Label className="text-xs text-purple-200/50">Tagline</Label>
+                <Label className="text-xs text-muted-foreground">Tagline</Label>
                 <Input
                   value={editedTagline}
                   onChange={(e) => setEditedTagline(e.target.value)}
                   placeholder="Add a tagline..."
-                  className="h-8 text-sm bg-white/5 border-white/10 text-white placeholder:text-purple-300/30 focus:border-purple-400/50 rounded-lg"
+                  className="h-8 text-sm bg-muted/30 border-border focus:border-primary/50 rounded-lg"
                 />
               </div>
             </div>
@@ -339,14 +339,14 @@ export function WebsiteAnalyzer({ onBrandingExtracted }: WebsiteAnalyzerProps) {
 
           {/* Colors Section */}
           <div>
-            <Label className="flex items-center gap-2 mb-2 text-sm text-purple-200/70">
+            <Label className="flex items-center gap-2 mb-2 text-sm text-muted-foreground">
               <Palette className="h-4 w-4" />
               Brand Colors
             </Label>
             <div className="flex flex-wrap gap-2">
               {Object.entries(editedColors).length > 0 ? (
                 Object.entries(editedColors).map(([key, value]) => (
-                  <div key={key} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10">
+                  <div key={key} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/30 border border-border">
                     <div className="relative">
                       <input
                         type="color"
@@ -355,16 +355,16 @@ export function WebsiteAnalyzer({ onBrandingExtracted }: WebsiteAnalyzerProps) {
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       />
                       <div 
-                        className="w-6 h-6 rounded cursor-pointer border border-white/20"
+                        className="w-6 h-6 rounded cursor-pointer border border-border"
                         style={{ backgroundColor: value || "#8B5CF6" }}
                       />
                     </div>
-                    <span className="text-xs text-purple-200/70">{colorLabels[key] || key}</span>
-                    <span className="text-xs text-purple-300/50 font-mono">{value}</span>
+                    <span className="text-xs text-muted-foreground">{colorLabels[key] || key}</span>
+                    <span className="text-xs text-muted-foreground/60 font-mono">{value}</span>
                   </div>
                 ))
               ) : (
-                <p className="text-xs text-purple-300/50">No colors detected. Add manually:</p>
+                <p className="text-xs text-muted-foreground/60">No colors detected. Add manually:</p>
               )}
               
               {/* Add color button if less than 5 colors */}
@@ -376,7 +376,7 @@ export function WebsiteAnalyzer({ onBrandingExtracted }: WebsiteAnalyzerProps) {
                       updateColor(missingKeys[0], "#8B5CF6");
                     }
                   }}
-                  className="px-3 py-1.5 rounded-lg border border-dashed border-white/20 text-xs text-purple-200/50 hover:border-purple-400/50 hover:text-purple-200 transition-all"
+                  className="px-3 py-1.5 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:border-purple-400/50 hover:text-purple-200 transition-all"
                 >
                   + Add Color
                 </button>
@@ -387,13 +387,13 @@ export function WebsiteAnalyzer({ onBrandingExtracted }: WebsiteAnalyzerProps) {
           {/* Messaging Preview */}
           {extractedData.messaging.length > 0 && (
             <div>
-              <Label className="flex items-center gap-2 mb-2 text-sm text-purple-200/70">
+              <Label className="flex items-center gap-2 mb-2 text-sm text-muted-foreground">
                 <MessageSquare className="h-4 w-4" />
                 Detected Messaging
               </Label>
               <div className="space-y-1 max-h-24 overflow-y-auto">
                 {extractedData.messaging.slice(0, 3).map((msg, i) => (
-                  <p key={i} className="text-xs text-purple-300/60 truncate">
+                  <p key={i} className="text-xs text-muted-foreground truncate">
                     "{msg}"
                   </p>
                 ))}

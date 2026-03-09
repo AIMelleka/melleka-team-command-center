@@ -21,8 +21,8 @@ import { AdReviewExecutiveSummary } from '@/components/AdReviewExecutiveSummary'
 import { detectIndustry, getIndustryBenchmark, INDUSTRY_BENCHMARKS, DEFAULT_BENCHMARK, type IndustryBenchmark } from '@/data/industryBenchmarks';
 import { findBestMatches, type MatchResult } from '@/lib/fuzzyMatch';
 
-// Spreadsheet IDs
-const CONNECTED_SPREADSHEET_ID = '1nKskjFVwoaBS6DTnZx0xz5mze0L0auDH9HisDWZz_b0';
+// Spreadsheet ID for ad updates (configurable via env var for multi-agency deployment)
+const CONNECTED_SPREADSHEET_ID = import.meta.env.VITE_AD_UPDATES_SPREADSHEET_ID || '';
 
 // Cache
 let sheetTabsCache: string[] | null = null;
@@ -239,42 +239,30 @@ const AdReview = () => {
     compareWithPrevious 
   } = useAdReviewHistory(clientName);
 
-  // Load caches on mount and build client list
+  // Load caches on mount and build client list from Client Directory (managed_clients)
   useEffect(() => {
     const initializeData = async () => {
-      const tabs = await loadSheetTabs();
+      if (CONNECTED_SPREADSHEET_ID) await loadSheetTabs();
       await loadLookerDirectory();
-      
-      // Build combined client list from all sources, properly deduplicated
-      // Use a Map to keep best-cased version (prefer sheet tabs for display names)
+
+      // Build client list from Client Directory (managed_clients) only
       const nameMap = new Map<string, string>();
-      
-      // Add sheet tabs first (these have proper casing we want to display)
-      for (const tab of tabs) {
-        if (tab && tab.length > 1) {
-          nameMap.set(tab.toLowerCase().trim(), tab);
-        }
-      }
-      
-      // Add directory names only if not already present
+
+      // Client Directory names are the source of truth
       const directoryNames = Object.keys(lookerDirectoryCache || {});
       const ga4Names = Object.keys(ga4DirectoryCache || {});
       const domainNames = Object.keys(domainDirectoryCache || {});
-      
+
       for (const name of [...directoryNames, ...ga4Names, ...domainNames]) {
         const lowerName = name.toLowerCase().trim();
         if (lowerName.length > 1 && !nameMap.has(lowerName)) {
-          // Capitalize first letter of each word for display
-          const displayName = name.split(' ')
-            .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-            .join(' ');
-          nameMap.set(lowerName, displayName);
+          nameMap.set(lowerName, name);
         }
       }
-      
+
       setAllClientNames([...nameMap.values()]);
     };
-    
+
     initializeData();
   }, []);
 
@@ -321,6 +309,7 @@ const AdReview = () => {
   }, [clientName, allClientNames]);
 
   const loadSheetTabs = async () => {
+    if (!CONNECTED_SPREADSHEET_ID) return [];
     if (sheetTabsCache) return sheetTabsCache;
     try {
       const { data, error } = await supabase.functions.invoke('fetch-google-sheet', {
@@ -541,8 +530,12 @@ const AdReview = () => {
     }
   };
 
-  // Fetch Google Sheets
+  // Fetch Google Sheets (optional - only if VITE_AD_UPDATES_SPREADSHEET_ID is configured)
   const fetchGoogleSheets = async (clientName: string): Promise<string | null> => {
+    if (!CONNECTED_SPREADSHEET_ID) {
+      updateSourceStatus('google-sheets', 'not-found', 'No spreadsheet configured');
+      return null;
+    }
     updateSourceStatus('google-sheets', 'loading', 'Searching for client tab...');
     try {
       const tabs = await loadSheetTabs();

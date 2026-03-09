@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Building2, Plus, Pencil, Search, Link, Loader2, Trash2, ChevronDown, ChevronUp, ExternalLink, Eye, EyeOff, Save, X } from 'lucide-react';
+import { Building2, Plus, Pencil, Search, Link, Loader2, Trash2, ChevronDown, ChevronUp, ExternalLink, Eye, EyeOff, Save, X, Zap, MoreVertical } from 'lucide-react';
 import AdminHeader from '@/components/AdminHeader';
 import AccountMappingModal from '@/components/AccountMappingModal';
 import { Button } from '@/components/ui/button';
@@ -14,7 +14,25 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { INDUSTRY_BENCHMARKS, DEFAULT_BENCHMARK } from '@/data/industryBenchmarks';
+
+const API_BASE = import.meta.env.PROD
+  ? (import.meta.env.VITE_API_URL || 'https://api.teams.melleka.com/api')
+  : '/api';
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const { supabase } = await import('@/integrations/supabase/client');
+  let { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token || (session.expires_at && session.expires_at * 1000 - Date.now() < 60_000)) {
+    const { data } = await supabase.auth.refreshSession();
+    session = data.session;
+  }
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session?.access_token}`,
+  };
+}
 
 type ManagedClient = {
   id: string;
@@ -22,7 +40,6 @@ type ManagedClient = {
   domain: string | null;
   ga4_property_id: string | null;
   site_audit_url: string | null;
-  looker_url: string | null;
   industry: string | null;
   tier: string;
   primary_conversion_goal: string;
@@ -65,12 +82,30 @@ const TIER_COLORS: Record<string, string> = {
   basic: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/20',
 };
 
+const getSetupScore = (client: ManagedClient, acctCount: number): { score: number; total: number; missing: string[] } => {
+  const missing: string[] = [];
+  let score = 0;
+  const total = 5;
+  if (client.domain) score++; else missing.push('Domain');
+  if (client.industry) score++; else missing.push('Industry');
+  if (acctCount > 0) score++; else missing.push('Ad Accounts');
+  if (client.primary_conversion_goal && client.primary_conversion_goal !== 'all') score++; else missing.push('Conversion Goal');
+  if (client.ga4_property_id || client.site_audit_url) score++; else missing.push('Analytics/Reporting');
+  return { score, total, missing };
+};
+
+const SETUP_COLORS: Record<string, string> = {
+  complete: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
+  good: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
+  partial: 'bg-amber-500/15 text-amber-400 border-amber-500/20',
+  minimal: 'bg-red-500/15 text-red-400 border-red-500/20',
+};
+
 const emptyForm = (): Partial<ManagedClient> => ({
   client_name: '',
   domain: null,
   ga4_property_id: null,
   site_audit_url: null,
-  looker_url: null,
   industry: null,
   tier: 'basic',
   primary_conversion_goal: 'all',
@@ -81,6 +116,7 @@ const emptyForm = (): Partial<ManagedClient> => ({
 
 export default function ClientSettings() {
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const [clients, setClients] = useState<ManagedClient[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -94,6 +130,8 @@ export default function ClientSettings() {
   const [accountCounts, setAccountCounts] = useState<Record<string, number>>({});
   const [smAccounts, setSmAccounts] = useState<Record<string, SupermetricsAccount[]>>({});
   const [smLoaded, setSmLoaded] = useState(false);
+  const [autoGoogle, setAutoGoogle] = useState<Record<string, boolean>>({});
+  const [autoMeta, setAutoMeta] = useState<Record<string, boolean>>({});
 
   const loadClients = useCallback(async () => {
     setIsLoading(true);
@@ -119,6 +157,56 @@ export default function ClientSettings() {
     } catch {}
   }, []);
 
+  const loadAutoOptimize = useCallback(async () => {
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${API_BASE}/auto-optimize`, { headers });
+      const data = await res.json();
+      const gMap: Record<string, boolean> = {};
+      const mMap: Record<string, boolean> = {};
+      for (const row of data || []) {
+        if (!row.auto_mode_enabled) continue;
+        const p = row.auto_mode_platform || 'both';
+        gMap[row.client_name] = p === 'google' || p === 'both';
+        mMap[row.client_name] = p === 'meta' || p === 'both';
+      }
+      setAutoGoogle(gMap);
+      setAutoMeta(mMap);
+    } catch {}
+  }, []);
+
+  const toggleAutoPlatform = async (clientName: string, platform: 'google' | 'meta') => {
+    const gOn = platform === 'google' ? !(autoGoogle[clientName] || false) : (autoGoogle[clientName] || false);
+    const mOn = platform === 'meta' ? !(autoMeta[clientName] || false) : (autoMeta[clientName] || false);
+
+    // Optimistic update
+    setAutoGoogle(prev => ({ ...prev, [clientName]: gOn }));
+    setAutoMeta(prev => ({ ...prev, [clientName]: mOn }));
+
+    const autoEnabled = gOn || mOn;
+    const modePlatform = gOn && mOn ? 'both' : gOn ? 'google' : mOn ? 'meta' : 'both';
+
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${API_BASE}/auto-optimize/toggle`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ client_name: clientName, auto_mode_enabled: autoEnabled, auto_mode_platform: modePlatform }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Toggle failed' }));
+        throw new Error(err.error || 'Toggle failed');
+      }
+      const label = platform === 'google' ? 'Google' : 'Meta';
+      const on = platform === 'google' ? gOn : mOn;
+      toast({ title: `${label} auto-optimize ${on ? 'ON' : 'OFF'} for "${clientName}"` });
+    } catch (err: any) {
+      // Revert
+      loadAutoOptimize();
+      toast({ title: 'Failed to update', description: err.message, variant: 'destructive' });
+    }
+  };
+
   const loadSmAccounts = useCallback(async () => {
     try {
       const { data, error } = await supabase.functions.invoke('fetch-supermetrics', { body: { action: 'list-accounts' } });
@@ -132,8 +220,9 @@ export default function ClientSettings() {
   useEffect(() => {
     loadClients();
     loadAccountCounts();
+    loadAutoOptimize();
     loadSmAccounts();
-  }, [loadClients, loadAccountCounts, loadSmAccounts]);
+  }, [loadClients, loadAccountCounts, loadAutoOptimize, loadSmAccounts]);
 
   const filtered = useMemo(() => {
     let list = clients;
@@ -161,7 +250,6 @@ export default function ClientSettings() {
         domain: addForm.domain?.trim() || null,
         ga4_property_id: addForm.ga4_property_id?.trim() || null,
         site_audit_url: addForm.site_audit_url?.trim() || null,
-        looker_url: addForm.looker_url?.trim() || null,
         industry: addForm.industry || null,
         tier: addForm.tier || 'basic',
         primary_conversion_goal: addForm.primary_conversion_goal || 'all',
@@ -189,7 +277,6 @@ export default function ClientSettings() {
         domain: editForm.domain?.trim() || null,
         ga4_property_id: editForm.ga4_property_id?.trim() || null,
         site_audit_url: editForm.site_audit_url?.trim() || null,
-        looker_url: editForm.looker_url?.trim() || null,
         industry: editForm.industry || null,
         tier: editForm.tier || 'basic',
         primary_conversion_goal: editForm.primary_conversion_goal || 'all',
@@ -247,7 +334,7 @@ export default function ClientSettings() {
     setForm({ ...form, tracked_conversion_types: next });
   };
 
-  const ClientForm = ({ form, setForm, isAdd }: { form: Partial<ManagedClient>; setForm: (f: Partial<ManagedClient>) => void; isAdd?: boolean }) => (
+  const ClientForm = ({ form, setForm, isAdd, onOpenAccounts }: { form: Partial<ManagedClient>; setForm: (f: Partial<ManagedClient>) => void; isAdd?: boolean; onOpenAccounts?: () => void }) => (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">Client Name *</Label>
@@ -284,10 +371,6 @@ export default function ClientSettings() {
         <Label className="text-xs text-muted-foreground">Site Audit URL</Label>
         <Input value={form.site_audit_url || ''} onChange={e => setForm({ ...form, site_audit_url: e.target.value })} placeholder="https://myinsights.io/..." />
       </div>
-      <div className="space-y-1.5 md:col-span-2">
-        <Label className="text-xs text-muted-foreground">Looker Studio URL</Label>
-        <Input value={form.looker_url || ''} onChange={e => setForm({ ...form, looker_url: e.target.value })} placeholder="https://lookerstudio.google.com/..." />
-      </div>
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">Primary Conversion Goal</Label>
         <Select value={form.primary_conversion_goal || 'all'} onValueChange={v => setForm({ ...form, primary_conversion_goal: v })}>
@@ -299,8 +382,16 @@ export default function ClientSettings() {
       </div>
       <div className="space-y-1.5 flex items-end pb-1">
         <div className="flex items-center gap-2">
-          <Switch checked={form.multi_account_enabled || false} onCheckedChange={v => setForm({ ...form, multi_account_enabled: v })} />
-          <Label className="text-xs">Multi-account display</Label>
+          <Switch checked={form.multi_account_enabled || false} onCheckedChange={v => {
+            setForm({ ...form, multi_account_enabled: v });
+            if (v && onOpenAccounts) onOpenAccounts();
+          }} />
+          <Label className="text-xs">Multiple ad accounts</Label>
+          {form.multi_account_enabled && onOpenAccounts && (
+            <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1 ml-1" onClick={onOpenAccounts}>
+              <Plus className="h-3 w-3" /> Add Accounts
+            </Button>
+          )}
         </div>
       </div>
       <div className="space-y-2 md:col-span-2">
@@ -320,8 +411,8 @@ export default function ClientSettings() {
   return (
     <>
       <AdminHeader />
-      <main className="min-h-screen bg-background p-4 sm:p-6 pt-20">
-        <div className="max-w-6xl mx-auto space-y-6">
+      <main className="min-h-screen bg-background p-4 sm:p-6 pt-20 pb-20 sm:pb-6">
+        <div className="max-w-full mx-auto space-y-6">
           {/* Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -348,18 +439,104 @@ export default function ClientSettings() {
             </div>
           </div>
 
-          {/* Table */}
-          <Card>
-            <CardContent className="p-0">
-              {isLoading ? (
-                <div className="flex items-center justify-center py-16">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : filtered.length === 0 ? (
-                <div className="text-center py-16 text-muted-foreground text-sm">
-                  {searchQuery ? 'No clients match your search.' : 'No clients yet. Add one to get started.'}
-                </div>
-              ) : (
+          {/* Client List */}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground text-sm">
+              {searchQuery ? 'No clients match your search.' : 'No clients yet. Add one to get started.'}
+            </div>
+          ) : isMobile ? (
+            /* Mobile Card View */
+            <div className="space-y-3">
+              {filtered.map(client => {
+                const setup = getSetupScore(client, accountCounts[client.client_name] || 0);
+                const level = setup.score === setup.total ? 'complete' : setup.score >= 4 ? 'good' : setup.score >= 2 ? 'partial' : 'minimal';
+                const isEditing = editingId === client.id;
+                return (
+                  <Card key={client.id} className={!client.is_active ? 'opacity-50' : ''}>
+                    <CardContent className="p-4 space-y-3">
+                      {/* Name + Tier + Active */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-sm">{client.client_name}</span>
+                            <Badge variant="outline" className={`text-[10px] capitalize ${TIER_COLORS[client.tier] || TIER_COLORS.basic}`}>
+                              {client.tier}
+                            </Badge>
+                            <Badge variant="outline" className={`text-[10px] ${SETUP_COLORS[level]}`}>
+                              {setup.score}/{setup.total}
+                            </Badge>
+                          </div>
+                          {client.domain && (
+                            <a href={`https://${client.domain}`} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mt-0.5">
+                              {client.domain} <ExternalLink className="h-3 w-3" />
+                            </a>
+                          )}
+                          {client.industry && <p className="text-xs text-muted-foreground mt-0.5">{client.industry}</p>}
+                        </div>
+                        <Switch checked={client.is_active} onCheckedChange={() => toggleActive(client)} />
+                      </div>
+
+                      {/* Badges row */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {accountCounts[client.client_name] ? (
+                          <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                            {accountCounts[client.client_name]} accounts
+                          </Badge>
+                        ) : null}
+                      </div>
+
+                      {/* Auto-optimize toggles */}
+                      <div className="flex items-center gap-4 pt-1 border-t border-border/50">
+                        <div className="flex items-center gap-1.5">
+                          <Switch checked={autoGoogle[client.client_name] || false} onCheckedChange={() => toggleAutoPlatform(client.client_name, 'google')} />
+                          <span className="text-xs text-muted-foreground">Google</span>
+                          {autoGoogle[client.client_name] && <Zap className="h-3 w-3 text-yellow-500" />}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Switch checked={autoMeta[client.client_name] || false} onCheckedChange={() => toggleAutoPlatform(client.client_name, 'meta')} />
+                          <span className="text-xs text-muted-foreground">Meta</span>
+                          {autoMeta[client.client_name] && <Zap className="h-3 w-3 text-blue-500" />}
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-1 pt-1 border-t border-border/50">
+                        <Button variant="ghost" size="sm" className="h-9 gap-1 text-xs flex-1" onClick={() => isEditing ? cancelEdit() : startEdit(client)}>
+                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-9 gap-1 text-xs flex-1" onClick={() => setMappingClient(client.client_name)}>
+                          <Link className="h-3.5 w-3.5" /> Accounts
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-9 w-9 text-red-400 hover:text-red-500" onClick={() => handleDelete(client)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+
+                      {/* Expanded edit form */}
+                      {isEditing && (
+                        <div className="pt-3 border-t border-border/50 space-y-4">
+                          <ClientForm form={editForm} setForm={setEditForm} onOpenAccounts={() => setMappingClient(client.client_name)} />
+                          <div className="flex items-center gap-2">
+                            <Button size="sm" className="gap-1.5 flex-1" disabled={isSaving} onClick={() => handleSave(client.id)}>
+                              <Save className="h-3.5 w-3.5" /> {isSaving ? 'Saving...' : 'Save'}
+                            </Button>
+                            <Button size="sm" variant="outline" className="flex-1" onClick={cancelEdit}>Cancel</Button>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          ) : (
+            /* Desktop Table View */
+            <Card>
+              <CardContent className="p-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -368,6 +545,9 @@ export default function ClientSettings() {
                       <TableHead>Tier</TableHead>
                       <TableHead>Industry</TableHead>
                       <TableHead className="text-center">Accounts</TableHead>
+                      <TableHead className="text-center">Setup</TableHead>
+                      <TableHead className="text-center">Google Auto</TableHead>
+                      <TableHead className="text-center">Meta Auto</TableHead>
                       <TableHead className="text-center">Active</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -400,6 +580,35 @@ export default function ClientSettings() {
                             )}
                           </TableCell>
                           <TableCell className="text-center">
+                            {(() => {
+                              const setup = getSetupScore(client, accountCounts[client.client_name] || 0);
+                              const level = setup.score === setup.total ? 'complete' : setup.score >= 4 ? 'good' : setup.score >= 2 ? 'partial' : 'minimal';
+                              return (
+                                <Badge variant="outline" className={`text-xs ${SETUP_COLORS[level]}`} title={setup.missing.length ? `Missing: ${setup.missing.join(', ')}` : 'Fully configured'}>
+                                  {setup.score}/{setup.total}
+                                </Badge>
+                              );
+                            })()}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <Switch
+                                checked={autoGoogle[client.client_name] || false}
+                                onCheckedChange={() => toggleAutoPlatform(client.client_name, 'google')}
+                              />
+                              {autoGoogle[client.client_name] && <Zap className="h-3.5 w-3.5 text-yellow-500" />}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <Switch
+                                checked={autoMeta[client.client_name] || false}
+                                onCheckedChange={() => toggleAutoPlatform(client.client_name, 'meta')}
+                              />
+                              {autoMeta[client.client_name] && <Zap className="h-3.5 w-3.5 text-blue-500" />}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center">
                             <Switch checked={client.is_active} onCheckedChange={() => toggleActive(client)} />
                           </TableCell>
                           <TableCell className="text-right">
@@ -420,17 +629,19 @@ export default function ClientSettings() {
                         {/* Expanded edit row */}
                         {editingId === client.id && (
                           <TableRow key={`${client.id}-edit`}>
-                            <TableCell colSpan={7} className="bg-muted/20 border-t-0">
+                            <TableCell colSpan={10} className="bg-muted/20 border-t-0">
                               <div className="p-4 space-y-4">
-                                <ClientForm form={editForm} setForm={setEditForm} />
+                                <ClientForm form={editForm} setForm={setEditForm} onOpenAccounts={() => setMappingClient(client.client_name)} />
                                 <div className="flex items-center gap-2 pt-2">
                                   <Button size="sm" className="gap-1.5" disabled={isSaving} onClick={() => handleSave(client.id)}>
                                     <Save className="h-3.5 w-3.5" /> {isSaving ? 'Saving...' : 'Save Changes'}
                                   </Button>
                                   <Button size="sm" variant="outline" onClick={cancelEdit}>Cancel</Button>
-                                  <Button size="sm" variant="outline" className="gap-1.5 ml-auto" onClick={() => setMappingClient(client.client_name)}>
-                                    <Link className="h-3.5 w-3.5" /> Manage Ad Accounts
-                                  </Button>
+                                  <div className="flex items-center gap-2 ml-auto">
+                                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setMappingClient(client.client_name)}>
+                                      <Link className="h-3.5 w-3.5" /> Manage Ad Accounts
+                                    </Button>
+                                  </div>
                                 </div>
                               </div>
                             </TableCell>
@@ -440,9 +651,9 @@ export default function ClientSettings() {
                     ))}
                   </TableBody>
                 </Table>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </main>
 
@@ -465,14 +676,21 @@ export default function ClientSettings() {
       </Dialog>
 
       {/* Account Mapping Modal */}
-      {mappingClient && smLoaded && (
+      {mappingClient && (
         <AccountMappingModal
           clientName={mappingClient}
           smAccounts={smAccounts}
           onClose={() => setMappingClient(null)}
-          onSaved={() => loadAccountCounts()}
+          onSaved={() => {
+            loadAccountCounts();
+            toast({
+              title: 'Account mappings updated',
+              description: 'Go to Daily Reports and click "Regenerate Reports" to refresh reports with the new accounts.',
+            });
+          }}
         />
       )}
+
     </>
   );
 }

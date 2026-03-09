@@ -620,6 +620,7 @@ serve(async (req) => {
   const { data: allClients, error: clientsErr } = await supabase
     .from('managed_clients')
     .select('client_name, last_reviewed_at')
+    .eq('is_active', true)
     .order('last_reviewed_at', { ascending: true, nullsFirst: true });
 
   if (clientsErr || !allClients?.length) {

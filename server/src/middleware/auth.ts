@@ -14,6 +14,10 @@ export interface AuthRequest extends Request {
   memberName?: string;
 }
 
+// Cache MFA enrollment status per user to avoid 2 extra Supabase calls per request
+const mfaCache = new Map<string, { hasTotp: boolean; expiresAt: number }>();
+const MFA_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
@@ -29,14 +33,13 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
       return;
     }
 
-    // Derive member name from Supabase user profile
-    const email = user.email ?? "";
-    const name = user.user_metadata?.full_name
-      || user.user_metadata?.name
-      || email.split("@")[0]
-      || "unknown";
+    // MFA enforcement removed — client-side handles MFA flow via useAuth.tsx.
+    // Server-side enforcement was blocking users who enrolled MFA on shared
+    // Supabase projects (e.g. STJ) from accessing team.melleka.com.
 
-    const memberName = name.toLowerCase();
+    // Derive member name from email prefix (stable, never changes)
+    const email = user.email ?? "";
+    const memberName = (email.split("@")[0] || "unknown").toLowerCase();
     req.memberName = memberName;
 
     // Ensure team member record + local folder exist (fire-and-forget)

@@ -10,24 +10,18 @@ const API_BASE = import.meta.env.PROD
 
 interface UseVoiceChatOptions {
   onTranscript: (text: string) => void;
+  onError?: (message: string) => void;
 }
-
-/**
- * Voice states (strict state machine — no overlap between mic and audio):
- *   IDLE       → mic off, audio off, not in a conversation
- *   LISTENING  → mic on, audio off, waiting for user to speak
- *   PROCESSING → mic off, audio off, waiting for server response
- *   SPEAKING   → mic off, audio playing from TTS queue
- */
-type VoiceState = "idle" | "listening" | "processing" | "speaking";
 
 interface UseVoiceChatReturn {
   voiceEnabled: boolean;
   toggleVoice: () => void;
   isListening: boolean;
+  isTranscribing: boolean;
   isSpeaking: boolean;
   inConversation: boolean;
   interimTranscript: string;
+  spokenText: string;
   startListening: () => void;
   stopListening: () => void;
   interruptAndListen: () => void;
@@ -37,125 +31,211 @@ interface UseVoiceChatReturn {
   stopEverything: () => void;
 }
 
+// ── Helpers ─────────────────────────────────────────
+
+const cleanMarkdown = (text: string) =>
+  text
+    .replace(/```[\s\S]*?```/g, " code block ")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/`(.*?)`/g, "$1")
+    .replace(/#{1,6}\s/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[*_~]/g, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/\n{2,}/g, ". ")
+    .replace(/\n/g, " ")
+    .replace(/\s{2,}/g, " ");
+
+const ABBREVS = /(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc|Inc|Ltd|Corp|Ave|St|Dept|Est|approx|i\.e|e\.g)\./gi;
+function extractSentence(buffer: string): { sentence: string; rest: string } | null {
+  const masked = buffer.replace(ABBREVS, (m) => m.replace(/\./g, "\x00"));
+  const match = masked.match(/[.!?]+[\s]+/);
+  if (!match || match.index === undefined) return null;
+  const splitAt = match.index + match[0].length;
+  const sentence = buffer.slice(0, splitAt).trim();
+  const rest = buffer.slice(splitAt);
+  if (sentence.length < 3) return null;
+  return { sentence, rest };
+}
+
+// Detect Web Speech API support
+const SpeechRecognitionClass: typeof SpeechRecognition | null =
+  typeof window !== "undefined"
+    ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    : null;
+
 // ── Hook ───────────────────────────────────────────
 
-export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceChatReturn {
+export function useVoiceChat({ onTranscript, onError }: UseVoiceChatOptions): UseVoiceChatReturn {
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     return localStorage.getItem("voice-chat-enabled") === "true";
   });
   const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState("");
   const [inConversation, setInConversation] = useState(false);
+  const [spokenText, setSpokenText] = useState("");
 
-  // State machine ref — single source of truth
-  const stateRef = useRef<VoiceState>("idle");
+  // STT mode: 'native' (Web Speech API) or 'whisper' (MediaRecorder + server)
+  const sttModeRef = useRef<"native" | "whisper">(SpeechRecognitionClass ? "native" : "whisper");
+  const nativeErrorCountRef = useRef(0);
+  const MAX_NATIVE_ERRORS = 3;
 
+  // Native STT refs
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+
+  // Whisper STT refs
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const silenceCleanupRef = useRef<(() => void) | null>(null);
+  // When true, onstop handler should NOT send audio for transcription
+  const discardRecordingRef = useRef(false);
+
+  // Shared refs
   const textBufferRef = useRef("");
-  const audioQueueRef = useRef<Blob[]>([]);
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioQueueRef = useRef<ArrayBuffer[]>([]);
+  const isPlayingRef = useRef(false);
+  const playingLockRef = useRef(false);
   const doneReceivedRef = useRef(false);
+  const pendingTTSRef = useRef(0);
+
+  // TTS ordering: ensures audio plays in sentence order even if API responses arrive out of order
+  const ttsSequenceRef = useRef(0);
+  const ttsResultsRef = useRef<Map<number, ArrayBuffer>>(new Map());
+  const ttsNextToPlayRef = useRef(0);
   const onTranscriptRef = useRef(onTranscript);
   onTranscriptRef.current = onTranscript;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
   const voiceEnabledRef = useRef(voiceEnabled);
   voiceEnabledRef.current = voiceEnabled;
+  const inConversationRef = useRef(inConversation);
+  inConversationRef.current = inConversation;
   const startListeningRef = useRef<() => void>(() => {});
 
-  // Sequential TTS queue: sentences wait in line, fetched one at a time in order
-  const ttsTextQueueRef = useRef<string[]>([]);
-  const ttsFetchingRef = useRef(false);
+  // Web Audio API for reliable mobile playback
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
+  const getAudioContext = useCallback(() => {
+    if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (audioCtxRef.current.state === "suspended") {
+      audioCtxRef.current.resume();
+    }
+    return audioCtxRef.current;
+  }, []);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      hardStopMic();
-      killAudioInternal();
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+      discardRecordingRef.current = true;
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      silenceCleanupRef.current?.();
+      if (currentSourceRef.current) {
+        try { currentSourceRef.current.stop(); } catch { /* noop */ }
+      }
+      if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
+        audioCtxRef.current.close();
+      }
     };
   }, []);
 
-  // ── Internal helpers (no state machine transitions) ──
+  // ── Shared helpers ────────────────────────────────
 
-  /** Force-stop the mic immediately. */
-  const hardStopMic = () => {
-    if (recognitionRef.current) {
-      try { recognitionRef.current.abort(); } catch { /* ignore */ }
-      recognitionRef.current = null;
-    }
-    setIsListening(false);
-    setInterimTranscript("");
-  };
-
-  /** Kill all audio playback and clear queues. */
-  const killAudioInternal = () => {
-    if (currentAudioRef.current) {
-      currentAudioRef.current.onended = null;
-      currentAudioRef.current.onerror = null;
-      currentAudioRef.current.pause();
-      currentAudioRef.current = null;
-    }
-    audioQueueRef.current = [];
-    ttsTextQueueRef.current = [];  // also clear pending text-to-fetch
-    textBufferRef.current = "";
-    doneReceivedRef.current = false;
-    setIsSpeaking(false);
-  };
-
-  // ── State transitions ───────────────────────────
-
-  const transitionTo = useCallback((newState: VoiceState) => {
-    const prev = stateRef.current;
-    if (prev === newState) return;
-    stateRef.current = newState;
-
-    switch (newState) {
-      case "idle":
-        hardStopMic();
-        killAudioInternal();
-        setInConversation(false);
-        break;
-      case "listening":
-        // Mic on ONLY after audio is confirmed dead
-        killAudioInternal();
-        setInConversation(true);
-        actuallyStartMic();
-        break;
-      case "processing":
-        hardStopMic();
-        setInConversation(true);
-        break;
-      case "speaking":
-        hardStopMic(); // CRITICAL: mic must be off before any audio
-        setInConversation(true);
-        setIsSpeaking(true);
-        break;
-    }
+  const isRecordingActive = useCallback(() => {
+    return !!recognitionRef.current || !!mediaRecorderRef.current;
   }, []);
 
-  // ── Mic control ─────────────────────────────────
-
-  const actuallyStartMic = () => {
-    // Safety: never start mic if audio is playing or queued
-    if (currentAudioRef.current || audioQueueRef.current.length > 0) {
-      console.warn("[voice] Refusing to start mic — audio still active");
-      return;
+  const maybeRestartMic = useCallback(() => {
+    if (
+      doneReceivedRef.current &&
+      !isPlayingRef.current &&
+      audioQueueRef.current.length === 0 &&
+      pendingTTSRef.current === 0 &&
+      voiceEnabledRef.current &&
+      !isRecordingActive()
+    ) {
+      doneReceivedRef.current = false;
+      setTimeout(() => {
+        if (voiceEnabledRef.current && !isPlayingRef.current && !isRecordingActive()) {
+          startListeningRef.current();
+        }
+      }, 300);
     }
-    if (recognitionRef.current) return;
+  }, [isRecordingActive]);
 
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn("SpeechRecognition not supported in this browser");
-      return;
+  const killAudio = useCallback(() => {
+    if (currentSourceRef.current) {
+      try { currentSourceRef.current.stop(); } catch { /* noop */ }
+      currentSourceRef.current = null;
     }
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    playingLockRef.current = false;
+    doneReceivedRef.current = false;
+    pendingTTSRef.current = 0;
+    textBufferRef.current = "";
+    // Reset TTS ordering
+    ttsSequenceRef.current = 0;
+    ttsResultsRef.current.clear();
+    ttsNextToPlayRef.current = 0;
+    setIsSpeaking(false);
+  }, []);
 
-    const recognition = new SpeechRecognition();
+  const stopAllRecording = useCallback(() => {
+    // Stop native recognition
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    // Stop whisper recording - set discard flag so onstop won't send audio
+    discardRecordingRef.current = true;
+    silenceCleanupRef.current?.();
+    silenceCleanupRef.current = null;
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop(); // onstop will fire but discard the audio
+    }
+    mediaRecorderRef.current = null;
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    setIsListening(false);
+    setIsTranscribing(false);
+    setInterimTranscript("");
+  }, []);
+
+  const toggleVoice = useCallback(() => {
+    setVoiceEnabled(prev => {
+      const next = !prev;
+      localStorage.setItem("voice-chat-enabled", String(next));
+      if (!next) {
+        setInConversation(false);
+        stopAllRecording();
+        killAudio();
+      }
+      return next;
+    });
+  }, [killAudio, stopAllRecording]);
+
+  // ── Native STT (Web Speech API) ──────────────────
+
+  const startNativeListening = useCallback(() => {
+    if (recognitionRef.current || !SpeechRecognitionClass) return;
+
+    const recognition = new SpeechRecognitionClass();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      // If we're not in listening state, ignore results (stale events)
-      if (stateRef.current !== "listening") return;
-
       let interim = "";
       let final = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -166,154 +246,316 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
           interim += transcript;
         }
       }
-
       setInterimTranscript(interim);
 
       if (final.trim()) {
-        // Got a final transcript — transition to processing
-        transitionTo("processing");
+        recognition.stop();
+        recognitionRef.current = null;
+        setIsListening(false);
+        setInterimTranscript("");
+        setInConversation(true);
+        nativeErrorCountRef.current = 0;
         onTranscriptRef.current(final.trim());
       }
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.warn("Speech recognition error:", event.error);
-      if (event.error !== "aborted" && event.error !== "no-speech") {
+      if (event.error === "aborted") return;
+
+      // no-speech is not a real error - just silence. Don't count it.
+      if (event.error === "no-speech") return;
+
+      console.warn("[Voice] Native STT error:", event.error);
+      nativeErrorCountRef.current++;
+
+      if (nativeErrorCountRef.current >= MAX_NATIVE_ERRORS) {
+        console.warn("[Voice] Too many native STT errors, switching to Whisper fallback");
+        sttModeRef.current = "whisper";
         recognitionRef.current = null;
         setIsListening(false);
+        setInterimTranscript("");
+        if (voiceEnabledRef.current) {
+          setTimeout(() => startListeningRef.current(), 300);
+        }
+        return;
       }
+
+      recognitionRef.current = null;
+      setIsListening(false);
+      setInterimTranscript("");
     };
 
     recognition.onend = () => {
+      const wasActive = recognitionRef.current === recognition;
       recognitionRef.current = null;
-      // Only auto-restart if we're still supposed to be listening
-      if (stateRef.current === "listening" && voiceEnabledRef.current) {
-        // Small delay then restart
+
+      if (wasActive && voiceEnabledRef.current && !isPlayingRef.current) {
+        // Recognition ended unexpectedly (timeout, no-speech, etc.) - restart
         setTimeout(() => {
-          if (stateRef.current === "listening" && voiceEnabledRef.current) {
-            actuallyStartMic();
-          } else {
-            setIsListening(false);
+          if (voiceEnabledRef.current && !isPlayingRef.current && !isRecordingActive()) {
+            startListeningRef.current();
           }
-        }, 200);
+        }, 100);
       } else {
         setIsListening(false);
+        setInterimTranscript("");
       }
     };
 
     recognitionRef.current = recognition;
     recognition.start();
     setIsListening(true);
-  };
+    setSpokenText("");
+  }, [isRecordingActive]);
 
-  startListeningRef.current = () => {
-    if (voiceEnabledRef.current) transitionTo("listening");
-  };
+  // ── Whisper STT (fallback) ────────────────────────
 
-  // ── Public API ──────────────────────────────────
-
-  const toggleVoice = useCallback(() => {
-    setVoiceEnabled(prev => {
-      const next = !prev;
-      localStorage.setItem("voice-chat-enabled", String(next));
-      if (!next) {
-        transitionTo("idle");
-      }
-      return next;
-    });
-  }, [transitionTo]);
-
-  const startListening = useCallback(() => {
-    transitionTo("listening");
-  }, [transitionTo]);
-
-  const stopListening = useCallback(() => {
-    transitionTo("idle");
-  }, [transitionTo]);
-
-  const interruptAndListen = useCallback(() => {
-    // Kill audio, then go to listening (with a brief delay for audio cleanup)
-    killAudioInternal();
-    hardStopMic();
-    stateRef.current = "idle";
-    setTimeout(() => {
-      if (voiceEnabledRef.current) {
-        transitionTo("listening");
-      }
-    }, 300);
-  }, [transitionTo]);
-
-  const stopSpeaking = useCallback(() => {
-    transitionTo("idle");
-  }, [transitionTo]);
-
-  const stopEverything = useCallback(() => {
-    transitionTo("idle");
-  }, [transitionTo]);
-
-  // ── TTS Audio Queue ────────────────────────────
-
-  const playNext = useCallback(() => {
-    if (audioQueueRef.current.length === 0) {
-      // No more audio to play
-      setIsSpeaking(false);
-
-      if (doneReceivedRef.current && voiceEnabledRef.current) {
-        // Response complete, all audio played — now safe to open mic
-        doneReceivedRef.current = false;
-        // Delay to let speaker output fully stop before mic opens
-        setTimeout(() => {
-          if (voiceEnabledRef.current && stateRef.current === "speaking") {
-            transitionTo("listening");
-          }
-        }, 600);
+  const sendAudioForTranscription = useCallback(async (audioBlob: Blob) => {
+    if (audioBlob.size < 1000) {
+      if (voiceEnabledRef.current && inConversationRef.current) {
+        setTimeout(() => startListeningRef.current(), 300);
       }
       return;
     }
 
-    // Ensure mic is off before playing
-    hardStopMic();
-    stateRef.current = "speaking";
-    setIsSpeaking(true);
+    setIsTranscribing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "recording.webm");
 
-    const blob = audioQueueRef.current.shift()!;
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    currentAudioRef.current = audio;
+      const res = await fetch(`${API_BASE}/stt`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+        body: formData,
+      });
 
-    audio.onended = () => {
-      URL.revokeObjectURL(url);
-      currentAudioRef.current = null;
-      playNext();
-    };
-
-    audio.onerror = () => {
-      URL.revokeObjectURL(url);
-      currentAudioRef.current = null;
-      playNext();
-    };
-
-    audio.play().catch(() => {
-      URL.revokeObjectURL(url);
-      currentAudioRef.current = null;
-      playNext();
-    });
-  }, [transitionTo]);
-
-  // Process the TTS text queue sequentially — one fetch at a time, in order
-  const processTTSQueue = useCallback(async () => {
-    if (ttsFetchingRef.current) return; // already processing
-    ttsFetchingRef.current = true;
-
-    while (ttsTextQueueRef.current.length > 0) {
-      if (stateRef.current === "idle") {
-        // User hit stop — drain the queue without fetching
-        ttsTextQueueRef.current = [];
-        break;
+      if (!res.ok) {
+        console.warn("[Voice] STT request failed:", res.status);
+        onErrorRef.current?.("Transcription failed. Please try again.");
+        if (voiceEnabledRef.current && inConversationRef.current) {
+          setTimeout(() => startListeningRef.current(), 300);
+        }
+        return;
       }
 
-      const text = ttsTextQueueRef.current.shift()!;
+      const { text } = await res.json() as { text: string };
+      // Filter out Whisper hallucinations (very short transcripts from silence)
+      if (text && text.trim().length > 2) {
+        setInConversation(true);
+        onTranscriptRef.current(text.trim());
+      } else {
+        if (voiceEnabledRef.current && inConversationRef.current) {
+          setTimeout(() => startListeningRef.current(), 300);
+        }
+      }
+    } catch (err) {
+      console.warn("[Voice] STT error:", err);
+      onErrorRef.current?.("Transcription failed. Check your connection.");
+      if (voiceEnabledRef.current && inConversationRef.current) {
+        setTimeout(() => startListeningRef.current(), 300);
+      }
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, []);
 
+  const startWhisperListening = useCallback(async () => {
+    if (mediaRecorderRef.current) return;
+    discardRecordingRef.current = false;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/mp4")
+        ? "audio/mp4"
+        : "audio/webm";
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        silenceCleanupRef.current?.();
+        silenceCleanupRef.current = null;
+        stream.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+        mediaRecorderRef.current = null;
+        setIsListening(false);
+        setInterimTranscript("");
+
+        // If we were intentionally stopped (stopAllRecording), don't transcribe
+        if (discardRecordingRef.current) {
+          audioChunksRef.current = [];
+          return;
+        }
+
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        audioChunksRef.current = [];
+        sendAudioForTranscription(blob);
+      };
+
+      recorder.onerror = () => {
+        console.warn("[Voice] MediaRecorder error");
+        silenceCleanupRef.current?.();
+        silenceCleanupRef.current = null;
+        stream.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+        mediaRecorderRef.current = null;
+        setIsListening(false);
+      };
+
+      // Silence detection: auto-stop after 2s of silence
+      try {
+        const sttCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const source = sttCtx.createMediaStreamSource(stream);
+        const analyser = sttCtx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        let silenceStart: number | null = null;
+
+        const interval = setInterval(() => {
+          analyser.getByteTimeDomainData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            const val = (dataArray[i] - 128) / 128;
+            sum += val * val;
+          }
+          const rms = Math.sqrt(sum / dataArray.length) * 100;
+
+          if (rms < 15) {
+            if (!silenceStart) silenceStart = Date.now();
+            if (Date.now() - silenceStart > 2000) {
+              if (mediaRecorderRef.current?.state === "recording") {
+                mediaRecorderRef.current.stop();
+              }
+            }
+          } else {
+            silenceStart = null;
+          }
+        }, 100);
+
+        silenceCleanupRef.current = () => {
+          clearInterval(interval);
+          source.disconnect();
+          sttCtx.close().catch(() => {});
+        };
+      } catch {
+        // Silence detection failed
+      }
+
+      mediaRecorderRef.current = recorder;
+      recorder.start(250);
+      setIsListening(true);
+      setSpokenText("");
+      setInterimTranscript("Recording...");
+    } catch (err) {
+      console.warn("[Voice] Microphone access denied:", err);
+      onErrorRef.current?.("Microphone access denied. Please allow microphone permissions.");
+    }
+  }, [getAudioContext, sendAudioForTranscription]);
+
+  // ── Unified start listening ───────────────────────
+
+  const startListening = useCallback(() => {
+    if (isRecordingActive()) return;
+    getAudioContext();
+
+    if (sttModeRef.current === "native") {
+      startNativeListening();
+    } else {
+      startWhisperListening();
+    }
+  }, [getAudioContext, startNativeListening, startWhisperListening, isRecordingActive]);
+
+  startListeningRef.current = startListening;
+
+  const interruptAndListen = useCallback(() => {
+    killAudio();
+    setTimeout(() => startListeningRef.current(), 150);
+  }, [killAudio]);
+
+  const stopListening = useCallback(() => {
+    setInConversation(false);
+    stopAllRecording();
+    killAudio();
+  }, [killAudio, stopAllRecording]);
+
+  const stopEverything = useCallback(() => {
+    setInConversation(false);
+    stopAllRecording();
+    killAudio();
+  }, [killAudio, stopAllRecording]);
+
+  // ── TTS Audio Queue ───────────────────────────────
+
+  const playNext = useCallback(async () => {
+    if (playingLockRef.current) return;
+
+    if (audioQueueRef.current.length === 0) {
+      isPlayingRef.current = false;
+      setIsSpeaking(false);
+      maybeRestartMic();
+      return;
+    }
+
+    playingLockRef.current = true;
+    isPlayingRef.current = true;
+    setIsSpeaking(true);
+
+    const arrayBuffer = audioQueueRef.current.shift()!;
+
+    try {
+      const ctx = getAudioContext();
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      currentSourceRef.current = source;
+
+      source.onended = () => {
+        currentSourceRef.current = null;
+        playingLockRef.current = false;
+        playNext();
+      };
+
+      source.start();
+    } catch (err) {
+      console.warn("[Voice] Audio playback failed:", err);
+      currentSourceRef.current = null;
+      playingLockRef.current = false;
+      playNext();
+    }
+  }, [maybeRestartMic, getAudioContext]);
+
+  const ttsErrorShownRef = useRef(false);
+
+  // Flush any TTS results that are ready in sequence order
+  const flushTTSResults = useCallback(() => {
+    while (ttsResultsRef.current.has(ttsNextToPlayRef.current)) {
+      const buf = ttsResultsRef.current.get(ttsNextToPlayRef.current)!;
+      ttsResultsRef.current.delete(ttsNextToPlayRef.current);
+      ttsNextToPlayRef.current++;
+      audioQueueRef.current.push(buf);
+    }
+    if (audioQueueRef.current.length > 0 && !isPlayingRef.current) {
+      playNext();
+    }
+  }, [playNext]);
+
+  const queueTTS = useCallback(async (text: string) => {
+    // Assign a sequence number so audio plays in order
+    const seq = ttsSequenceRef.current++;
+    pendingTTSRef.current++;
+
+    const attemptTTS = async (retry: number): Promise<void> => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const res = await fetch(`${API_BASE}/tts`, {
@@ -325,81 +567,71 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
           body: JSON.stringify({ text }),
         });
 
-        if (!res.ok) continue;
-        if (stateRef.current === "idle") break;
-
-        const blob = await res.blob();
-        audioQueueRef.current.push(blob);
-
-        // Start playback if not already playing
-        if (!currentAudioRef.current) {
-          transitionTo("speaking");
-          playNext();
+        if (!res.ok) {
+          if (retry < 1 && (res.status >= 500 || res.status === 429)) {
+            await new Promise(r => setTimeout(r, 500));
+            return attemptTTS(retry + 1);
+          }
+          if (!ttsErrorShownRef.current) {
+            ttsErrorShownRef.current = true;
+            onErrorRef.current?.("Voice output unavailable. Check ElevenLabs API key.");
+          }
+          // Skip this sequence slot so we don't block subsequent audio
+          ttsNextToPlayRef.current = Math.max(ttsNextToPlayRef.current, seq + 1);
+          flushTTSResults();
+          return;
         }
-      } catch {
-        // TTS fetch failed — skip this sentence
+
+        ttsErrorShownRef.current = false;
+        const arrayBuffer = await res.arrayBuffer();
+        if (arrayBuffer.byteLength > 0) {
+          // Store result at its sequence position
+          ttsResultsRef.current.set(seq, arrayBuffer);
+          flushTTSResults();
+        } else {
+          // Empty buffer - skip this slot
+          ttsNextToPlayRef.current = Math.max(ttsNextToPlayRef.current, seq + 1);
+          flushTTSResults();
+        }
+      } catch (err) {
+        if (retry < 1) {
+          await new Promise(r => setTimeout(r, 500));
+          return attemptTTS(retry + 1);
+        }
+        if (!ttsErrorShownRef.current) {
+          ttsErrorShownRef.current = true;
+          onErrorRef.current?.("Voice output failed. Check your connection.");
+        }
+        // Skip this sequence slot
+        ttsNextToPlayRef.current = Math.max(ttsNextToPlayRef.current, seq + 1);
+        flushTTSResults();
       }
+    };
+
+    try {
+      await attemptTTS(0);
+    } finally {
+      pendingTTSRef.current--;
+      maybeRestartMic();
     }
+  }, [flushTTSResults, maybeRestartMic]);
 
-    ttsFetchingRef.current = false;
-  }, [playNext, transitionTo]);
-
-  // Add text to the sequential TTS queue
-  const queueTTS = useCallback((text: string) => {
-    ttsTextQueueRef.current.push(text);
-    processTTSQueue();
-  }, [processTTSQueue]);
-
-  // ── Feed streaming text for TTS ────────────────
-
-  const cleanMarkdown = (text: string) =>
-    text
-      .replace(/```[\s\S]*?```/g, " code block ")
-      .replace(/\*\*(.*?)\*\*/g, "$1")
-      .replace(/\*(.*?)\*/g, "$1")
-      .replace(/`(.*?)`/g, "$1")
-      .replace(/#{1,6}\s/g, "")
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-      .replace(/[*_~]/g, "")
-      .replace(/^\s*[-*+]\s+/gm, "")
-      .replace(/^\s*\d+\.\s+/gm, "")
-      .replace(/\n{2,}/g, ". ")
-      .replace(/\n/g, " ")
-      .replace(/\s{2,}/g, " ");
+  // ── Feed streaming text for TTS ──────────────────
 
   const feedText = useCallback((delta: string) => {
     if (!voiceEnabledRef.current) return;
-    if (stateRef.current === "idle") return;
 
     textBufferRef.current += delta;
+    setSpokenText(prev => prev + delta);
 
-    const splitPattern = /([.!?:;])\s+|\n\n+/;
-    let buffer = textBufferRef.current;
-    let match = buffer.match(splitPattern);
-
-    while (match && match.index !== undefined) {
-      const splitAt = match.index + match[0].length;
-      const sentence = buffer.slice(0, splitAt).trim();
-      buffer = buffer.slice(splitAt);
-
-      if (sentence.length > 2) {
-        const clean = cleanMarkdown(sentence);
-        if (clean.trim()) {
-          queueTTS(clean.trim());
-        }
+    let result = extractSentence(textBufferRef.current);
+    while (result) {
+      const clean = cleanMarkdown(result.sentence);
+      textBufferRef.current = result.rest;
+      if (clean.length > 2) {
+        queueTTS(clean);
       }
-      match = buffer.match(splitPattern);
-    }
-
-    textBufferRef.current = buffer;
-
-    // Safety flush for long buffers without sentence breaks
-    if (textBufferRef.current.length > 200) {
-      const clean = cleanMarkdown(textBufferRef.current.trim());
-      textBufferRef.current = "";
-      if (clean.trim() && clean.trim().length > 2) {
-        queueTTS(clean.trim());
-      }
+      result = extractSentence(textBufferRef.current);
     }
   }, [queueTTS]);
 
@@ -410,30 +642,29 @@ export function useVoiceChat({ onTranscript }: UseVoiceChatOptions): UseVoiceCha
 
     if (remaining.length > 2 && voiceEnabledRef.current) {
       const clean = cleanMarkdown(remaining);
-      if (clean.trim()) {
-        queueTTS(clean.trim());
-        return; // playNext will handle mic restart after queue drains
+      if (clean.length > 2) {
+        queueTTS(clean);
+        return;
       }
     }
 
-    // No remaining text — if nothing is playing, go to listening
-    if (!currentAudioRef.current && audioQueueRef.current.length === 0 && voiceEnabledRef.current) {
-      doneReceivedRef.current = false;
-      setTimeout(() => {
-        if (voiceEnabledRef.current && stateRef.current !== "idle") {
-          transitionTo("listening");
-        }
-      }, 600);
-    }
-  }, [queueTTS, transitionTo]);
+    maybeRestartMic();
+  }, [queueTTS, maybeRestartMic]);
+
+  const stopSpeaking = useCallback(() => {
+    killAudio();
+    setInConversation(false);
+  }, [killAudio]);
 
   return {
     voiceEnabled,
     toggleVoice,
     isListening,
+    isTranscribing,
     isSpeaking,
     inConversation,
     interimTranscript,
+    spokenText,
     startListening,
     stopListening,
     interruptAndListen,

@@ -23,7 +23,7 @@ router.post("/", requireAuth, async (req, res) => {
       return;
     }
 
-    const voiceId = voice_id || "21m00Tcm4TlvDq8ikWAM"; // Rachel
+    const voiceId = voice_id || "EXAVITQu4vr4xnSDxMaL"; // Sarah
     const ttsModel = model || "eleven_flash_v2_5"; // fastest for conversation
 
     const controller = new AbortController();

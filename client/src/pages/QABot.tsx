@@ -2,13 +2,14 @@ import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { 
-  Bot, Upload, FileCheck, History, Brain, 
-  ArrowLeft, Loader2, CheckCircle2, XCircle,
+import {
+  Bot, Upload, FileCheck, History, Brain,
+  Loader2, XCircle,
   Image, FileText, Mail, MessageSquare, Video, File, Clapperboard
 } from "lucide-react";
 import { QAUploadZone } from "@/components/qa/QAUploadZone";
@@ -44,7 +45,6 @@ export default function QABot() {
     setCurrentResult(null);
 
     try {
-      // Upload file to storage if it's not text-only
       let fileUrl: string | null = null;
       const fileName = file.name;
 
@@ -63,7 +63,6 @@ export default function QABot() {
         fileUrl = urlData.publicUrl;
       }
 
-      // Create submission record
       const { data: submission, error: createError } = await supabase
         .from("qa_submissions")
         .insert({
@@ -78,7 +77,6 @@ export default function QABot() {
 
       if (createError) throw createError;
 
-      // Trigger analysis
       const { data: analysisResult, error: analysisError } = await supabase.functions.invoke(
         "qa-analyze",
         {
@@ -116,20 +114,20 @@ export default function QABot() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950/20 to-slate-950 flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-purple-400" />
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
   if (!isAdmin) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950/20 to-slate-950 flex items-center justify-center">
-        <Card className="bg-white/5 border-white/10">
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Card>
           <CardContent className="p-8 text-center">
             <XCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-white mb-2">Access Denied</h2>
-            <p className="text-purple-200/60 mb-4">You need admin access to use the QA Bot.</p>
+            <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
+            <p className="text-muted-foreground mb-4">You need admin access to use the QA Bot.</p>
             <Button onClick={() => navigate("/login")} variant="outline">
               Login as Admin
             </Button>
@@ -140,84 +138,66 @@ export default function QABot() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950/20 to-slate-950">
-      {/* Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => navigate("/")}
-                className="text-purple-300 hover:text-white hover:bg-white/10"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500">
-                  <Bot className="h-6 w-6 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold text-white">QA Bot</h1>
-                  <p className="text-sm text-purple-200/60">Premium Quality Assurance</p>
-                </div>
-              </div>
+    <div className="min-h-screen bg-background">
+      <AdminHeader />
+
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        {/* Page Header */}
+        <div className="mb-8 text-center">
+          <div className="inline-flex items-center gap-3 mb-3">
+            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary/20 to-purple-500/20">
+              <Bot className="h-8 w-8 text-primary" />
+            </div>
+            <div className="text-left">
+              <h1 className="text-3xl md:text-4xl font-bold">QA Bot</h1>
+              <p className="text-muted-foreground text-sm mt-0.5">
+                Premium Quality Assurance
+              </p>
             </div>
           </div>
         </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="bg-white/5 border border-white/10 p-1">
-            <TabsTrigger 
-              value="analyze" 
-              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-pink-600 data-[state=active]:text-white"
-            >
-              <FileCheck className="h-4 w-4 mr-2" />
-              Analyze
-            </TabsTrigger>
-            <TabsTrigger 
-              value="history"
-              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-pink-600 data-[state=active]:text-white"
-            >
-              <History className="h-4 w-4 mr-2" />
-              History
-            </TabsTrigger>
-            <TabsTrigger 
-              value="improvements"
-              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-pink-600 data-[state=active]:text-white"
-            >
-              <Brain className="h-4 w-4 mr-2" />
-              Train AI
-            </TabsTrigger>
-          </TabsList>
+          <div className="flex justify-center">
+            <TabsList className="p-1">
+              <TabsTrigger value="analyze">
+                <FileCheck className="h-4 w-4 mr-2" />
+                Analyze
+              </TabsTrigger>
+              <TabsTrigger value="history">
+                <History className="h-4 w-4 mr-2" />
+                History
+              </TabsTrigger>
+              <TabsTrigger value="improvements">
+                <Brain className="h-4 w-4 mr-2" />
+                Train AI
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* Analyze Tab */}
           <TabsContent value="analyze" className="space-y-6">
             {/* Content Type Selection */}
-            <Card className="bg-white/5 border-white/10">
+            <Card>
               <CardHeader>
-                <CardTitle className="text-white flex items-center gap-2">
-                  <Upload className="h-5 w-5 text-purple-400" />
+                <CardTitle className="flex items-center gap-2">
+                  <Upload className="h-5 w-5 text-primary" />
                   Select Content Type
                 </CardTitle>
-                <CardDescription className="text-purple-200/60">
+                <CardDescription>
                   Choose the type of content you want to quality check
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-7 gap-3">
                   {CONTENT_TYPES.map((type) => (
                     <button
                       key={type.id}
                       onClick={() => setSelectedType(type.id)}
                       className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
                         selectedType === type.id
-                          ? "border-purple-500 bg-purple-500/20 text-white"
-                          : "border-white/10 bg-white/5 text-purple-200/70 hover:border-purple-500/50 hover:bg-white/10"
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border bg-muted/30 text-muted-foreground hover:border-primary/50 hover:bg-muted/50"
                       }`}
                     >
                       <type.icon className="h-6 w-6" />
@@ -254,7 +234,7 @@ export default function QABot() {
             <QAImprovementNotes />
           </TabsContent>
         </Tabs>
-      </main>
+      </div>
     </div>
   );
 }

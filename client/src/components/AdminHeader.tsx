@@ -15,9 +15,12 @@ import {
   LogOut,
   Menu,
   Palette,
-  Brain,
   Building2,
-  ListTodo,
+  Crown,
+  Share2,
+  Timer,
+  BarChart3,
+  Globe,
 } from 'lucide-react';
 import teamPitLogo from '@/assets/team-pit-logo.png';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -33,18 +36,21 @@ import { useState } from 'react';
 
 const navItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/', label: 'Home', icon: Home },
-  { path: '/tasks', label: 'Tasks', icon: ListTodo },
   { path: '/super-agent-dashboard', label: 'Agent Dashboard', icon: Bot },
   { path: '/client-health', label: 'Command Center', icon: Activity },
+  { path: '/daily-reports', label: 'Daily Reports', icon: BarChart3 },
   { path: '/proposal-builder', label: 'Proposal Builder', icon: FileText },
   { path: '/deck-builder', label: 'Deck Builder', icon: Presentation },
   { path: '/seo-writer', label: 'SEO Writer', icon: Search },
   { path: '/creative-studio', label: 'Creative Studio', icon: Palette },
+  { path: '/social-media', label: 'Social Media', icon: Share2 },
   { path: '/qa-bot', label: 'QA Bot', icon: Bot },
   { path: '/email-writer', label: 'Email Writer', icon: Mail },
   { path: '/client-update', label: 'Client Update', icon: Users },
+  { path: '/meeting-queen', label: 'Meeting Queen', icon: Crown },
+  { path: '/cron-jobs', label: 'Cron Jobs', icon: Timer },
+  { path: '/websites', label: 'Website Builder', icon: Globe },
   { path: '/client-settings', label: 'Clients', icon: Building2 },
-  { path: '/strategist-settings', label: 'Strategist', icon: Brain },
   { path: '/admin', label: 'Admin Settings', icon: Settings },
   { path: '/super-agent-settings', label: 'Super Agent Settings', icon: Bot },
 ];

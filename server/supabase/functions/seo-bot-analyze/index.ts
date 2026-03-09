@@ -8,9 +8,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const NOTION_DATABASE_ID = "9e7cd72f-e62c-4514-9456-5f51cbcfe981"; // IN HOUSE TO DO parent database
-const LOOKER_DIRECTORY_SPREADSHEET_ID = "1t43DRbgSo7pOqKh2DIt7xSsKrN6JgLgLSWAJe92SDQI";
-const SHEETS_API_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
+const NOTION_DATABASE_ID = Deno.env.get("NOTION_TASK_DATABASE_ID") || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
+// Client Directory (managed_clients) is the sole source of truth
 
 interface AnalysisRequest {
   clientName: string;
@@ -117,67 +116,28 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
-// Fetch site audit URL from Looker Directory sheet for a client
+// Fetch site audit URL from managed_clients (Client Directory - sole source of truth)
 async function fetchSiteAuditUrl(clientName: string): Promise<string | null> {
-  const serviceAccountJson = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_JSON");
-  if (!serviceAccountJson) {
-    console.log("GOOGLE_SERVICE_ACCOUNT_JSON not configured");
-    return null;
-  }
-
   try {
-    const accessToken = await getGoogleAccessToken(serviceAccountJson);
-    const rangeParam = encodeURIComponent("Sheet1!A:E");
-    const dataUrl = `${SHEETS_API_BASE}/${LOOKER_DIRECTORY_SPREADSHEET_ID}/values/${rangeParam}`;
-    
-    const response = await fetch(dataUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    
-    if (!response.ok) {
-      console.error("Failed to fetch sheet data:", await response.text());
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const { data, error } = await supabase
+      .from("managed_clients")
+      .select("site_audit_url")
+      .ilike("client_name", `%${clientName}%`)
+      .eq("is_active", true)
+      .limit(1)
+      .single();
+
+    if (error || !data?.site_audit_url) {
+      console.log(`No site audit URL found for client: ${clientName}`);
       return null;
     }
-    
-    const sheetData = await response.json();
-    const rows = sheetData.values || [];
-    
-    if (rows.length < 2) return null;
-    
-    const headers = rows[0];
-    const siteAuditIndex = headers.findIndex((h: string) => 
-      h.toLowerCase().includes('site audit') || h.toLowerCase().includes('audit')
-    );
-    const clientNameIndex = headers.findIndex((h: string) => 
-      h.toLowerCase().includes('client')
-    );
-    
-    if (siteAuditIndex === -1 || clientNameIndex === -1) {
-      console.log("Required columns not found in sheet");
-      return null;
-    }
-    
-    // Generate aliases for fuzzy matching
-    const clientAliases = generateClientAliases(clientName);
-    
-    // Find the matching row
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      const rowClientName = (row[clientNameIndex] || "").toLowerCase();
-      
-      // Check if any alias matches
-      const matches = clientAliases.some(alias => 
-        rowClientName.includes(alias) || alias.includes(rowClientName.split(' - ')[0].trim())
-      );
-      
-      if (matches && row[siteAuditIndex]) {
-        console.log(`Found site audit URL for ${clientName}: ${row[siteAuditIndex]}`);
-        return row[siteAuditIndex];
-      }
-    }
-    
-    console.log(`No site audit URL found for client: ${clientName}`);
-    return null;
+
+    console.log(`Found site audit URL for ${clientName}: ${data.site_audit_url}`);
+    return data.site_audit_url;
   } catch (error) {
     console.error("Error fetching site audit URL:", error);
     return null;

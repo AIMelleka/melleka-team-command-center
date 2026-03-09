@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, createContext, useContext, ReactNode } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, createContext, useContext, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { User, Session } from '@supabase/supabase-js';
 
@@ -24,28 +24,41 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [mfaEnrolled, setMfaEnrolled] = useState(false);
   const [mfaVerified, setMfaVerified] = useState(false);
 
-  const checkAdminAccess = async (currentUser: User): Promise<boolean> => {
-    try {
-      const timeoutPromise = new Promise<boolean>((_, reject) =>
-        setTimeout(() => reject(new Error('Admin check timed out')), 5000)
-      );
-      
-      const checkPromise = supabase.rpc('has_role', {
-        _user_id: currentUser.id,
-        _role: 'admin'
-      }).then(({ data, error }) => {
-        if (error) {
-          console.error('Error checking admin role:', error);
-          return false;
-        }
-        return data === true;
-      });
+  // Track last confirmed admin status so we don't silently downgrade on transient failures
+  const adminStatusRef = useRef(false);
 
-      return await Promise.race([checkPromise, timeoutPromise]);
-    } catch (err) {
-      console.error('Failed to check admin role:', err);
-      return false;
+  const checkAdminAccess = async (currentUser: User, retries = 2): Promise<boolean> => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const timeout = 15000 + attempt * 5000; // 15s, 20s, 25s
+        const timeoutPromise = new Promise<boolean>((_, reject) =>
+          setTimeout(() => reject(new Error('Admin check timed out')), timeout)
+        );
+
+        const checkPromise = supabase.rpc('has_role', {
+          _user_id: currentUser.id,
+          _role: 'admin'
+        }).then(({ data, error }) => {
+          if (error) {
+            console.error('Error checking admin role:', error);
+            throw error;
+          }
+          return data === true;
+        });
+
+        const result = await Promise.race([checkPromise, timeoutPromise]);
+        adminStatusRef.current = result;
+        return result;
+      } catch (err) {
+        console.warn(`Admin check attempt ${attempt + 1}/${retries + 1} failed:`, err);
+        if (attempt < retries) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); // backoff: 1s, 2s
+        }
+      }
     }
+    // All retries exhausted - keep last known status instead of silently downgrading
+    console.warn('All admin check attempts failed, keeping last known status:', adminStatusRef.current);
+    return adminStatusRef.current;
   };
 
   const checkMfaStatus = async () => {
@@ -72,15 +85,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     let isMounted = true;
+    let adminRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (!isMounted) return;
-        
+
         setSession(session);
         setUser(session?.user ?? null);
-        
+
         if (session?.user) {
+          // On TOKEN_REFRESHED, re-verify admin status in the background
+          // On SIGNED_IN or INITIAL_SESSION, do full check
           setTimeout(() => {
             if (!isMounted) return;
             Promise.all([
@@ -89,12 +105,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             ]).then(([adminStatus]) => {
               if (isMounted) {
                 setIsAdmin(adminStatus);
+                adminStatusRef.current = adminStatus;
                 setIsLoading(false);
               }
             });
           }, 0);
         } else {
           setIsAdmin(false);
+          adminStatusRef.current = false;
           setMfaEnrolled(false);
           setMfaVerified(false);
           setIsLoading(false);
@@ -104,10 +122,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!isMounted) return;
-      
+
       setSession(session);
       setUser(session?.user ?? null);
-      
+
       if (session?.user) {
         const [adminStatus] = await Promise.all([
           checkAdminAccess(session.user),
@@ -115,6 +133,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         ]);
         if (isMounted) {
           setIsAdmin(adminStatus);
+          adminStatusRef.current = adminStatus;
         }
       }
       if (isMounted) {
@@ -122,9 +141,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     });
 
+    // Periodic admin re-verification every 30 minutes to prevent stale status
+    adminRefreshInterval = setInterval(async () => {
+      if (!isMounted) return;
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (currentSession?.user) {
+        const adminStatus = await checkAdminAccess(currentSession.user);
+        if (isMounted) {
+          setIsAdmin(adminStatus);
+          adminStatusRef.current = adminStatus;
+        }
+      }
+    }, 30 * 60 * 1000);
+
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+      if (adminRefreshInterval) clearInterval(adminRefreshInterval);
     };
   }, []);
 

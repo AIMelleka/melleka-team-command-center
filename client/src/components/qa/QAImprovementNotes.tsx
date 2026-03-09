@@ -137,9 +137,9 @@ export function QAImprovementNotes() {
 
   if (loading) {
     return (
-      <Card className="bg-white/5 border-white/10">
+      <Card>
         <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-purple-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </CardContent>
       </Card>
     );
@@ -148,13 +148,13 @@ export function QAImprovementNotes() {
   return (
     <div className="space-y-6">
       {/* Add New Note */}
-      <Card className="bg-white/5 border-white/10">
+      <Card>
         <CardHeader>
-          <CardTitle className="text-white flex items-center gap-2">
-            <Brain className="h-5 w-5 text-purple-400" />
+          <CardTitle className="flex items-center gap-2">
+            <Brain className="h-5 w-5 text-primary" />
             Train the QA AI
           </CardTitle>
-          <CardDescription className="text-purple-200/60">
+          <CardDescription className="text-muted-foreground">
             Add notes about what the AI should improve on. These will be injected into
             every QA analysis to continuously improve quality checks.
           </CardDescription>
@@ -164,19 +164,19 @@ export function QAImprovementNotes() {
             value={newNote}
             onChange={(e) => setNewNote(e.target.value)}
             placeholder="Example: Be stricter about headline length - they should be under 60 characters for SEO"
-            className="min-h-[100px] bg-white/5 border-white/10 text-white placeholder:text-purple-300/30"
+            className="min-h-[100px] bg-muted/30 border-border"
           />
 
           <div className="flex flex-wrap gap-4 items-end">
             <div className="space-y-2">
-              <Label className="text-purple-200/70 text-sm">Content Type</Label>
+              <Label className="text-muted-foreground text-sm">Content Type</Label>
               <Select value={newContentType} onValueChange={setNewContentType}>
-                <SelectTrigger className="w-[180px] bg-white/5 border-white/10 text-white">
+                <SelectTrigger className="w-[180px] bg-muted/30 border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-white/10">
+                <SelectContent className="border-border">
                   {CONTENT_TYPES.map((type) => (
-                    <SelectItem key={type.id} value={type.id} className="text-white">
+                    <SelectItem key={type.id} value={type.id}>
                       {type.label}
                     </SelectItem>
                   ))}
@@ -185,14 +185,14 @@ export function QAImprovementNotes() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-purple-200/70 text-sm">Priority (1-10)</Label>
+              <Label className="text-muted-foreground text-sm">Priority (1-10)</Label>
               <Input
                 type="number"
                 min={1}
                 max={10}
                 value={newPriority}
                 onChange={(e) => setNewPriority(Math.min(10, Math.max(1, parseInt(e.target.value) || 5)))}
-                className="w-24 bg-white/5 border-white/10 text-white"
+                className="w-24 bg-muted/30 border-border"
               />
             </div>
 
@@ -213,12 +213,12 @@ export function QAImprovementNotes() {
       </Card>
 
       {/* Existing Notes */}
-      <Card className="bg-white/5 border-white/10">
+      <Card>
         <CardHeader>
-          <CardTitle className="text-white flex items-center gap-2">
-            <Lightbulb className="h-5 w-5 text-purple-400" />
+          <CardTitle className="flex items-center gap-2">
+            <Lightbulb className="h-5 w-5 text-primary" />
             Active Improvement Notes
-            <Badge variant="outline" className="ml-2 border-white/20 text-purple-200/60">
+            <Badge variant="outline" className="ml-2 border-border text-muted-foreground">
               {notes.filter(n => n.is_active).length} active
             </Badge>
           </CardTitle>
@@ -226,8 +226,8 @@ export function QAImprovementNotes() {
         <CardContent>
           {notes.length === 0 ? (
             <div className="text-center py-8">
-              <Brain className="h-12 w-12 text-purple-400/50 mx-auto mb-4" />
-              <p className="text-purple-200/60">
+              <Brain className="h-12 w-12 text-primary/50 mx-auto mb-4" />
+              <p className="text-muted-foreground">
                 No improvement notes yet. Add your first one above!
               </p>
             </div>
@@ -240,17 +240,17 @@ export function QAImprovementNotes() {
                     key={note.id}
                     className={`p-4 rounded-xl border transition-all ${
                       note.is_active
-                        ? "border-purple-500/30 bg-purple-500/10"
-                        : "border-white/10 bg-white/5 opacity-60"
+                        ? "border-primary/30 bg-primary/10"
+                        : "border-border bg-muted/30 opacity-60"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
-                          <div className="p-1.5 rounded-lg bg-white/10">
-                            <Icon className="h-3.5 w-3.5 text-purple-400" />
+                          <div className="p-1.5 rounded-lg bg-muted">
+                            <Icon className="h-3.5 w-3.5 text-primary" />
                           </div>
-                          <Badge variant="outline" className="border-white/20 text-purple-200/60 text-xs">
+                          <Badge variant="outline" className="border-border text-muted-foreground text-xs">
                             {CONTENT_TYPES.find(t => t.id === note.content_type)?.label || note.content_type}
                           </Badge>
                           <Badge 
@@ -260,14 +260,14 @@ export function QAImprovementNotes() {
                                 ? "border-red-500/30 text-red-400" 
                                 : note.priority >= 5 
                                 ? "border-yellow-500/30 text-yellow-400"
-                                : "border-white/20 text-purple-200/60"
+                                : "border-border text-muted-foreground"
                             }`}
                           >
                             Priority {note.priority}
                           </Badge>
                         </div>
-                        <p className="text-white text-sm">{note.note}</p>
-                        <p className="text-xs text-purple-200/40 mt-2">
+                        <p className="text-sm">{note.note}</p>
+                        <p className="text-xs text-muted-foreground/60 mt-2">
                           Added {format(new Date(note.created_at), "MMM d, yyyy")}
                         </p>
                       </div>
@@ -277,7 +277,7 @@ export function QAImprovementNotes() {
                             checked={note.is_active}
                             onCheckedChange={(checked) => handleToggleActive(note.id, checked)}
                           />
-                          <Label className="text-xs text-purple-200/50">
+                          <Label className="text-xs text-muted-foreground">
                             {note.is_active ? "Active" : "Inactive"}
                           </Label>
                         </div>

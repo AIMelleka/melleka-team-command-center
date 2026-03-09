@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   Search,
@@ -15,7 +16,13 @@ import {
   Eye,
   Ban,
   CircleDot,
+  Timer,
+  Pause,
+  Play,
+  Trash2,
 } from "lucide-react";
+import { fetchCronJobs, deleteCronJob, type CronJob } from "@/lib/chatApi";
+import { useToast } from "@/hooks/use-toast";
 import AdminHeader from "@/components/AdminHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +57,7 @@ import {
   type SuperAgentTask,
   type TaskFilters,
 } from "@/hooks/useSuperAgentTasks";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigate } from "react-router-dom";
 
 const STATUS_CONFIG: Record<
@@ -115,6 +123,44 @@ const CATEGORIES = [
   "Other",
 ];
 
+/** Convert a cron expression like "0 9 * * 1-5" to plain English */
+function cronToEnglish(expr: string): string {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length < 5) return expr;
+  const [min, hour, dom, _mon, dow] = parts;
+
+  // Build time string
+  let timeStr = "";
+  if (hour !== "*" && min !== "*") {
+    const h = parseInt(hour);
+    const m = parseInt(min);
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    timeStr = `${h12}:${m.toString().padStart(2, "0")} ${ampm}`;
+  }
+
+  // Build day string
+  const dowNames: Record<string, string> = {
+    "0": "Sunday", "1": "Monday", "2": "Tuesday", "3": "Wednesday",
+    "4": "Thursday", "5": "Friday", "6": "Saturday", "7": "Sunday",
+  };
+
+  if (dow === "*" && dom === "*") {
+    return timeStr ? `Every day at ${timeStr}` : "Every minute";
+  }
+  if (dow === "1-5") return timeStr ? `Weekdays at ${timeStr}` : "Every weekday";
+  if (dow === "0,6") return timeStr ? `Weekends at ${timeStr}` : "Every weekend";
+  if (dow !== "*") {
+    const days = dow.split(",").map(d => dowNames[d] || d).join(", ");
+    return timeStr ? `Every ${days} at ${timeStr}` : `Every ${days}`;
+  }
+  if (dom !== "*") {
+    const suffix = dom === "1" ? "st" : dom === "2" ? "nd" : dom === "3" ? "rd" : "th";
+    return timeStr ? `${dom}${suffix} of every month at ${timeStr}` : `${dom}${suffix} of every month`;
+  }
+  return expr;
+}
+
 function StatusBadge({ status }: { status: string }) {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.not_started;
   const Icon = config.icon;
@@ -177,15 +223,15 @@ function TaskDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-3 pr-6">
             <Bot className="h-5 w-5 text-primary shrink-0" />
             <span className="break-words">{task.title}</span>
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5 mt-2">
+        <div className="space-y-5 mt-2 overflow-y-auto min-h-0 flex-1 pr-1">
           {/* Status & Priority */}
           <div className="flex flex-wrap gap-2">
             <StatusBadge status={task.status} />
@@ -245,7 +291,7 @@ function TaskDetailDialog({
               <p className="text-sm font-medium text-muted-foreground mb-2">
                 Activity Log ({sortedNotes.length} notes)
               </p>
-              <ScrollArea className="max-h-60">
+              <div className="max-h-[400px] overflow-y-auto rounded-lg border border-border/50 p-3">
                 <div className="space-y-3">
                   {sortedNotes.map((note, i) => (
                     <div
@@ -255,11 +301,11 @@ function TaskDetailDialog({
                       <p className="text-xs text-muted-foreground">
                         {format(new Date(note.timestamp), "MMM d, yyyy h:mm a")}
                       </p>
-                      <p className="text-sm mt-0.5">{note.text}</p>
+                      <p className="text-sm mt-0.5 whitespace-pre-wrap break-words">{note.text}</p>
                     </div>
                   ))}
                 </div>
-              </ScrollArea>
+              </div>
             </div>
           )}
 
@@ -327,11 +373,14 @@ export default function SuperAgentDashboard() {
   const [statusTab, setStatusTab] = useState("all");
   const [searchInput, setSearchInput] = useState("");
   const [selectedTask, setSelectedTask] = useState<SuperAgentTask | null>(null);
+  const isMobile = useIsMobile();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const activeFilters = useMemo(
     () => ({
       ...filters,
-      status: statusTab !== "all" ? statusTab : undefined,
+      status: statusTab !== "all" && statusTab !== "scheduled" ? statusTab : undefined,
       search: searchInput || undefined,
     }),
     [filters, statusTab, searchInput]
@@ -339,11 +388,27 @@ export default function SuperAgentDashboard() {
 
   const { data: tasks, isLoading } = useSuperAgentTasks(activeFilters);
   const { data: stats } = useSuperAgentStats();
+  const { data: cronJobs } = useQuery({
+    queryKey: ["cron-jobs"],
+    queryFn: fetchCronJobs,
+    refetchInterval: 60_000,
+  });
+
+  const handleDeleteCron = async (job: CronJob) => {
+    if (!confirm(`Delete cron job "${job.name}"? This will stop it from running.`)) return;
+    try {
+      await deleteCronJob(job.id);
+      queryClient.setQueryData<CronJob[]>(["cron-jobs"], (old) => old?.filter((j) => j.id !== job.id) ?? []);
+      toast({ title: `Deleted "${job.name}"` });
+    } catch (err: any) {
+      toast({ title: "Failed to delete cron job", description: err.message, variant: "destructive" });
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
       <AdminHeader />
-      <main className="container mx-auto px-4 py-6 max-w-7xl">
+      <main className="container mx-auto px-4 py-6 pb-20 sm:pb-6 max-w-7xl">
         {/* Page Title */}
         <div className="flex items-center gap-3 mb-6">
           <div className="p-2 rounded-lg bg-primary/10">
@@ -429,91 +494,205 @@ export default function SuperAgentDashboard() {
             <TabsTrigger value="completed">Completed</TabsTrigger>
             <TabsTrigger value="error">Error</TabsTrigger>
             <TabsTrigger value="blocked">Blocked</TabsTrigger>
+            <TabsTrigger value="scheduled" className="gap-1">
+              <Timer className="h-3.5 w-3.5" />
+              Scheduled{cronJobs && cronJobs.length > 0 ? ` (${cronJobs.length})` : ""}
+            </TabsTrigger>
           </TabsList>
         </Tabs>
 
-        {/* Task Table */}
-        {isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        ) : !tasks || tasks.length === 0 ? (
-          <div className="text-center py-20">
-            <Bot className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">
-              No tasks found. The Super Agent will create tasks here as it works.
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="min-w-[250px]">Task</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="hidden md:table-cell">
-                    Priority
-                  </TableHead>
-                  <TableHead className="hidden lg:table-cell">
-                    Category
-                  </TableHead>
-                  <TableHead className="hidden lg:table-cell">Client</TableHead>
-                  <TableHead className="hidden md:table-cell">
-                    Requested By
-                  </TableHead>
-                  <TableHead className="text-right">Updated</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tasks.map((task) => (
-                  <TableRow
-                    key={task.id}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => setSelectedTask(task)}
-                  >
-                    <TableCell>
-                      <div>
-                        <p className="font-medium truncate max-w-[300px]">
-                          {task.title}
-                        </p>
-                        {task.description && (
-                          <p className="text-xs text-muted-foreground truncate max-w-[300px]">
-                            {task.description}
-                          </p>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={task.status} />
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <PriorityBadge priority={task.priority} />
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell">
-                      {task.category && (
-                        <span className="text-sm">{task.category}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell">
-                      {task.client_name && (
-                        <span className="text-sm">{task.client_name}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <span className="text-sm">{task.requested_by}</span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className="text-sm text-muted-foreground">
-                        {formatDistanceToNow(new Date(task.updated_at), {
-                          addSuffix: true,
-                        })}
-                      </span>
-                    </TableCell>
+        {/* Content: Tasks or Cron Jobs depending on active tab */}
+        {statusTab === "scheduled" ? (
+          /* Cron Jobs Table */
+          !cronJobs || cronJobs.length === 0 ? (
+            <div className="text-center py-20">
+              <Timer className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+              <p className="text-muted-foreground">
+                No scheduled jobs yet. The Super Agent can create cron jobs from chat.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[200px]">Job Name</TableHead>
+                    <TableHead>Schedule</TableHead>
+                    <TableHead className="hidden md:table-cell min-w-[250px]">Task</TableHead>
+                    <TableHead className="hidden lg:table-cell">Member</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Last Run</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {cronJobs.map((job) => (
+                    <TableRow key={job.id} className={job.enabled ? "" : "opacity-60"}>
+                      <TableCell>
+                        <p className="font-medium text-sm">{job.name}</p>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm text-primary font-medium">
+                          {cronToEnglish(job.cron_expr)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        <p className="text-sm text-muted-foreground truncate max-w-[300px]">
+                          {job.task}
+                        </p>
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        <span className="text-sm">{job.member_name}</span>
+                      </TableCell>
+                      <TableCell>
+                        {job.enabled ? (
+                          <Badge variant="outline" className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 gap-1">
+                            <Play className="h-3 w-3" />
+                            Active
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-gray-500/10 text-gray-500 border-gray-500/20 gap-1">
+                            <Pause className="h-3 w-3" />
+                            Paused
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm text-muted-foreground">
+                          {job.last_run
+                            ? formatDistanceToNow(new Date(job.last_run), { addSuffix: true })
+                            : "Never"}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-500" title="Delete cron job" onClick={() => handleDeleteCron(job)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )
+        ) : (
+          /* Task List */
+          isLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : !tasks || tasks.length === 0 ? (
+            <div className="text-center py-20">
+              <Bot className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+              <p className="text-muted-foreground">
+                No tasks found. The Super Agent will create tasks here as it works.
+              </p>
+            </div>
+          ) : isMobile ? (
+            /* Mobile Card View */
+            <div className="space-y-2">
+              {tasks.map((task) => (
+                <Card
+                  key={task.id}
+                  className="cursor-pointer active:bg-muted/50"
+                  onClick={() => setSelectedTask(task)}
+                >
+                  <CardContent className="p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-medium text-sm line-clamp-2 flex-1">{task.title}</p>
+                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                        {formatDistanceToNow(new Date(task.updated_at), { addSuffix: true })}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <StatusBadge status={task.status} />
+                      <PriorityBadge priority={task.priority} />
+                      {task.category && (
+                        <Badge variant="outline" className="text-[10px]">{task.category}</Badge>
+                      )}
+                    </div>
+                    {(task.client_name || task.requested_by) && (
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        {task.client_name && <span>Client: {task.client_name}</span>}
+                        {task.requested_by && <span>By: {task.requested_by}</span>}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            /* Desktop Table View */
+            <div className="rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[250px]">Task</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="hidden md:table-cell">
+                      Priority
+                    </TableHead>
+                    <TableHead className="hidden lg:table-cell">
+                      Category
+                    </TableHead>
+                    <TableHead className="hidden lg:table-cell">Client</TableHead>
+                    <TableHead className="hidden md:table-cell">
+                      Requested By
+                    </TableHead>
+                    <TableHead className="text-right">Updated</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tasks.map((task) => (
+                    <TableRow
+                      key={task.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => setSelectedTask(task)}
+                    >
+                      <TableCell>
+                        <div>
+                          <p className="font-medium truncate max-w-[300px]">
+                            {task.title}
+                          </p>
+                          {task.description && (
+                            <p className="text-xs text-muted-foreground truncate max-w-[300px]">
+                              {task.description}
+                            </p>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={task.status} />
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        <PriorityBadge priority={task.priority} />
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        {task.category && (
+                          <span className="text-sm">{task.category}</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        {task.client_name && (
+                          <span className="text-sm">{task.client_name}</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        <span className="text-sm">{task.requested_by}</span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className="text-sm text-muted-foreground">
+                          {formatDistanceToNow(new Date(task.updated_at), {
+                            addSuffix: true,
+                          })}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )
         )}
       </main>
 

@@ -1,3 +1,5 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -14,8 +16,8 @@ interface NotionRequest {
   discoverClients?: boolean; // New: discover all unique client names in the database
 }
 
-// The IN HOUSE TO-DO database ID
-const DEFAULT_TASK_DATABASE_ID = "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
+// The IN HOUSE TO-DO database ID (configurable via env var for multi-agency deployment)
+const DEFAULT_TASK_DATABASE_ID = Deno.env.get("NOTION_TASK_DATABASE_ID") || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
 // Legacy ID that was previously used in older builds; not accessible in current integration.
 const LEGACY_TASK_DATABASE_ID = "bf762858-67b7-49ca-992d-fdfc8c43d7fa";
 
@@ -402,37 +404,26 @@ Deno.serve(async (req) => {
     if (discoverClients) {
       console.log(`Discovering all unique clients in database "${dbTitle}"`);
       
-      // Step 1: Fetch master client list from Google Sheet
-      const MASTER_SHEET_ID = "1t43DRbgSo7pOqKh2DIt7xSsKrN6JgLgLSWAJe92SDQI";
+      // Step 1: Fetch master client list from Client Directory (managed_clients - sole source of truth)
       let masterClientNames: string[] = [];
-      
+
       try {
-        const serviceAccountJson = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_JSON");
-        if (serviceAccountJson) {
-          const accessToken = await getGoogleAccessToken(serviceAccountJson);
-          
-          // Fetch the "Looker Directory" sheet which has client names in column A
-          const sheetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A:A?majorDimension=COLUMNS`;
-          const sheetRes = await fetch(sheetUrl, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          });
-          
-          if (sheetRes.ok) {
-            const sheetData = await sheetRes.json();
-            const columnA = sheetData.values?.[0] || [];
-            // Skip header row and filter empty values
-            masterClientNames = columnA.slice(1)
-              .map((name: string) => String(name).trim())
-              .filter((name: string) => name.length > 0);
-            console.log(`Loaded ${masterClientNames.length} clients from master sheet`);
-          } else {
-            console.warn(`Failed to fetch master sheet: ${sheetRes.status}`);
-          }
+        const mcUrl = Deno.env.get("SUPABASE_URL")!;
+        const mcKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const mcClient = createClient(mcUrl, mcKey);
+        const { data: activeClients, error: mcErr } = await mcClient
+          .from("managed_clients")
+          .select("client_name")
+          .eq("is_active", true);
+
+        if (mcErr) {
+          console.warn("Failed to fetch managed_clients:", mcErr.message);
         } else {
-          console.warn("GOOGLE_SERVICE_ACCOUNT_JSON not configured, showing all Notion clients");
+          masterClientNames = (activeClients || []).map(c => c.client_name);
+          console.log(`Loaded ${masterClientNames.length} clients from Client Directory`);
         }
-      } catch (sheetErr) {
-        console.error("Error fetching master sheet:", sheetErr);
+      } catch (mcError) {
+        console.error("Error fetching Client Directory:", mcError);
       }
       
       // Fetch tasks with minimal data to extract unique clients

@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import AdminHeader from '@/components/AdminHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Upload, Trash2, ArrowLeft, Image, Loader2, Copy, Check, ExternalLink } from 'lucide-react';
+import { Upload, Trash2, Image, Loader2, Copy, Check, ExternalLink } from 'lucide-react';
 
 interface PortfolioImage {
   name: string;
@@ -62,7 +63,6 @@ const PortfolioManager = () => {
 
     try {
       for (const file of Array.from(files)) {
-        // Generate a clean filename
         const timestamp = Date.now();
         const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '-').toLowerCase();
         const fileName = `${timestamp}-${cleanName}`;
@@ -85,7 +85,6 @@ const PortfolioManager = () => {
       toast.error(error.message || 'Failed to upload image(s)');
     } finally {
       setUploading(false);
-      // Reset input
       e.target.value = '';
     }
   };
@@ -114,37 +113,36 @@ const PortfolioManager = () => {
   };
 
   return (
-    <div className="min-h-screen min-h-[100dvh] bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white p-6 overflow-y-auto">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate(-1)}
-              className="text-white/70 hover:text-white hover:bg-white/10"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-            <div>
-              <h1 className="text-2xl font-bold">Portfolio Manager</h1>
-              <p className="text-white/60 text-sm">Upload and manage portfolio images for the Creative Excellence carousel</p>
+    <div className="min-h-screen bg-background">
+      <AdminHeader />
+
+      <div className="container mx-auto px-4 py-8 max-w-6xl">
+        {/* Page Header */}
+        <div className="mb-8 text-center">
+          <div className="inline-flex items-center gap-3 mb-3">
+            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary/20 to-purple-500/20">
+              <Image className="h-8 w-8 text-primary" />
+            </div>
+            <div className="text-left">
+              <h1 className="text-3xl md:text-4xl font-bold">Portfolio Manager</h1>
+              <p className="text-muted-foreground text-sm mt-0.5">
+                Upload and manage portfolio images for the Creative Excellence carousel
+              </p>
             </div>
           </div>
         </div>
 
         {/* Upload Card */}
-        <Card className="bg-white/5 border-white/10 mb-8">
+        <Card className="mb-8">
           <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Upload className="w-5 h-5" />
+            <CardTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5 text-primary" />
               Upload Images
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center hover:border-white/40 transition-colors">
+              <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 transition-colors">
                 <Input
                   type="file"
                   accept="image/*"
@@ -159,15 +157,15 @@ const PortfolioManager = () => {
                   className="cursor-pointer flex flex-col items-center gap-3"
                 >
                   {uploading ? (
-                    <Loader2 className="w-10 h-10 text-white/40 animate-spin" />
+                    <Loader2 className="w-10 h-10 text-muted-foreground animate-spin" />
                   ) : (
-                    <Image className="w-10 h-10 text-white/40" />
+                    <Image className="w-10 h-10 text-muted-foreground" />
                   )}
                   <div>
-                    <p className="text-white font-medium">
+                    <p className="font-medium">
                       {uploading ? 'Uploading...' : 'Click to upload images'}
                     </p>
-                    <p className="text-white/50 text-sm">PNG, JPG, WebP up to 10MB each</p>
+                    <p className="text-muted-foreground text-sm">PNG, JPG, WebP up to 10MB each</p>
                   </div>
                 </Label>
               </div>
@@ -176,11 +174,11 @@ const PortfolioManager = () => {
         </Card>
 
         {/* Images Grid */}
-        <Card className="bg-white/5 border-white/10">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-white flex items-center justify-between">
+            <CardTitle className="flex items-center justify-between">
               <span className="flex items-center gap-2">
-                <Image className="w-5 h-5" />
+                <Image className="w-5 h-5 text-primary" />
                 Portfolio Images ({images.length})
               </span>
             </CardTitle>
@@ -188,10 +186,10 @@ const PortfolioManager = () => {
           <CardContent>
             {loading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-white/40" />
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
               </div>
             ) : images.length === 0 ? (
-              <div className="text-center py-12 text-white/50">
+              <div className="text-center py-12 text-muted-foreground">
                 <Image className="w-12 h-12 mx-auto mb-3 opacity-50" />
                 <p>No images uploaded yet</p>
                 <p className="text-sm">Upload your first portfolio image above</p>
@@ -201,7 +199,7 @@ const PortfolioManager = () => {
                 {images.map((image) => (
                   <div
                     key={image.name}
-                    className="group relative aspect-square rounded-xl overflow-hidden bg-black/30 border border-white/10"
+                    className="group relative aspect-square rounded-xl overflow-hidden bg-muted border border-border"
                   >
                     <img
                       src={image.url}
@@ -251,9 +249,9 @@ const PortfolioManager = () => {
         </Card>
 
         {/* Instructions */}
-        <div className="mt-8 p-6 rounded-xl bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 border border-emerald-500/20">
-          <h3 className="text-lg font-semibold text-emerald-400 mb-2">How to use these images</h3>
-          <p className="text-white/70 text-sm">
+        <div className="mt-8 p-6 rounded-xl bg-primary/5 border border-primary/20">
+          <h3 className="text-lg font-semibold text-primary mb-2">How to use these images</h3>
+          <p className="text-muted-foreground text-sm">
             Once uploaded, these images will automatically appear in the "Creative Excellence" carousel on proposal pages.
             You can also copy the URL of any image to use it elsewhere.
           </p>

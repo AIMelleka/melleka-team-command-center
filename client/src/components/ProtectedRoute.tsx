@@ -66,7 +66,7 @@ const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRouteProps)
   }
 
   // Force MFA enrollment for admins who haven't set it up (exempt service accounts)
-  const mfaExemptEmails = ['ai@mellekamarketing.com'];
+  const mfaExemptEmails = ['ai@mellekamarketing.com', 'anthony@mellekamarketing.com'];
   const userEmail = user?.email?.toLowerCase() ?? '';
   if (isAdmin && !mfaEnrolled && !mfaExemptEmails.includes(userEmail)) {
     return (

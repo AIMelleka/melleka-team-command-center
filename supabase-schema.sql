@@ -79,3 +79,64 @@ create index if not exists idx_super_agent_tasks_created on super_agent_tasks(cr
 create index if not exists idx_super_agent_tasks_conversation on super_agent_tasks(conversation_id);
 
 alter table super_agent_tasks disable row level security;
+
+-- =============================================
+-- Website Builder Tables
+-- =============================================
+
+-- Website projects
+create table if not exists website_projects (
+  id uuid primary key default gen_random_uuid(),
+  member_name text not null,
+  name text not null,
+  slug text unique not null,
+  description text,
+  status text not null default 'draft',
+  template_id text,
+  custom_domain text,
+  vercel_project_id text,
+  vercel_deployment_url text,
+  branded_url text,
+  thumbnail_url text,
+  seo_defaults jsonb default '{}'::jsonb,
+  settings jsonb default '{}'::jsonb,
+  conversation_id uuid references team_conversations(id) on delete set null,
+  last_deployed_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+create index if not exists idx_website_projects_member on website_projects(member_name);
+create index if not exists idx_website_projects_slug on website_projects(slug);
+create index if not exists idx_website_projects_status on website_projects(status);
+alter table website_projects disable row level security;
+
+-- Website pages
+create table if not exists website_pages (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references website_projects(id) on delete cascade,
+  filename text not null default 'index.html',
+  title text not null default 'Home',
+  html_content text not null default '',
+  is_homepage boolean default false,
+  sort_order integer default 0,
+  seo jsonb default '{}'::jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique(project_id, filename)
+);
+create index if not exists idx_website_pages_project on website_pages(project_id);
+alter table website_pages disable row level security;
+
+-- Website version history
+create table if not exists website_versions (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references website_projects(id) on delete cascade,
+  version_number integer not null,
+  snapshot jsonb not null,
+  deploy_url text,
+  deployed_by text,
+  commit_message text,
+  created_at timestamptz default now()
+);
+create index if not exists idx_website_versions_project on website_versions(project_id);
+alter table website_versions disable row level security;

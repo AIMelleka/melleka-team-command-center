@@ -18,14 +18,27 @@
     <meta name="twitter:description" content="Melleka AI Marketing Operations Platform">
     <meta name="twitter:image" content="https://storage.googleapis.com/gpt-engineer-file-uploads/91wXaa0clOSYEU0xWhuzyRxts1L2/social-images/social-1769027343583-Untitled-600-x-600-px-e1764975072714 (1).png">
 
+    <!-- PWA -->
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+    <!-- Preconnect to API and Supabase -->
+    <link rel="preconnect" href="https://server-production-0486.up.railway.app" />
+    <link rel="preconnect" href="https://nhebotmrnxixvcvtspet.supabase.co" />
+    <link rel="dns-prefetch" href="https://server-production-0486.up.railway.app" />
+    <link rel="dns-prefetch" href="https://nhebotmrnxixvcvtspet.supabase.co" />
+
     <!-- Non-blocking font loading -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'" />
     <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@400;500;600;700&display=swap" /></noscript>
 
-    <!-- Elfsight Reviews Widget -->
-    <script src="https://static.elfsight.com/platform/platform.js" async></script>
+    <!-- Elfsight Reviews Widget (deferred to after page load) -->
+    <script>window.addEventListener('load',function(){var s=document.createElement('script');s.src='https://static.elfsight.com/platform/platform.js';s.defer=true;document.head.appendChild(s)});</script>
 
     <link rel="icon" type="image/png" href="https://storage.googleapis.com/gpt-engineer-file-uploads/91wXaa0clOSYEU0xWhuzyRxts1L2/uploads/1769032806468-Untitled-600-x-600-px-e1764975072714 (1).png">
   </head>

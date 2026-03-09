@@ -67,11 +67,11 @@ export function QAUploadZone({ contentType, accept, onFileSelect, isAnalyzing }:
   const isTextType = ["ad_copy", "email", "text_campaign", "ugc_script"].includes(contentType);
 
   return (
-    <Card className="bg-white/5 border-white/10">
+    <Card>
       <CardHeader>
-        <CardTitle className="text-white flex items-center justify-between">
+        <CardTitle className="flex items-center justify-between">
           <span className="flex items-center gap-2">
-            <FileUp className="h-5 w-5 text-purple-400" />
+            <FileUp className="h-5 w-5 text-primary" />
             Upload Content
           </span>
           {isTextType && (
@@ -80,7 +80,7 @@ export function QAUploadZone({ contentType, accept, onFileSelect, isAnalyzing }:
                 size="sm"
                 variant={inputMode === "file" ? "default" : "outline"}
                 onClick={() => setInputMode("file")}
-                className={inputMode === "file" ? "bg-purple-600" : "border-white/20 text-purple-200"}
+                className={inputMode === "file" ? "bg-purple-600" : "border-border text-muted-foreground"}
               >
                 File
               </Button>
@@ -88,7 +88,7 @@ export function QAUploadZone({ contentType, accept, onFileSelect, isAnalyzing }:
                 size="sm"
                 variant={inputMode === "text" ? "default" : "outline"}
                 onClick={() => setInputMode("text")}
-                className={inputMode === "text" ? "bg-purple-600" : "border-white/20 text-purple-200"}
+                className={inputMode === "text" ? "bg-purple-600" : "border-border text-muted-foreground"}
               >
                 Paste Text
               </Button>
@@ -99,9 +99,9 @@ export function QAUploadZone({ contentType, accept, onFileSelect, isAnalyzing }:
       <CardContent>
         {isAnalyzing ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <Loader2 className="h-12 w-12 animate-spin text-purple-400 mb-4" />
-            <p className="text-lg font-medium text-white">Analyzing Content...</p>
-            <p className="text-sm text-purple-200/60 mt-1">
+            <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
+            <p className="text-lg font-medium">Analyzing Content...</p>
+            <p className="text-sm text-muted-foreground mt-1">
               Our AI is reviewing every detail for premium quality
             </p>
           </div>
@@ -119,7 +119,7 @@ export function QAUploadZone({ contentType, accept, onFileSelect, isAnalyzing }:
                   ? "Paste your UGC script here (include speaker directions, timing, hooks, and talking points)..."
                   : "Paste your ad copy here..."
               }
-              className="min-h-[200px] bg-white/5 border-white/10 text-white placeholder:text-purple-300/30"
+              className="min-h-[200px] bg-muted/30 border-border"
             />
             <Button
               onClick={handleTextSubmit}
@@ -137,8 +137,8 @@ export function QAUploadZone({ contentType, accept, onFileSelect, isAnalyzing }:
             onDrop={handleDrop}
             className={`relative border-2 border-dashed rounded-xl p-12 text-center transition-all ${
               isDragging
-                ? "border-purple-400 bg-purple-500/10"
-                : "border-white/20 hover:border-purple-400/50"
+                ? "border-primary bg-primary/10"
+                : "border-border hover:border-primary/50"
             }`}
           >
             <input
@@ -147,11 +147,11 @@ export function QAUploadZone({ contentType, accept, onFileSelect, isAnalyzing }:
               onChange={handleFileChange}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             />
-            <Upload className="h-12 w-12 text-purple-400 mx-auto mb-4" />
-            <p className="text-lg font-medium text-white mb-1">
+            <Upload className="h-12 w-12 text-primary mx-auto mb-4" />
+            <p className="text-lg font-medium mb-1">
               Drop your file here or click to upload
             </p>
-            <p className="text-sm text-purple-200/60">
+            <p className="text-sm text-muted-foreground">
               Supports: {accept}
             </p>
           </div>

@@ -28,224 +28,91 @@ serve(async (req) => {
   const log: string[] = [];
   const push = (msg: string) => { console.log(msg); log.push(msg); };
 
-  push(`[BULK-AD-REVIEW] Starting at ${new Date().toISOString()}`);
+  // Parse body for optional single-client mode
+  let body: any = {};
+  try { body = await req.json(); } catch {}
+  const singleClient = body?.clientName as string | undefined;
 
-  // Use waitUntil for long-running background processing
-  const controller = new AbortController();
+  // --- MODE 1: Single client (synchronous, for frontend per-client calls) ---
+  if (singleClient) {
+    push(`[BULK-AD-REVIEW] Single-client mode: ${singleClient}`);
+    try {
+      const result = await processOneClient(supabase, supabaseUrl, serviceKey, singleClient, push);
+      return new Response(
+        JSON.stringify({ ok: result.ok, clientName: singleClient, message: result.message, log }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    } catch (e: any) {
+      return new Response(
+        JSON.stringify({ ok: false, clientName: singleClient, message: e.message, log }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+  }
 
-  // Respond immediately so the caller doesn't timeout
+  // --- MODE 2: List clients only (for frontend to know who to process) ---
+  if (body?.action === 'list-clients') {
+    try {
+      const { data: activeClients } = await supabase
+        .from('managed_clients')
+        .select('client_name')
+        .eq('is_active', true);
+      const activeNames = (activeClients || []).map((c: any) => c.client_name);
+      const { data: mappings } = await supabase
+        .from('client_account_mappings')
+        .select('client_name')
+        .in('client_name', activeNames);
+      const clientsWithAccounts = [...new Set((mappings || []).map((m: any) => m.client_name))];
+      return new Response(
+        JSON.stringify({ ok: true, clients: clientsWithAccounts }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    } catch (e: any) {
+      return new Response(
+        JSON.stringify({ ok: false, error: e.message }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+  }
+
+  // --- MODE 3: Bulk (original cron mode, background) ---
+  push(`[BULK-AD-REVIEW] Bulk mode starting...`);
+
   const promise = (async () => {
     try {
-      // 1. Get all clients with account mappings
-      const { data: allMappings } = await supabase
-        .from('client_account_mappings')
-        .select('client_name, platform, account_id, account_name');
+      const { data: activeClients } = await supabase
+        .from('managed_clients')
+        .select('client_name')
+        .eq('is_active', true);
 
-      if (!allMappings?.length) {
-        push('[BULK-AD-REVIEW] No account mappings found, nothing to do.');
+      if (!activeClients?.length) {
+        push('[BULK-AD-REVIEW] No active clients found.');
         return;
       }
 
-      // Group by client
-      const mappingsByClient: Record<string, Record<string, string[]>> = {};
-      for (const m of allMappings) {
-        if (!mappingsByClient[m.client_name]) mappingsByClient[m.client_name] = {};
-        if (!mappingsByClient[m.client_name][m.platform]) mappingsByClient[m.client_name][m.platform] = [];
-        mappingsByClient[m.client_name][m.platform].push(m.account_id);
-      }
+      const activeNames = activeClients.map((c: any) => c.client_name);
+      const { data: allMappings } = await supabase
+        .from('client_account_mappings')
+        .select('client_name')
+        .in('client_name', activeNames);
 
-      const clientNames = Object.keys(mappingsByClient);
-      push(`[BULK-AD-REVIEW] Found ${clientNames.length} clients with ad accounts`);
+      const clientNames = [...new Set((allMappings || []).map((m: any) => m.client_name))];
+      push(`[BULK-AD-REVIEW] Processing ${clientNames.length} clients...`);
 
-      // 2. Get managed client info for industries
-      const { data: managedClients } = await supabase
-        .from('managed_clients')
-        .select('client_name, industry, domain')
-        .in('client_name', clientNames);
-
-      const clientInfo: Record<string, { industry?: string; domain?: string }> = {};
-      for (const mc of (managedClients || [])) {
-        clientInfo[mc.client_name] = { industry: mc.industry || undefined, domain: mc.domain || undefined };
-      }
-
-      // Date range: last 14 days
-      const today = new Date();
-      const dateEnd = today.toISOString().split('T')[0];
-      const dateStart = new Date(today.getTime() - 14 * 86400000).toISOString().split('T')[0];
-
-      let completed = 0;
-      let failed = 0;
-
-      for (const clientName of clientNames) {
-        push(`\n[BULK-AD-REVIEW] ─── Processing: ${clientName} ───`);
-
+      let completed = 0, failed = 0;
+      for (const name of clientNames) {
         try {
-          const accounts = mappingsByClient[clientName];
-          const activeSources = Object.keys(accounts).filter(k => accounts[k]?.length > 0);
-
-          if (activeSources.length === 0) {
-            push(`[BULK-AD-REVIEW] No active accounts for ${clientName}, skipping`);
-            failed++;
-            continue;
-          }
-
-          // Fetch Supermetrics data
-          push(`[BULK-AD-REVIEW] Fetching Supermetrics data for ${clientName}...`);
-          const smRes = await fetch(`${supabaseUrl}/functions/v1/fetch-supermetrics`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${serviceKey}`,
-            },
-            body: JSON.stringify({
-              action: 'fetch-data',
-              dataSources: activeSources,
-              accounts,
-              dateStart,
-              dateEnd,
-            }),
-          });
-
-          const smData = await smRes.json();
-
-          // Build context string
-          let supermetricsContext = '';
-          if (smData?.success && smData?.platforms) {
-            supermetricsContext = `=== SUPERMETRICS LIVE AD DATA (PRIMARY SOURCE) ===\nDate Range: ${dateStart} to ${dateEnd}\n\n`;
-            for (const [platform, platformData] of Object.entries(smData.platforms as Record<string, any>)) {
-              const summary = (platformData as any).summary || {};
-              supermetricsContext += `## ${(platformData as any).label || platform}\n`;
-              supermetricsContext += `Account: ${(platformData as any).accountName || 'N/A'}\n`;
-              if (summary.spend > 0) supermetricsContext += `Spend: $${summary.spend?.toLocaleString(undefined, { maximumFractionDigits: 2 })}\n`;
-              if (summary.impressions > 0) supermetricsContext += `Impressions: ${summary.impressions?.toLocaleString()}\n`;
-              if (summary.clicks > 0) supermetricsContext += `Clicks: ${summary.clicks?.toLocaleString()}\n`;
-              if (summary.conversions > 0) supermetricsContext += `Conversions: ${summary.conversions?.toLocaleString()}\n`;
-              if (summary.calls > 0) supermetricsContext += `Calls: ${summary.calls?.toLocaleString()}\n`;
-              if (summary.ctr > 0) supermetricsContext += `CTR: ${(summary.ctr * 100).toFixed(2)}%\n`;
-              if (summary.cpc > 0) supermetricsContext += `CPC: $${summary.cpc?.toFixed(2)}\n`;
-              if (summary.cpa > 0) supermetricsContext += `CPA: $${summary.cpa?.toFixed(2)}\n`;
-              if ((platformData as any).campaigns?.length > 0) {
-                supermetricsContext += `\nTop Campaigns:\n`;
-                for (const c of ((platformData as any).campaigns as any[]).slice(0, 10)) {
-                  supermetricsContext += `  - ${c.name}: $${c.spend?.toLocaleString(undefined, { maximumFractionDigits: 0 })} spend, ${c.conversions} conv, CPA $${c.cpa?.toFixed(2)}\n`;
-                }
-              }
-              // Include creative data if available
-              if ((platformData as any).creatives?.length > 0) {
-                supermetricsContext += `\nTop Creatives:\n`;
-                for (const cr of ((platformData as any).creatives as any[]).slice(0, 10)) {
-                  supermetricsContext += `  - ${cr.name || cr.adName}: ${cr.impressions || 0} imp, ${cr.clicks || 0} clicks, $${cr.spend?.toFixed(2) || '0'} spend\n`;
-                }
-              }
-              // Include keyword data if available
-              if ((platformData as any).keywords?.length > 0) {
-                supermetricsContext += `\nTop Keywords:\n`;
-                for (const kw of ((platformData as any).keywords as any[]).slice(0, 15)) {
-                  supermetricsContext += `  - ${kw.keyword || kw.name}: ${kw.impressions || 0} imp, ${kw.clicks || 0} clicks, ${kw.conversions || 0} conv, CPC $${kw.cpc?.toFixed(2) || '0'}\n`;
-                }
-              }
-              // Include daily trend data
-              if ((platformData as any).daily?.length > 0) {
-                supermetricsContext += `\nDaily Trend (last 7 days):\n`;
-                for (const d of ((platformData as any).daily as any[]).slice(-7)) {
-                  supermetricsContext += `  ${d.date}: $${d.spend?.toFixed(0) || '0'} spend, ${d.clicks || 0} clicks, ${d.conversions || 0} conv\n`;
-                }
-              }
-              supermetricsContext += '\n';
-            }
-          }
-
-          // Load previous review for learning context
-          const { data: prevReviews } = await supabase
-            .from('ad_review_history')
-            .select('*')
-            .eq('client_name', clientName)
-            .order('review_date', { ascending: false })
-            .limit(3);
-
-          const previousReview = prevReviews?.[0] || null;
-          const historicalContext = prevReviews?.slice(0, 3).map(r => ({
-            date: r.review_date,
-            summary: r.summary,
-            recommendations: r.recommendations,
-            insights: r.insights,
-          })) || [];
-
-          // Call ad-review edge function
-          push(`[BULK-AD-REVIEW] Running AI analysis for ${clientName}...`);
-          const reviewRes = await fetch(`${supabaseUrl}/functions/v1/ad-review`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${serviceKey}`,
-            },
-            body: JSON.stringify({
-              type: 'sheets',
-              clientName,
-              dateRange: { start: dateStart, end: dateEnd },
-              sheetsData: supermetricsContext,
-              previousReview: previousReview || undefined,
-              benchmarkData: clientInfo[clientName]?.industry ? { industry: clientInfo[clientName].industry } : undefined,
-            }),
-          });
-
-          const reviewText = await reviewRes.text();
-          let reviewData: any;
-          try {
-            reviewData = JSON.parse(reviewText);
-          } catch {
-            push(`[BULK-AD-REVIEW] ❌ Failed to parse response for ${clientName}`);
-            failed++;
-            continue;
-          }
-
-          if (!reviewRes.ok || !reviewData?.analysis) {
-            push(`[BULK-AD-REVIEW] ❌ Review failed for ${clientName}: ${reviewRes.status}`);
-            failed++;
-            continue;
-          }
-
-          // Store ALL data — full analysis, raw supermetrics context, historical learning
-          const analysis = reviewData.analysis;
-          await supabase.from('ad_review_history').insert({
-            client_name: clientName,
-            review_date: new Date().toISOString().split('T')[0],
-            date_range_start: dateStart,
-            date_range_end: dateEnd,
-            summary: analysis.summary || '',
-            platforms: analysis.platforms || [],
-            insights: analysis.insights || [],
-            recommendations: analysis.recommendations || [],
-            week_over_week: analysis.weekOverWeek || [],
-            benchmark_comparison: analysis.benchmarkAnalysis || {},
-            action_items: analysis.actionItems || analysis.action_items || [],
-            seo_data: {
-              supermetricsRaw: supermetricsContext.substring(0, 10000),
-              historicalReviews: historicalContext,
-              fullAnalysis: analysis,
-            },
-            industry: clientInfo[clientName]?.industry || null,
-            previous_review_id: previousReview?.id || null,
-          });
-
-          push(`[BULK-AD-REVIEW] ✅ Complete for ${clientName}`);
-          completed++;
-        } catch (e: any) {
-          push(`[BULK-AD-REVIEW] ❌ Error for ${clientName}: ${e.message}`);
-          failed++;
-        }
-
-        // Delay between clients
+          const result = await processOneClient(supabase, supabaseUrl, serviceKey, name, push);
+          if (result.ok) completed++; else failed++;
+        } catch { failed++; }
         await new Promise(r => setTimeout(r, 2000));
       }
-
-      push(`\n[BULK-AD-REVIEW] ✅ Done. ${completed} completed, ${failed} failed out of ${clientNames.length} clients.`);
+      push(`[BULK-AD-REVIEW] Done. ${completed} ok, ${failed} failed.`);
     } catch (e: any) {
-      push(`[BULK-AD-REVIEW] ❌ Fatal error: ${e.message}`);
+      push(`[BULK-AD-REVIEW] Fatal: ${e.message}`);
     }
   })();
 
-  // Use EdgeRuntime.waitUntil for background processing
   if (typeof (globalThis as any).EdgeRuntime !== 'undefined') {
     (globalThis as any).EdgeRuntime.waitUntil(promise);
   } else {
@@ -257,3 +124,156 @@ serve(async (req) => {
     { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
   );
 });
+
+// Process a single client: fetch data, run AI analysis, store report
+async function processOneClient(
+  supabase: any, supabaseUrl: string, serviceKey: string, clientName: string,
+  push: (msg: string) => void,
+): Promise<{ ok: boolean; message: string }> {
+
+  // Get account mappings
+  const { data: mappings } = await supabase
+    .from('client_account_mappings')
+    .select('platform, account_id, account_name')
+    .eq('client_name', clientName);
+
+  if (!mappings?.length) return { ok: false, message: 'No account mappings' };
+
+  const accounts: Record<string, string[]> = {};
+  for (const m of mappings) {
+    if (!accounts[m.platform]) accounts[m.platform] = [];
+    accounts[m.platform].push(m.account_id);
+  }
+  const activeSources = Object.keys(accounts);
+
+  // Get client info
+  const { data: mcData } = await supabase
+    .from('managed_clients')
+    .select('industry, domain')
+    .eq('client_name', clientName)
+    .single();
+  const industry = mcData?.industry || null;
+
+  // Date range: last 14 days
+  const today = new Date();
+  const dateEnd = today.toISOString().split('T')[0];
+  const dateStart = new Date(today.getTime() - 14 * 86400000).toISOString().split('T')[0];
+
+  // Fetch Supermetrics data
+  push(`[BULK-AD-REVIEW] Fetching data for ${clientName}...`);
+  const smRes = await fetch(`${supabaseUrl}/functions/v1/fetch-supermetrics`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+    body: JSON.stringify({ action: 'fetch-data', dataSources: activeSources, accounts, dateStart, dateEnd }),
+  });
+  const smData = await smRes.json();
+
+  // Build context string
+  let supermetricsContext = '';
+  if (smData?.success && smData?.platforms) {
+    supermetricsContext = `=== SUPERMETRICS LIVE AD DATA ===\nDate Range: ${dateStart} to ${dateEnd}\n\n`;
+    for (const [platform, platformData] of Object.entries(smData.platforms as Record<string, any>)) {
+      const pd = platformData as any;
+      const s = pd.summary || {};
+      supermetricsContext += `## ${pd.label || platform}\nAccount: ${pd.accountName || 'N/A'}\n`;
+      if (s.spend > 0) supermetricsContext += `Spend: $${s.spend?.toLocaleString(undefined, { maximumFractionDigits: 2 })}\n`;
+      if (s.impressions > 0) supermetricsContext += `Impressions: ${s.impressions?.toLocaleString()}\n`;
+      if (s.clicks > 0) supermetricsContext += `Clicks: ${s.clicks?.toLocaleString()}\n`;
+      if (s.conversions > 0) supermetricsContext += `Conversions: ${s.conversions?.toLocaleString()}\n`;
+      if (s.calls > 0) supermetricsContext += `Calls: ${s.calls?.toLocaleString()}\n`;
+      if (s.ctr > 0) supermetricsContext += `CTR: ${(s.ctr * 100).toFixed(2)}%\n`;
+      if (s.cpc > 0) supermetricsContext += `CPC: $${s.cpc?.toFixed(2)}\n`;
+      if (s.cpa > 0) supermetricsContext += `CPA: $${s.cpa?.toFixed(2)}\n`;
+      if (pd.campaigns?.length > 0) {
+        supermetricsContext += `\nTop Campaigns:\n`;
+        for (const c of pd.campaigns.slice(0, 10)) {
+          supermetricsContext += `  - ${c.name}: $${c.spend?.toLocaleString(undefined, { maximumFractionDigits: 0 })} spend, ${c.conversions} conv, CPA $${c.cpa?.toFixed(2)}\n`;
+        }
+      }
+      if (pd.creatives?.length > 0) {
+        supermetricsContext += `\nTop Creatives:\n`;
+        for (const cr of pd.creatives.slice(0, 10)) {
+          supermetricsContext += `  - ${cr.name || cr.adName}: ${cr.impressions || 0} imp, ${cr.clicks || 0} clicks, $${cr.spend?.toFixed(2) || '0'} spend\n`;
+        }
+      }
+      if (pd.keywords?.length > 0) {
+        supermetricsContext += `\nTop Keywords:\n`;
+        for (const kw of pd.keywords.slice(0, 15)) {
+          supermetricsContext += `  - ${kw.keyword || kw.name}: ${kw.impressions || 0} imp, ${kw.clicks || 0} clicks, ${kw.conversions || 0} conv\n`;
+        }
+      }
+      if (pd.daily?.length > 0) {
+        supermetricsContext += `\nDaily Trend (last 7 days):\n`;
+        for (const d of pd.daily.slice(-7)) {
+          supermetricsContext += `  ${d.date}: $${d.spend?.toFixed(0) || '0'} spend, ${d.clicks || 0} clicks, ${d.conversions || 0} conv\n`;
+        }
+      }
+      supermetricsContext += '\n';
+    }
+  }
+
+  // Load previous reviews
+  const { data: prevReviews } = await supabase
+    .from('ad_review_history')
+    .select('*')
+    .eq('client_name', clientName)
+    .order('review_date', { ascending: false })
+    .limit(3);
+
+  const previousReview = prevReviews?.[0] || null;
+  const historicalContext = (prevReviews || []).slice(0, 3).map((r: any) => ({
+    date: r.review_date, summary: r.summary, recommendations: r.recommendations, insights: r.insights,
+  }));
+
+  // Run AI analysis
+  push(`[BULK-AD-REVIEW] Running AI analysis for ${clientName}...`);
+  const reviewRes = await fetch(`${supabaseUrl}/functions/v1/ad-review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+    body: JSON.stringify({
+      type: 'sheets', clientName,
+      dateRange: { start: dateStart, end: dateEnd },
+      sheetsData: supermetricsContext,
+      previousReview: previousReview || undefined,
+      benchmarkData: industry ? { industry } : undefined,
+    }),
+  });
+
+  const reviewText = await reviewRes.text();
+  let reviewData: any;
+  try { reviewData = JSON.parse(reviewText); } catch {
+    return { ok: false, message: 'Failed to parse AI response' };
+  }
+
+  if (!reviewRes.ok || !reviewData?.analysis) {
+    return { ok: false, message: `AI review failed (${reviewRes.status})` };
+  }
+
+  // Store report
+  const analysis = reviewData.analysis;
+  const { error: insertError } = await supabase.from('ad_review_history').insert({
+    client_name: clientName,
+    review_date: dateEnd,
+    date_range_start: dateStart,
+    date_range_end: dateEnd,
+    summary: analysis.summary || '',
+    platforms: analysis.platforms || [],
+    insights: analysis.insights || [],
+    recommendations: analysis.recommendations || [],
+    week_over_week: analysis.weekOverWeek || [],
+    benchmark_comparison: analysis.benchmarkAnalysis || {},
+    action_items: analysis.actionItems || analysis.action_items || [],
+    seo_data: {
+      supermetricsRaw: supermetricsContext.substring(0, 10000),
+      historicalReviews: historicalContext,
+      fullAnalysis: analysis,
+    },
+    industry,
+    previous_review_id: previousReview?.id || null,
+  });
+
+  if (insertError) return { ok: false, message: `DB insert failed: ${insertError.message}` };
+
+  push(`[BULK-AD-REVIEW] ✅ ${clientName} complete`);
+  return { ok: true, message: 'Report generated' };
+}

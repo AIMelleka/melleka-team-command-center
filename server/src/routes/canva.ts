@@ -31,7 +31,7 @@ router.get("/oauth", requireAuth, async (req: AuthRequest, res) => {
     }
 
     const redirectUri = await getSecret("CANVA_REDIRECT_URI") ||
-      `${process.env.SERVER_URL || "https://server-production-0486.up.railway.app"}/api/canva/callback`;
+      `${process.env.SERVER_URL || ""}/api/canva/callback`;
 
     // Generate PKCE code verifier and challenge
     const codeVerifier = crypto.randomBytes(64).toString("base64url");
@@ -98,7 +98,7 @@ router.get("/callback", async (req, res) => {
     // Canva sends error params if the user denied or something went wrong
     if (error) {
       console.error("[canva-callback] Canva returned error:", error, error_description);
-      const frontendUrl = process.env.CLIENT_URL || "https://teams.melleka.com";
+      const frontendUrl = process.env.CLIENT_URL || "";
       res.redirect(`${frontendUrl}?canva_error=${encodeURIComponent(error_description || error)}`);
       return;
     }
@@ -129,7 +129,7 @@ router.get("/callback", async (req, res) => {
     }
 
     const redirectUri = await getSecret("CANVA_REDIRECT_URI") ||
-      `${process.env.SERVER_URL || "https://server-production-0486.up.railway.app"}/api/canva/callback`;
+      `${process.env.SERVER_URL || ""}/api/canva/callback`;
 
     // Exchange code for tokens
     const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
@@ -196,7 +196,7 @@ router.get("/callback", async (req, res) => {
     console.log(`[canva-callback] Token saved for ${pkce.memberName}`);
 
     // Redirect to frontend with success
-    const frontendUrl = process.env.CLIENT_URL || "https://teams.melleka.com";
+    const frontendUrl = process.env.CLIENT_URL || "";
     res.redirect(`${frontendUrl}?canva=connected`);
   } catch (err: any) {
     console.error("[canva-callback] Error:", err.message);

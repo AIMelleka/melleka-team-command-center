@@ -9,6 +9,7 @@ import { ClientProvider } from "./contexts/ClientContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ThemeProvider } from "./components/ThemeProvider";
+import { MobileBottomNav } from "./components/MobileBottomNav";
 import { Loader2 } from "lucide-react";
 
 // Lazy-loaded pages
@@ -35,11 +36,15 @@ const AdReview = lazy(() => import("./pages/AdReview"));
 const SeoBot = lazy(() => import("./pages/SeoBot"));
 const PpcOptimizer = lazy(() => import("./pages/PpcOptimizer"));
 const ClientDashboard = lazy(() => import("./pages/ClientDashboard"));
-const StrategistSettings = lazy(() => import("./pages/StrategistSettings"));
 const ClientSettings = lazy(() => import("./pages/ClientSettings"));
 const SuperAgentSettings = lazy(() => import("./pages/SuperAgentSettings"));
-const Tasks = lazy(() => import("./pages/Tasks"));
 const SuperAgentDashboard = lazy(() => import("./pages/SuperAgentDashboard"));
+const MeetingQueen = lazy(() => import("./pages/MeetingQueen"));
+const SocialMedia = lazy(() => import("./pages/SocialMedia"));
+const CronJobs = lazy(() => import("./pages/CronJobs"));
+const DailyReports = lazy(() => import("./pages/DailyReports"));
+const WebsiteBuilder = lazy(() => import("./pages/WebsiteBuilder"));
+const WebsitesDashboard = lazy(() => import("./pages/WebsitesDashboard"));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
@@ -211,14 +216,6 @@ const App = () => (
                   }
                 />
                 <Route
-                  path="/strategist-settings"
-                  element={
-                    <ProtectedRoute requireAdmin>
-                      <StrategistSettings />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
                   path="/super-agent-settings"
                   element={
                     <ProtectedRoute requireAdmin>
@@ -227,18 +224,42 @@ const App = () => (
                   }
                 />
                 <Route
-                  path="/tasks"
-                  element={
-                    <ProtectedRoute requireAdmin>
-                      <Tasks />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
                   path="/super-agent-dashboard"
                   element={
                     <ProtectedRoute requireAdmin>
                       <SuperAgentDashboard />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/meeting-queen"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <MeetingQueen />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/social-media"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <SocialMedia />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/cron-jobs"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <CronJobs />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/daily-reports"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <DailyReports />
                     </ProtectedRoute>
                   }
                 />
@@ -258,6 +279,30 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
+                <Route
+                  path="/websites"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <WebsitesDashboard />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/website-builder"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <WebsiteBuilder />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/website-builder/:slug"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <WebsiteBuilder />
+                    </ProtectedRoute>
+                  }
+                />
                 <Route path="/proposal/:slug" element={<ProposalView />} />
                 <Route path="/deck/:slug/present" element={<DeckView />} />
                 <Route path="/deck/:slug" element={<DeckView />} />
@@ -266,6 +311,7 @@ const App = () => (
               </Routes>
             </Suspense>
           </ErrorBoundary>
+          <MobileBottomNav />
           </ClientProvider>
         </AuthProvider>
       </BrowserRouter>

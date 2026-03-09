@@ -6,8 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Spreadsheet IDs
-const LOOKER_DIRECTORY_SPREADSHEET_ID = '1t43DRbgSo7pOqKh2DIt7xSsKrN6JgLgLSWAJe92SDQI';
+// Client Directory (managed_clients) is the sole source of truth
 
 interface ClientEntry {
   name: string;
@@ -139,56 +138,37 @@ serve(async (req) => {
 
     console.log(`Starting client health refresh. Client: ${clientName || 'ALL'}, Force: ${forceRefresh}`);
 
-    // Step 1: Fetch client directory from Google Sheets
+    // Step 1: Fetch client directory from managed_clients (the sole source of truth)
     let clients: ClientEntry[] = [];
-    
-    if (googleServiceAccount) {
-      try {
-        const sheetResponse = await fetch(`${supabaseUrl}/functions/v1/fetch-google-sheet`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${supabaseServiceKey}`,
-          },
-          body: JSON.stringify({
-            spreadsheetId: LOOKER_DIRECTORY_SPREADSHEET_ID,
-            sheetName: 'Sheet1',
-          }),
-        });
 
-        if (sheetResponse.ok) {
-          const sheetData = await sheetResponse.json();
-          
-          for (const row of sheetData.rows || []) {
-            const name = row['Clients Name'] || row['Client Name'] || row['Client'] || row['Name'] || '';
-            if (!name?.trim()) continue;
+    let mcQuery = supabase
+      .from('managed_clients')
+      .select('client_name, domain, looker_url, site_audit_url, ga4_property_id')
+      .eq('is_active', true);
 
-            const lookerUrl = row['Looker Studio URL'] || row['Looker Studio'] || row['Dashboard URL'] || '';
-            const siteAudit = row['SITE AUDIT'] || row['Site Audit'] || '';
-            const domain = row['URL Domain'] || row['Domain'] || row['Website'] || '';
-            const ga4Id = row['GA4 Property ID'] || row['GA4 ID'] || row['GA4'] || '';
+    if (clientName) {
+      mcQuery = mcQuery.ilike('client_name', `%${clientName}%`);
+    }
 
-            const entry: ClientEntry = {
-              name: name.trim(),
-              domain: domain ? domain.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].trim() : undefined,
-              lookerUrl: lookerUrl?.includes('lookerstudio.google.com') ? lookerUrl : undefined,
-              siteAuditUrl: siteAudit?.includes('myinsights.io') ? siteAudit : undefined,
-              ga4PropertyId: ga4Id ? ga4Id.toString().replace(/[^0-9]/g, '') : undefined,
-            };
+    const { data: managedClients, error: mcError } = await mcQuery;
 
-            if (!clientName || entry.name.toLowerCase() === clientName.toLowerCase()) {
-              clients.push(entry);
-            }
-          }
-        }
-      } catch (e) {
-        console.error('Error fetching Google Sheet:', e);
-      }
+    if (mcError) {
+      console.error('Error fetching managed_clients:', mcError.message);
+    }
+
+    for (const mc of managedClients || []) {
+      clients.push({
+        name: mc.client_name,
+        domain: mc.domain || undefined,
+        lookerUrl: mc.looker_url || undefined,
+        siteAuditUrl: mc.site_audit_url || undefined,
+        ga4PropertyId: mc.ga4_property_id || undefined,
+      });
     }
 
     if (clients.length === 0) {
       return new Response(
-        JSON.stringify({ success: false, error: 'No clients found' }),
+        JSON.stringify({ success: false, error: 'No active clients found in Client Directory' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

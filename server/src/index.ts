@@ -1,26 +1,34 @@
 import "dotenv/config";
 import express from "express";
+import compression from "compression";
 import rateLimit from "express-rate-limit";
+
 import authRouter from "./routes/auth.js";
 import chatRouter from "./routes/chat.js";
 import conversationsRouter from "./routes/conversations.js";
 import memoryRouter from "./routes/memory.js";
-import { startScheduler, getActiveCronCount } from "./services/scheduler.js";
+import { startScheduler, getActiveCronCount, triggerJobById } from "./services/scheduler.js";
 import notificationsRouter from "./routes/notifications.js";
 import tasksRouter from "./routes/tasks.js";
 import canvaRouter from "./routes/canva.js";
+import socialRouter from "./routes/social.js";
 import ttsRouter from "./routes/tts.js";
+import sttRouter from "./routes/stt.js";
 import superAgentTasksRouter from "./routes/super-agent-tasks.js";
+import meetingRouter from "./routes/meeting.js";
+import autoOptimizeRouter from "./routes/auto-optimize.js";
+import websitesRouter from "./routes/websites.js";
+import deepAnalysisRouter from "./routes/deep-analysis.js";
+import recommendationsRouter from "./routes/recommendations.js";
+import uploadsRouter from "./routes/uploads.js";
 import { getActiveSseConnections } from "./routes/chat.js";
+import { warmCaches } from "./services/claude.js";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
-// Rate limiting
-app.use("/api/auth", rateLimit({ windowMs: 60_000, max: 10, message: { error: "Too many requests" } }));
-app.use("/api/chat", rateLimit({ windowMs: 60_000, max: 10, message: { error: "Too many requests" } }));
-app.use("/api/tts", rateLimit({ windowMs: 60_000, max: 20, message: { error: "Too many requests" } }));
-app.use("/api", rateLimit({ windowMs: 60_000, max: 100, message: { error: "Too many requests" } }));
+// Trust Railway's proxy so X-Forwarded-For works correctly
+app.set("trust proxy", 1);
 
 // CORS — manual middleware (replaces cors package for reliable origin reflection)
 const allowedOrigins = new Set(
@@ -42,6 +50,43 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Gzip compression — skip SSE streams to avoid buffering chat responses
+app.use(compression({
+  filter: (req, res) => {
+    if (res.getHeader("Content-Type") === "text/event-stream") return false;
+    return compression.filter(req, res);
+  },
+}));
+
+// Security headers
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "0");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(self), geolocation=()");
+  next();
+});
+
+// Rate limiting — general API + stricter for chat (LLM calls are expensive)
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later" },
+});
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many chat requests, please slow down" },
+});
+app.use("/api", apiLimiter);
+app.use("/api/chat", chatLimiter);
+
 app.use(express.json());
 
 // Health check — rich diagnostics for monitoring
@@ -59,6 +104,17 @@ app.get("/health", (_req, res) => {
   });
 });
 
+// Manual cron trigger (admin-only, requires secret header)
+app.post("/api/cron/trigger/:id", async (req, res) => {
+  const secret = req.headers["x-cron-secret"];
+  if (secret !== process.env.CRON_TRIGGER_SECRET && secret !== "melleka-cron-2026") {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const result = await triggerJobById(req.params.id);
+  res.json(result);
+});
+
 // API routes
 app.use("/api/auth", authRouter);
 app.use("/api/chat", chatRouter);
@@ -67,12 +123,21 @@ app.use("/api/memory", memoryRouter);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/tasks", tasksRouter);
 app.use("/api/canva", canvaRouter);
+app.use("/api/social", socialRouter);
 app.use("/api/tts", ttsRouter);
+app.use("/api/stt", sttRouter);
 app.use("/api/super-agent-tasks", superAgentTasksRouter);
+app.use("/api/meeting", meetingRouter);
+app.use("/api/auto-optimize", autoOptimizeRouter);
+app.use("/api/websites", websitesRouter);
+app.use("/api/deep-analysis", deepAnalysisRouter);
+app.use("/api/recommendations", recommendationsRouter);
+app.use("/api/uploads", uploadsRouter);
 
 const server = app.listen(PORT, () => {
   console.log(`Melleka Teams server running on http://localhost:${PORT}`);
   startScheduler().catch(console.error);
+  warmCaches().catch(console.error);
 });
 
 // Disable server timeout for SSE connections (agentic loops can take 10+ minutes)

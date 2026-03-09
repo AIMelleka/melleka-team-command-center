@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Sparkles, Loader2, Globe, Check, AlertCircle, Search, TrendingUp, FileText, Camera, Palette, Upload, X, CalendarIcon, Presentation, Clock, History, Zap, BarChart3, RefreshCw, Database, Activity, MessageSquare, Mail, Image, Trash2, ClipboardList, Instagram, Plus, Save } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -89,7 +89,6 @@ interface SeoDeckData {
 
 interface ClientInfo {
   name: string;
-  lookerUrl?: string;
   ga4PropertyId?: string;
   domain?: string;
   logoUrl?: string;
@@ -184,12 +183,13 @@ const DeckBuilder = () => {
   const [websiteContent, setWebsiteContent] = useState<string>('');
   const [screenshotCount, setScreenshotCount] = useState(6);
 
-  // Client selection from Google Sheet
+  // Client selection
   const [clients, setClients] = useState<ClientInfo[]>([]);
   const [clientSearch, setClientSearch] = useState('');
   const [selectedClient, setSelectedClient] = useState<ClientInfo | null>(null);
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [recentDecks, setRecentDecks] = useState<RecentDeck[]>([]);
+  const clientDropdownRef = useRef<HTMLDivElement>(null);
 
   const [formData, setFormData] = useState({
     clientName: '',
@@ -204,6 +204,17 @@ const DeckBuilder = () => {
   // Date range
   const [dateStart, setDateStart] = useState<Date>(startOfWeek(subDays(new Date(), 7)));
   const [dateEnd, setDateEnd] = useState<Date>(endOfWeek(subDays(new Date(), 7)));
+
+  // Close client dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (clientDropdownRef.current && !clientDropdownRef.current.contains(e.target as Node)) {
+        setShowClientDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Load saved social accounts when client is selected
   const handleLoadSocialAccounts = useCallback(async (clientNameToLoad: string) => {
@@ -235,6 +246,21 @@ const DeckBuilder = () => {
       handleLoadSocialAccounts(formData.clientName);
     }
   }, [formData.clientName, step, handleLoadSocialAccounts]);
+
+  // Auto-pull ad data when accounts are auto-matched for the selected client
+  const prevAccountsLoadedRef = useRef(false);
+  useEffect(() => {
+    // Only trigger when accountsLoaded transitions from false to true AND we have auto-selected accounts
+    if (accountsLoaded && !prevAccountsLoadedRef.current && selectedClient) {
+      const hasSelectedAccounts = Object.values(selectedAccounts).some(ids => ids.length > 0);
+      if (hasSelectedAccounts && !adData && !isFetchingAdData) {
+        // Small delay to let state settle
+        const timer = setTimeout(() => handleFetchAdData(), 300);
+        return () => clearTimeout(timer);
+      }
+    }
+    prevAccountsLoadedRef.current = accountsLoaded;
+  }, [accountsLoaded, selectedAccounts, selectedClient]);
 
   const handleSaveSocialAccounts = async () => {
     if (!formData.clientName || socialAccounts.length === 0) return;
@@ -516,38 +542,49 @@ const DeckBuilder = () => {
       try {
         const { data: mcData, error: mcError } = await supabase
           .from('managed_clients')
-          .select('client_name, domain, ga4_property_id, looker_url')
+          .select('client_name, domain, ga4_property_id')
           .eq('is_active', true);
         if (mcError) throw mcError;
 
-        // Fetch client profiles for logos
-        const { data: profiles } = await supabase
-          .from('client_profiles')
-          .select('id, client_name, logo_url, domain');
-
-        const profileMap = new Map<string, { id: string; logoUrl?: string; domain?: string }>();
-        profiles?.forEach(p => {
-          profileMap.set(p.client_name.toLowerCase(), {
-            id: p.id,
-            logoUrl: p.logo_url || undefined,
-            domain: p.domain || undefined
-          });
-        });
-
-        const clientList: ClientInfo[] = (mcData || []).map(mc => {
-          const profile = profileMap.get(mc.client_name.toLowerCase());
-          return {
-            name: mc.client_name,
-            domain: mc.domain || '',
-            ga4PropertyId: mc.ga4_property_id || '',
-            lookerUrl: (mc as any).looker_url || '',
-            logoUrl: profile?.logoUrl,
-            profileId: profile?.id,
-          };
-        }).filter((c: ClientInfo) => c.name);
+        // Build client list first (don't block on profiles)
+        const clientList: ClientInfo[] = (mcData || []).map(mc => ({
+          name: mc.client_name,
+          domain: mc.domain || '',
+          ga4PropertyId: mc.ga4_property_id || '',
+        })).filter((c: ClientInfo) => c.name);
         setClients(clientList);
-      } catch (err) {
+
+        // Then enrich with logos from client_profiles (non-blocking)
+        try {
+          const { data: profiles } = await supabase
+            .from('client_profiles')
+            .select('id, client_name, logo_url, domain');
+
+          if (profiles?.length) {
+            const profileMap = new Map<string, { id: string; logoUrl?: string; domain?: string }>();
+            profiles.forEach(p => {
+              profileMap.set(p.client_name.toLowerCase(), {
+                id: p.id,
+                logoUrl: p.logo_url || undefined,
+                domain: p.domain || undefined
+              });
+            });
+
+            setClients(prev => prev.map(c => {
+              const profile = profileMap.get(c.name.toLowerCase());
+              return profile ? { ...c, logoUrl: profile.logoUrl, profileId: profile.id } : c;
+            }));
+          }
+        } catch (profileErr) {
+          console.warn('Could not load client profiles for logos:', profileErr);
+        }
+
+        if (clientList.length === 0) {
+          toast.error('No active clients found. Add clients in Client Settings first.');
+        }
+      } catch (err: any) {
         console.error('Error fetching clients:', err);
+        toast.error('Failed to load clients: ' + (err?.message || 'Unknown error'));
       }
     };
     fetchClients();
@@ -648,7 +685,53 @@ const DeckBuilder = () => {
     }
   };
 
-  const handleFetchSupermetricsAccounts = useCallback(async () => {
+  // Auto-match Supermetrics accounts to the selected client by name/domain
+  const autoMatchAccounts = useCallback((
+    accounts: Record<string, SupermetricsAccount[]>,
+    clientName: string,
+    clientDomain?: string
+  ): Record<string, string[]> => {
+    const matched: Record<string, string[]> = {};
+    const nameLower = clientName.toLowerCase();
+    // Extract meaningful words from client name (skip common words)
+    const nameWords = nameLower.split(/\s+/).filter(w => w.length > 2 && !['the', 'and', 'inc', 'llc', 'ltd', 'corp'].includes(w));
+    // Clean domain for matching (e.g., "example.com" -> "example")
+    const domainBase = clientDomain?.replace(/^https?:\/\//, '').replace(/^www\./, '').split('.')[0]?.toLowerCase() || '';
+
+    for (const [platformKey, accts] of Object.entries(accounts)) {
+      const matchedIds: string[] = [];
+      for (const acc of accts) {
+        const accLower = acc.name.toLowerCase();
+        // Direct substring match (client name in account name or vice versa)
+        if (accLower.includes(nameLower) || nameLower.includes(accLower)) {
+          matchedIds.push(acc.id);
+          continue;
+        }
+        // Domain match
+        if (domainBase && domainBase.length > 3 && accLower.includes(domainBase)) {
+          matchedIds.push(acc.id);
+          continue;
+        }
+        // Word-level matching (any significant word from client name appears in account name)
+        const wordMatch = nameWords.some(word => accLower.includes(word));
+        if (wordMatch) {
+          matchedIds.push(acc.id);
+          continue;
+        }
+        // Fuzzy similarity check
+        const score = similarityScore(nameLower, accLower);
+        if (score > 0.6) {
+          matchedIds.push(acc.id);
+        }
+      }
+      if (matchedIds.length > 0) {
+        matched[platformKey] = matchedIds;
+      }
+    }
+    return matched;
+  }, []);
+
+  const handleFetchSupermetricsAccounts = useCallback(async (autoMatchClient?: ClientInfo | null) => {
     setIsFetchingAccounts(true);
     try {
       const { data, error } = await supabase.functions.invoke('fetch-supermetrics', {
@@ -658,8 +741,22 @@ const DeckBuilder = () => {
       if (data?.success && data?.accounts) {
         setSupermetricsAccounts(data.accounts);
         setAccountsLoaded(true);
-        setSelectedAccounts({});
-        toast.success('Connected ad accounts loaded!');
+
+        // Auto-match accounts if a client is provided
+        if (autoMatchClient?.name) {
+          const matched = autoMatchAccounts(data.accounts, autoMatchClient.name, autoMatchClient.domain);
+          setSelectedAccounts(matched);
+          const totalMatched = Object.values(matched).reduce((sum, ids) => sum + ids.length, 0);
+          if (totalMatched > 0) {
+            toast.success(`Auto-matched ${totalMatched} ad account(s) for ${autoMatchClient.name}`);
+          } else {
+            setSelectedAccounts({});
+            toast.info('No matching ad accounts found. Select accounts manually.');
+          }
+        } else {
+          setSelectedAccounts({});
+          toast.success('Connected ad accounts loaded!');
+        }
       }
     } catch (err) {
       console.error('Error fetching Supermetrics accounts:', err);
@@ -667,7 +764,7 @@ const DeckBuilder = () => {
     } finally {
       setIsFetchingAccounts(false);
     }
-  }, []);
+  }, [autoMatchAccounts]);
 
   const handleFetchAdData = async () => {
     const activeSources = Object.keys(selectedAccounts).filter(k => selectedAccounts[k] && selectedAccounts[k].length > 0);
@@ -1005,18 +1102,18 @@ const DeckBuilder = () => {
                 <Search className="w-5 h-5 text-genie-gold" />
                 <h3 className="text-lg font-semibold text-foreground">Select Client</h3>
               </div>
-              <div className="relative">
+              <div className="relative" ref={clientDropdownRef}>
                 <input
                   type="text"
                   value={clientSearch}
                   onChange={(e) => { setClientSearch(e.target.value); setShowClientDropdown(true); }}
                   onFocus={() => setShowClientDropdown(true)}
-                  placeholder="Search clients..."
+                  placeholder={clients.length === 0 ? "Loading clients..." : "Search clients..."}
                   className="w-full px-4 py-3 rounded-xl bg-card border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-genie-purple/50"
                 />
-                {showClientDropdown && filteredClients.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-60 overflow-auto">
-                    {filteredClients.map((client, idx) => (
+                {showClientDropdown && (
+                  <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-60 overflow-auto">
+                    {filteredClients.length > 0 ? filteredClients.map((client, idx) => (
                       <button
                         key={idx}
                         className={cn(
@@ -1027,21 +1124,41 @@ const DeckBuilder = () => {
                           setSelectedClient(client);
                           setClientSearch(client.name);
                           setShowClientDropdown(false);
-                          setFormData(prev => ({ 
-                            ...prev, 
+                          const websiteUrl = client.domain ? (client.domain.startsWith('http') ? client.domain : `https://${client.domain}`) : formData.websiteUrl;
+                          setFormData(prev => ({
+                            ...prev,
                             clientName: client.name,
-                            websiteUrl: client.domain ? (client.domain.startsWith('http') ? client.domain : `https://${client.domain}`) : prev.websiteUrl
+                            websiteUrl
                           }));
-                          // Load saved logo into branding
                           if (client.logoUrl) {
                             setBranding(prev => prev ? { ...prev, logo: client.logoUrl } : { logo: client.logoUrl });
+                          }
+                          // Auto-scrape website if domain exists and not already scraped
+                          if (websiteUrl && !scraped) {
+                            setTimeout(() => handleScrapeWebsite(), 100);
+                          }
+                          // Auto-fetch & auto-match Supermetrics accounts
+                          if (!accountsLoaded) {
+                            handleFetchSupermetricsAccounts(client);
+                          } else if (Object.keys(supermetricsAccounts).length > 0) {
+                            // Accounts already loaded, just auto-match
+                            const matched = autoMatchAccounts(supermetricsAccounts, client.name, client.domain);
+                            setSelectedAccounts(matched);
+                            const totalMatched = Object.values(matched).reduce((sum, ids) => sum + ids.length, 0);
+                            if (totalMatched > 0) {
+                              toast.success(`Auto-matched ${totalMatched} ad account(s) for ${client.name}`);
+                            }
                           }
                         }}
                       >
                         <div className="font-medium">{client.name}</div>
                         {client.domain && <div className="text-xs text-muted-foreground">{client.domain}</div>}
                       </button>
-                    ))}
+                    )) : (
+                      <div className="px-4 py-3 text-sm text-muted-foreground">
+                        {clients.length === 0 ? 'No clients loaded. Check Client Settings.' : 'No matches found.'}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

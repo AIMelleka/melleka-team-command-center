@@ -10,6 +10,7 @@ import {
 import fs from "fs/promises";
 import path from "path";
 import type Anthropic from "@anthropic-ai/sdk";
+import { randomUUID } from "crypto";
 
 const router = Router();
 
@@ -20,9 +21,10 @@ const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp
 
 router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, res) => {
   const memberName = req.memberName!;
-  const { message, conversationId } = req.body as {
+  const { message, conversationId, websiteProjectId } = req.body as {
     message: string;
     conversationId?: string;
+    websiteProjectId?: string;
   };
   // mentionedClients may come as JSON string (FormData) or array (JSON body)
   let mentionedClients: string[] | undefined;
@@ -45,17 +47,18 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
 
   activeSseConnections++;
 
-  // Set up SSE headers
+  // Set up SSE headers — aggressive anti-buffering for Railway/Cloudflare/nginx
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-store, no-transform");
   res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no"); // Disable proxy buffering (nginx/Railway)
+  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("X-Content-Type-Options", "nosniff");
   res.flushHeaders();
 
-  // Send keepalive pings every 5s to prevent Railway/proxy timeout
+  // Send keepalive pings every 3s to prevent Railway/proxy timeout
   const keepalive = setInterval(() => {
     try { res.write(": keepalive\n\n"); } catch { /* connection gone */ }
-  }, 5000);
+  }, 3000);
 
   // Track if client disconnected so we still save the response
   let clientDisconnected = false;
@@ -64,28 +67,82 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
   let convId = conversationId;
 
   try {
-    // Process uploaded files — split into images (vision) vs non-images (file paths)
+    // Process uploaded files — persist to Supabase storage, smart context for Claude
     const imageBlocks: Anthropic.ImageBlockParam[] = [];
     const fileAnnotations: string[] = [];
+    const batchId = uploadedFiles.length > 0 ? randomUUID() : null;
+    const BUCKET = "team-uploads";
+    const slug = memberName.toLowerCase().replace(/\s+/g, "-");
+    let imageCount = 0;
+
+    // We'll persist uploads to Supabase after convId is established (need FK).
+    // For now, read image data for inline vision (first 3 images only).
+    const pendingUploads: Array<{
+      file: Express.Multer.File;
+      buffer: Buffer;
+      storagePath: string;
+      publicUrl?: string;
+    }> = [];
 
     for (const file of uploadedFiles) {
-      if (IMAGE_TYPES.has(file.mimetype)) {
-        const data = await fs.readFile(file.path);
-        imageBlocks.push({
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: file.mimetype as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-            data: data.toString("base64"),
-          },
+      const buffer = await fs.readFile(file.path);
+      const ext = file.originalname.split(".").pop() || "bin";
+      const storagePath = `${slug}/${batchId}/${randomUUID()}.${ext}`;
+
+      // Upload to Supabase storage immediately
+      const { error: uploadErr } = await supabase.storage
+        .from(BUCKET)
+        .upload(storagePath, buffer, {
+          contentType: file.mimetype,
+          upsert: true,
+          cacheControl: "31536000",
         });
-        fileAnnotations.push(`[Attached image: ${file.originalname} → ${file.path}]`);
+
+      // Clean up temp file
+      await fs.unlink(file.path).catch(() => {});
+
+      if (uploadErr) {
+        console.error(`[chat] Upload failed for ${file.originalname}:`, uploadErr.message);
+        fileAnnotations.push(`[Upload FAILED: ${file.originalname} — ${uploadErr.message}]`);
+        continue;
+      }
+
+      const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
+      const publicUrl = urlData.publicUrl;
+
+      pendingUploads.push({ file, buffer, storagePath, publicUrl });
+
+      if (IMAGE_TYPES.has(file.mimetype)) {
+        imageCount++;
+        // Only send first 3 images as inline base64 for vision analysis
+        if (imageBlocks.length < 3) {
+          imageBlocks.push({
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: file.mimetype as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+              data: buffer.toString("base64"),
+            },
+          });
+        }
+        fileAnnotations.push(`[Uploaded image: ${file.originalname} — URL: ${publicUrl}]`);
       } else {
         const sizeKB = (file.size / 1024).toFixed(1);
         fileAnnotations.push(
-          `[Attached file: ${file.originalname} (${file.mimetype}, ${sizeKB}KB) → saved at: ${file.path}]`
+          `[Uploaded file: ${file.originalname} (${file.mimetype}, ${sizeKB}KB) — URL: ${publicUrl}]`
         );
       }
+    }
+
+    // If more than 3 images, tell Claude about the manage_uploads tool
+    if (imageCount > 3) {
+      fileAnnotations.push(
+        `[NOTE: ${imageCount} images uploaded (first 3 shown inline for analysis). Use the manage_uploads tool with batch_id="${batchId}" to view/search all uploads. Use the public URLs above to embed images in any generated content.]`
+      );
+    } else if (imageCount > 0) {
+      fileAnnotations.push(
+        `[NOTE: Use the public URLs above to embed these images in any generated content (reports, HTML, etc.).]`
+      );
     }
 
     // Build the message text that gets saved to DB (includes file annotations)
@@ -116,20 +173,57 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
         .eq("member_name", memberName.toLowerCase());
     }
 
-    // Save user message (with file annotations embedded)
+    // Persist upload metadata to team_uploads now that convId is available
+    if (pendingUploads.length > 0) {
+      const rows = pendingUploads.map((u) => ({
+        member_name: memberName.toLowerCase(),
+        batch_id: batchId,
+        conversation_id: convId,
+        original_name: u.file.originalname,
+        storage_path: u.storagePath,
+        public_url: u.publicUrl!,
+        mime_type: u.file.mimetype,
+        file_size: u.file.size,
+      }));
+      const { error: metaErr } = await supabase.from("team_uploads").insert(rows);
+      if (metaErr) console.error("[chat] Failed to save upload metadata:", metaErr.message);
+      else console.log(`[chat] Persisted ${rows.length} uploads (batch ${batchId}) for ${memberName}`);
+    }
+
+    // Save user message first, then load history + fetch @mentions in parallel
+    const hasMentions = mentionedClients && mentionedClients.length > 0;
+
+    // 1. Save user message (must complete before history query)
     await supabase.from("team_messages").insert({
       conversation_id: convId,
       role: "user",
       content: savedMessage,
     });
 
-    // Load conversation history (last 40 messages) with timestamps
-    const { data: history } = await supabase
-      .from("team_messages")
-      .select("role, content, created_at")
-      .eq("conversation_id", convId)
-      .order("created_at", { ascending: true })
-      .limit(40);
+    const [historyResult, mentionResult] = await Promise.all([
+      // 2. Load conversation history (most recent 40 messages)
+      supabase
+        .from("team_messages")
+        .select("role, content, created_at")
+        .eq("conversation_id", convId)
+        .order("created_at", { ascending: false })
+        .limit(40),
+      // 3. Pre-fetch @mentioned client data (or skip)
+      hasMentions
+        ? Promise.all([
+            supabase
+              .from("managed_clients")
+              .select("client_name, domain, ga4_property_id, industry, tier, primary_conversion_goal, tracked_conversion_types, multi_account_enabled, site_audit_url")
+              .in("client_name", mentionedClients!),
+            supabase
+              .from("client_account_mappings")
+              .select("client_name, platform, account_id, account_name")
+              .in("client_name", mentionedClients!),
+          ])
+        : Promise.resolve(null),
+    ]);
+
+    const history = (historyResult.data ?? []).reverse();
 
     const messages: Anthropic.MessageParam[] = (history ?? []).map((m) => {
       const ts = new Date(m.created_at).toLocaleString("en-US", {
@@ -143,18 +237,14 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       };
     });
 
-    // If clients were @mentioned, pre-fetch their data and inject into the message context
-    if (mentionedClients && mentionedClients.length > 0) {
-      const { data: mcData } = await supabase
-        .from("managed_clients")
-        .select("client_name, domain, ga4_property_id, industry, tier, primary_conversion_goal")
-        .in("client_name", mentionedClients);
+    // Guard: ensure at least one message before calling the API
+    if (messages.length === 0) {
+      messages.push({ role: "user" as const, content: savedMessage });
+    }
 
-      const { data: mappings } = await supabase
-        .from("client_account_mappings")
-        .select("client_name, platform, account_id, account_name")
-        .in("client_name", mentionedClients);
-
+    // Inject @mention context if available
+    if (mentionResult) {
+      const [{ data: mcData }, { data: mappings }] = mentionResult;
       console.log(`[chat] @mention lookup: clients found=${mcData?.length ?? 0}, mappings found=${mappings?.length ?? 0}`);
       if (mcData && mcData.length > 0) {
         const contextLines: string[] = ["[Client Context — auto-resolved from @mentions]"];
@@ -170,6 +260,9 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
           if (mc.industry) parts.push(`industry=${mc.industry}`);
           if (mc.tier) parts.push(`tier=${mc.tier}`);
           if (mc.primary_conversion_goal) parts.push(`goal=${mc.primary_conversion_goal}`);
+          if ((mc as any).tracked_conversion_types?.length) parts.push(`tracked_conversions=[${(mc as any).tracked_conversion_types.join(", ")}]`);
+          if ((mc as any).multi_account_enabled) parts.push(`multi_account=true`);
+          if ((mc as any).site_audit_url) parts.push(`site_audit=${(mc as any).site_audit_url}`);
           for (const [platform, ids] of Object.entries(byPlatform)) {
             parts.push(`${platform}_accounts=[${ids.join(", ")}]`);
           }
@@ -186,6 +279,42 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
           }
           console.log(`[chat] Injected @mention context:\n${prefix}`);
         }
+      }
+    }
+
+    // Inject website builder context if a project is active
+    if (websiteProjectId) {
+      const { data: wp, error: wpErr } = await supabase
+        .from("website_projects")
+        .select("id, name, slug, status, branded_url, settings, seo_defaults")
+        .eq("id", websiteProjectId)
+        .single();
+
+      if (wpErr) {
+        console.error(`[chat] Failed to load website project ${websiteProjectId}:`, wpErr.message);
+      }
+
+      if (wp) {
+        const { data: wpPages, error: pagesErr } = await supabase
+          .from("website_pages")
+          .select("filename, title, id")
+          .eq("project_id", websiteProjectId)
+          .order("sort_order", { ascending: true });
+
+        if (pagesErr) console.error(`[chat] Failed to load website pages:`, pagesErr.message);
+
+        const pageList = (wpPages ?? []).map(p => `${p.filename} (${p.title})`).join(", ");
+        const prefix = `[Website Builder Context — project: "${wp.name}" (${wp.slug}), project_id: ${wp.id}, status: ${wp.status}${wp.branded_url ? `, live: https://${wp.branded_url}` : ""}, pages: ${pageList || "none yet"}]\n`;
+
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg?.role === "user") {
+          if (typeof lastMsg.content === "string") {
+            lastMsg.content = prefix + lastMsg.content;
+          }
+        }
+        console.log(`[chat] Injected website builder context for project ${wp.slug}`);
+      } else {
+        console.warn(`[chat] Website project ${websiteProjectId} not found, proceeding without context`);
       }
     }
 

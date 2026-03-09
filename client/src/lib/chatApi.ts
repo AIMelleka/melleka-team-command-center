@@ -1,22 +1,32 @@
 import { supabase } from "@/integrations/supabase/client";
 
-// All API calls go to the same base — custom domain in prod, Vite proxy in dev.
+// All API calls go to the same base — env var in prod, Vite proxy in dev.
 const API_BASE = import.meta.env.PROD
-  ? "https://api.teams.melleka.com/api"
+  ? (import.meta.env.VITE_API_URL || "https://api.teams.melleka.com/api")
   : "/api";
 
+async function getFreshToken(): Promise<string> {
+  let { data: { session } } = await supabase.auth.getSession();
+  // If no session or token expires within 60s, force a refresh
+  if (!session?.access_token || (session.expires_at && session.expires_at * 1000 - Date.now() < 60_000)) {
+    const { data } = await supabase.auth.refreshSession();
+    session = data.session;
+  }
+  return session?.access_token || "";
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const token = await getFreshToken();
   return {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${session?.access_token}`,
+    Authorization: `Bearer ${token}`,
   };
 }
 
 async function authHeadersNoContentType(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const token = await getFreshToken();
   return {
-    Authorization: `Bearer ${session?.access_token}`,
+    Authorization: `Bearer ${token}`,
   };
 }
 
@@ -70,6 +80,52 @@ export async function fetchMemory(): Promise<string> {
   return (data as { content: string }).content;
 }
 
+export interface MemoryEntry {
+  id: string;
+  member_name: string;
+  title: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchMemoryEntries(): Promise<MemoryEntry[]> {
+  const res = await fetch(`${API_BASE}/memory/entries`, { headers: await authHeaders() });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function createMemoryEntryApi(title: string, content: string): Promise<MemoryEntry> {
+  const res = await fetch(`${API_BASE}/memory/entries`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ title, content }),
+  });
+  if (!res.ok) throw new Error("Failed to create memory");
+  return res.json();
+}
+
+export async function updateMemoryEntryApi(
+  id: string,
+  updates: { title?: string; content?: string }
+): Promise<MemoryEntry> {
+  const res = await fetch(`${API_BASE}/memory/entries/${id}`, {
+    method: "PATCH",
+    headers: await authHeaders(),
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error("Failed to update memory");
+  return res.json();
+}
+
+export async function deleteMemoryEntryApi(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/memory/entries/${id}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete memory");
+}
+
 export interface CronJob {
   id: string;
   member_name: string;
@@ -88,6 +144,17 @@ export async function fetchCronJobs(): Promise<CronJob[]> {
   return res.json();
 }
 
+export async function deleteCronJob(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/notifications/cron-jobs/${id}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to delete" }));
+    throw new Error(err.error || "Failed to delete cron job");
+  }
+}
+
 export async function ensureTeamMember(): Promise<{ name: string; userId: string }> {
   const res = await fetch(`${API_BASE}/auth/me`, { headers: await authHeaders() });
   if (!res.ok) throw new Error("Not authenticated");
@@ -104,8 +171,9 @@ export interface SSEEvent {
 }
 
 // Stale timeout: if no data (including keepalive pings) for this many ms, consider dead.
-// Server sends keepalive every 5s, so 20s means we missed 4 pings.
-const STALE_TIMEOUT_MS = 20_000;
+// Server sends keepalive every 3s, so 100s means we missed ~33 pings.
+// Long timeout prevents false positives during slow API calls (Google Ads, Stripe, etc.)
+const STALE_TIMEOUT_MS = 100_000;
 
 export function streamMessage(
   message: string,
@@ -117,8 +185,12 @@ export function streamMessage(
   onDisconnect?: () => void,
 ): () => void {
   const controller = new AbortController();
+  let aborted = false;
 
-  (async () => {
+  const attemptStream = async (retryCount = 0): Promise<void> => {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAYS = [2000, 4000, 8000];
+
     let body: BodyInit;
     let fetchHeaders: Record<string, string>;
 
@@ -151,7 +223,14 @@ export function streamMessage(
 
       if (!res.ok || !res.body) {
         const text = await res.text().catch(() => "");
-        onEvent({ type: "error", message: `Request failed (${res.status}): ${text || res.statusText}` });
+        // Retry on 502/503/504 (proxy errors)
+        const status = res.status;
+        if ([401, 502, 503, 504].includes(status) && retryCount < MAX_RETRIES && !aborted) {
+          const delay = RETRY_DELAYS[retryCount] || 8000;
+          await new Promise((r) => setTimeout(r, delay));
+          return attemptStream(retryCount + 1);
+        }
+        onEvent({ type: "error", message: `Request failed (${status}): ${text || res.statusText}` });
         onDone();
         return;
       }
@@ -166,10 +245,11 @@ export function streamMessage(
         if (staleTimer) clearTimeout(staleTimer);
         staleTimer = setTimeout(() => {
           // No data for STALE_TIMEOUT_MS - connection is dead
-          if (!receivedDone) {
-            controller.abort();
+          if (!receivedDone && !aborted) {
+            // Try to reconnect instead of immediately failing
+            if (staleTimer) clearTimeout(staleTimer);
+            try { reader.cancel(); } catch { /* ok */ }
             if (onDisconnect) onDisconnect();
-            onDone();
           }
         }, STALE_TIMEOUT_MS);
       };
@@ -208,18 +288,32 @@ export function streamMessage(
       }
       onDone();
     } catch (err) {
-      if ((err as Error).name !== "AbortError") {
-        const msg = err instanceof TypeError
-          ? `Connection failed — check network or try again`
-          : String(err);
-        onEvent({ type: "error", message: msg });
-        if (onDisconnect) onDisconnect();
-        onDone();
-      }
-    }
-  })();
+      if ((err as Error).name === "AbortError" || aborted) return;
 
-  return () => controller.abort();
+      // Auto-retry on connection failures (TypeError = network error)
+      if (retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAYS[retryCount] || 8000;
+        console.warn(`[chatApi] Connection failed, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        await new Promise((r) => setTimeout(r, delay));
+        if (!aborted) return attemptStream(retryCount + 1);
+      }
+
+      // All retries exhausted
+      const msg = err instanceof TypeError
+        ? `Connection lost after ${MAX_RETRIES} retries. The agent may still be working — refresh to check.`
+        : String(err);
+      onEvent({ type: "error", message: msg });
+      if (onDisconnect) onDisconnect();
+      onDone();
+    }
+  };
+
+  attemptStream();
+
+  return () => {
+    aborted = true;
+    controller.abort();
+  };
 }
 
 // ── Persistent background chat: reconnect APIs ──

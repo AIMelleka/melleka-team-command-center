@@ -5,7 +5,7 @@ const router = Router();
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
-const DEFAULT_DB_ID = "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
+const DEFAULT_DB_ID = process.env.NOTION_TASK_DATABASE_ID || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
 
 function notionHeaders() {
   return {

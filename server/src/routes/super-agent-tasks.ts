@@ -13,6 +13,7 @@ router.get("/stats", requireAuth, async (_req, res) => {
 
   const tasks = data ?? [];
   const today = new Date().toISOString().split("T")[0];
+  res.setHeader("Cache-Control", "private, max-age=30");
   res.json({
     total: tasks.length,
     inProgress: tasks.filter((t) => t.status === "working_on_it").length,
@@ -42,6 +43,7 @@ router.get("/", requireAuth, async (req, res) => {
 
   const { data, error } = await query;
   if (error) { res.status(500).json({ error: error.message }); return; }
+  res.setHeader("Cache-Control", "private, max-age=15");
   res.json(data ?? []);
 });
 

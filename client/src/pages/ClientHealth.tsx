@@ -32,7 +32,6 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { format, subDays, differenceInDays } from 'date-fns';
 import AdminHeader from '@/components/AdminHeader';
-import { similarityScore, containsSimilarWords } from '@/lib/fuzzyMatch';
 import MiniSparkline from '@/components/MiniSparkline';
 import {
   ComposedChart, Area, Line, CartesianGrid as RCartesianGrid, Legend as RLegend,
@@ -91,16 +90,6 @@ interface SeoAnalysis {
   metrics: { domain: string; organicKeywords: number; organicTraffic: number; domainAuthority: number; backlinks: number; referringDomains: number; siteErrors?: number | null };
   insights: { type: string; title: string; description: string }[];
   recommendations: { priority: string; action: string; expectedImpact: string }[];
-}
-
-function matchAccountToClient(accountName: string, clientName: string): number {
-  const accLower = accountName.toLowerCase().trim();
-  const clientLower = clientName.toLowerCase().trim();
-  if (accLower === clientLower) return 1;
-  if (accLower.includes(clientLower) || clientLower.includes(accLower)) return 0.9;
-  const wordScore = containsSimilarWords(clientName, accountName);
-  if (wordScore > 0.5) return wordScore * 0.85;
-  return similarityScore(accountName, clientName);
 }
 
 // ===== Status dot component =====
@@ -532,7 +521,6 @@ const ClientHealth = () => {
   const [fleetView, setFleetView] = useState<'clients' | 'audit' | 'history' | 'crons'>('clients');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'health' | 'name' | 'seo'>('health');
-  const [stratWinRateFilter, setStratWinRateFilter] = useState<number | null>(null);
 
 
   const [smAccounts, setSmAccounts] = useState<Record<string, SupermetricsAccount[]>>({});
@@ -590,9 +578,6 @@ const ClientHealth = () => {
   // AI memory counts per client
   const [memoryCountByClient, setMemoryCountByClient] = useState<Record<string, number>>({});
 
-  // Strategist scorecard per client (fleet-level)
-  interface StrategistScore { improved: number; neutral: number; worsened: number; total: number; winRate: number; sessions: number; aiStrategyScore: number; }
-  const [strategistScoreByClient, setStrategistScoreByClient] = useState<Record<string, StrategistScore>>({});
 
   // Per-platform trend data cache
   interface PlatformTrend { spend: number; conv: number; calls: number; costPerConv: number; leads: number; purchases: number; }
@@ -920,19 +905,12 @@ const ClientHealth = () => {
   }, [toast, loadManagedClients]);
 
   const getMatchedAccounts = useCallback((clientName: string): Record<string, string[]> => {
-    // Prefer manual mappings if they exist
+    // Only use explicit manual mappings from the database
     if (manualMappings[clientName] && Object.keys(manualMappings[clientName]).length > 0) {
       return manualMappings[clientName];
     }
-    // Fallback to fuzzy matching
-    if (!smAccountsLoaded) return {};
-    const matched: Record<string, string[]> = {};
-    for (const [platform, accounts] of Object.entries(smAccounts)) {
-      const ids = accounts.filter(acc => matchAccountToClient(acc.name, clientName) >= 0.55).map(a => a.id);
-      if (ids.length > 0) matched[platform] = ids;
-    }
-    return matched;
-  }, [smAccounts, smAccountsLoaded, manualMappings]);
+    return {};
+  }, [manualMappings]);
 
   const fetchLiveAdData = useCallback(async (clientName: string, matchedAccounts: Record<string, string[]>) => {
     const activeSources = Object.keys(matchedAccounts).filter(k => matchedAccounts[k]?.length > 0);
@@ -1328,63 +1306,8 @@ const ClientHealth = () => {
     } catch (err) { console.error('Failed to load memory counts:', err); }
   }, []);
 
-  // Load strategist scores fleet-wide
-  const loadStrategistScores = useCallback(async () => {
-    try {
-      const [changesRes, resultsRes, sessionsRes, settingsRes] = await Promise.all([
-        supabase.from('ppc_proposed_changes').select('id, client_name, session_id'),
-        supabase.from('ppc_change_results').select('change_id, outcome'),
-        supabase.from('ppc_optimization_sessions').select('id, client_name, auto_mode').eq('auto_mode', true).order('created_at', { ascending: false }),
-        supabase.from('ppc_client_settings').select('client_name').eq('auto_mode_enabled', true),
-      ]);
-      // Build set of auto-mode client names
-      const autoClients = new Set((settingsRes.data || []).map(r => r.client_name));
-      // Build set of auto-mode session IDs
-      const autoSessionIds = new Set((sessionsRes.data || []).map(s => s.id));
-      // Count sessions per client (auto-mode only)
-      const sessionCounts: Record<string, number> = {};
-      for (const s of sessionsRes.data || []) {
-        if (!autoClients.has(s.client_name)) continue;
-        sessionCounts[s.client_name] = (sessionCounts[s.client_name] || 0) + 1;
-      }
-      // Map change_id -> client_name (only for changes from auto-mode sessions)
-      const changeToClient: Record<string, string> = {};
-      for (const c of changesRes.data || []) {
-        if (autoSessionIds.has(c.session_id) && autoClients.has(c.client_name)) {
-          changeToClient[c.id] = c.client_name;
-        }
-      }
-      // Tally outcomes per client
-      const scores: Record<string, StrategistScore> = {};
-      for (const r of resultsRes.data || []) {
-        const clientName = changeToClient[r.change_id];
-        if (!clientName) continue;
-        if (!scores[clientName]) scores[clientName] = { improved: 0, neutral: 0, worsened: 0, total: 0, winRate: 0, sessions: 0, aiStrategyScore: 0 };
-        scores[clientName].total++;
-        const outcome = (r.outcome || '').toLowerCase();
-        if (outcome === 'improved' || outcome === 'positive') scores[clientName].improved++;
-        else if (outcome === 'declined' || outcome === 'negative' || outcome === 'worsened') scores[clientName].worsened++;
-        else scores[clientName].neutral++;
-      }
-      // Compute win rates, AI strategy scores, and add session counts
-      for (const [name, s] of Object.entries(scores)) {
-        s.winRate = s.total > 0 ? (s.improved / s.total) * 100 : 0;
-        s.sessions = sessionCounts[name] || 0;
-        // Simplified fleet-level AI strategy score (weighted composite)
-        const winRateScore = s.total > 0 ? (s.improved / s.total) * 100 : 50;
-        const efficiencyScore = s.sessions > 0 ? Math.min(100, (s.total / s.sessions) * 20) : 0;
-        const consistencyScore = s.total > 0 ? Math.min(100, ((s.improved + s.neutral) / s.total) * 100) : 50;
-        s.aiStrategyScore = Math.round(winRateScore * 0.55 + efficiencyScore * 0.15 + consistencyScore * 0.30);
-      }
-      // Add auto-mode clients with sessions but no assessed results
-      for (const [name, count] of Object.entries(sessionCounts)) {
-        if (!scores[name]) scores[name] = { improved: 0, neutral: 0, worsened: 0, total: 0, winRate: 0, sessions: count, aiStrategyScore: 0 };
-      }
-      setStrategistScoreByClient(scores);
-    } catch (err) { console.error('Failed to load strategist scores:', err); }
-  }, []);
 
-  useEffect(() => { loadClients(); loadSmAccounts(); loadManualMappings(); loadManagedClients(); loadClientTiers(); loadLastAutoRuns(); loadLastAdReviews(); loadStrategistScores(); loadAutoModeStatus(); loadMemoryCounts(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadClients(); loadSmAccounts(); loadManualMappings(); loadManagedClients(); loadClientTiers(); loadLastAutoRuns(); loadLastAdReviews(); loadAutoModeStatus(); loadMemoryCounts(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load fleet coverage from most recent run (any status)
   const loadFleetCoverage = useCallback(async () => {
@@ -2328,18 +2251,11 @@ const ClientHealth = () => {
       const q = searchQuery.toLowerCase();
       list = list.filter(c => c.name.toLowerCase().includes(q) || c.domain?.toLowerCase().includes(q));
     }
-    if (stratWinRateFilter !== null) {
-      list = list.filter(c => {
-        const score = strategistScoreByClient[c.name];
-        if (!score || score.total === 0) return false; // hide clients with no assessed data
-        return score.winRate < stratWinRateFilter;
-      });
-    }
     if (sortBy === 'health') list.sort((a, b) => (a.healthScore < 0 ? 999 : a.healthScore) - (b.healthScore < 0 ? 999 : b.healthScore));
     else if (sortBy === 'name') list.sort((a, b) => a.name.localeCompare(b.name));
     else if (sortBy === 'seo') list.sort((a, b) => (b.seoErrors ?? -1) - (a.seoErrors ?? -1));
     return list;
-  }, [clients, searchQuery, sortBy, stratWinRateFilter, strategistScoreByClient]);
+  }, [clients, searchQuery, sortBy]);
 
   const TIER_CONFIG = [
     { key: 'premium' as const, label: 'Premium', icon: Crown, color: 'text-amber-400', borderColor: 'border-amber-500/20', bgColor: 'bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent', accentColor: 'hsl(38 92% 50% / 0.4)' },
@@ -2413,7 +2329,7 @@ const ClientHealth = () => {
     <div className="min-h-screen bg-background flex flex-col">
       <AdminHeader />
 
-      <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6">
+      <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 pb-20 sm:pb-6">
 
         {/* ═══════════════ DETAIL VIEW ═══════════════ */}
         {detailClient ? (
@@ -2443,7 +2359,6 @@ const ClientHealth = () => {
               <TabsList className="mb-4 w-full sm:w-auto overflow-x-auto">
                 <TabsTrigger value="overview" className="gap-1.5 text-xs sm:text-sm"><Activity className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> <span className="hidden sm:inline">Overview</span><span className="sm:hidden">View</span></TabsTrigger>
                 <TabsTrigger value="ai-results" className="gap-1.5 text-xs sm:text-sm"><TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> <span className="hidden sm:inline">AI Results</span><span className="sm:hidden">AI</span></TabsTrigger>
-                <TabsTrigger value="strategist" className="gap-1.5 text-xs sm:text-sm"><Brain className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> <span className="hidden sm:inline">Strategist</span><span className="sm:hidden">Strat</span></TabsTrigger>
                 <TabsTrigger value="adreview" className="gap-1.5 text-xs sm:text-sm"><BarChart3 className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> <span className="hidden sm:inline">Ad Review</span><span className="sm:hidden">Ads</span></TabsTrigger>
                 <TabsTrigger value="settings" className="gap-1.5 text-xs sm:text-sm"><Settings className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> <span className="hidden sm:inline">Settings</span><span className="sm:hidden">⚙️</span></TabsTrigger>
               </TabsList>
@@ -3609,6 +3524,13 @@ const ClientHealth = () => {
                   <Timer className="h-3.5 w-3.5 inline mr-1 -mt-0.5" />
                   Cron Jobs
                 </button>
+                <button
+                  onClick={() => navigate('/daily-reports')}
+                  className="px-3 py-1 text-xs font-medium rounded-md transition-colors text-muted-foreground hover:text-foreground"
+                >
+                  <BarChart3 className="h-3.5 w-3.5 inline mr-1 -mt-0.5" />
+                  Daily Reports
+                </button>
               </div>
             </div>
             <div className="flex items-center gap-3 mt-0.5">
@@ -3930,22 +3852,6 @@ const ClientHealth = () => {
             <ArrowUpDown className="h-4 w-4 mr-1" />
             {sortBy === 'health' ? 'By Health' : 'A–Z'}
           </Button>
-          <Select value={stratWinRateFilter !== null ? String(stratWinRateFilter) : 'all'} onValueChange={(v) => setStratWinRateFilter(v === 'all' ? null : Number(v))}>
-            <SelectTrigger className="w-full sm:w-[180px] h-9 text-xs rounded-lg">
-              <SelectValue placeholder="Strat filter" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Win Rates</SelectItem>
-              {[90, 80, 70, 60, 50, 40, 30, 20, 10].map(n => (
-                <SelectItem key={n} value={String(n)}>Win Rate &lt; {n}%</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {stratWinRateFilter !== null && (
-            <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setStratWinRateFilter(null)}>
-              <X className="h-3 w-3 mr-1" /> Clear
-            </Button>
-          )}
         </div>
         )}
 
@@ -4057,7 +3963,6 @@ const ClientHealth = () => {
                                     </TableHead>
                                     <TableHead rowSpan={2} className="text-center border-b border-border/50 border-l border-border/30 text-xs font-bold uppercase tracking-[0.15em] text-muted-foreground/80" style={{ width: 80, minWidth: 60 }}>Score</TableHead>
                                     <TableHead rowSpan={2} className="text-center border-b border-border/50 border-l border-border/30 text-xs font-bold uppercase tracking-[0.15em] text-muted-foreground/80" style={{ width: 65, minWidth: 50 }}>Review</TableHead>
-                                    <TableHead rowSpan={2} className="text-center border-b border-border/50 border-l border-border/30 text-xs font-bold uppercase tracking-[0.15em] text-muted-foreground/80" style={{ width: 45, minWidth: 35 }}>Strat</TableHead>
                                     <TableHead rowSpan={2} className="text-center border-b border-border/50 border-l border-border/30 text-xs font-bold uppercase tracking-[0.15em] text-muted-foreground/80" style={{ width: 55, minWidth: 40 }}>AI</TableHead>
                                     {platformsToShow.map((p) => (
                                       <TableHead key={p.key} colSpan={7} className="text-center border-b-0 border-l border-border/30 text-xs font-bold tracking-[0.15em] uppercase text-muted-foreground/80" style={{ minWidth: 240 }}>
@@ -4289,39 +4194,15 @@ const ClientHealth = () => {
                                             );
                                           })()}
                                         </TableCell>
-                                        <TableCell className="text-center border-l border-border/30 py-0">
-                                          {(() => {
-                                            const score = strategistScoreByClient[client.name];
-                                            if (!score || score.sessions === 0) return <span className="text-[10px] text-muted-foreground/50">—</span>;
-                                            if (score.total === 0) return (
-                                              <button onClick={(e) => { e.stopPropagation(); handleSelectClient(client); setTimeout(() => { setDetailTab('strategist'); }, 50); }}
-                                                className="hover:underline">
-                                                <span className="inline-flex items-center rounded-full border border-amber-500/30 px-2.5 py-0.5 text-[10px] font-semibold text-amber-400 cursor-pointer">New</span>
-                                              </button>
-                                            );
-                                            const wr = Math.round(score.winRate);
-                                            const color = wr >= 60 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : wr >= 40 ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-red-500/15 text-red-400 border-red-500/30';
-                                            return (
-                                              <button onClick={(e) => { e.stopPropagation(); handleSelectClient(client); setTimeout(() => { setDetailTab('strategist'); }, 50); }}
-                                                className="hover:underline" title={`${score.improved} improved, ${score.neutral} neutral, ${score.worsened} worsened (${score.total} assessed)`}>
-                                                <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-semibold cursor-pointer ${color}`}>{wr}%</span>
-                                              </button>
-                                            );
-                                          })()}
-                                        </TableCell>
                                         {/* AI Results cell */}
                                         <TableCell className="text-center border-l border-border/30 py-0">
                                           {(() => {
                                             if (!autoModeEnabledClients.has(client.name)) return <span className="text-[10px] text-muted-foreground/50">—</span>;
-                                            const scoreData = strategistScoreByClient[client.name];
-                                            if (!scoreData || scoreData.sessions === 0) return <span className="text-[10px] text-muted-foreground/50">—</span>;
-                                            const aiScore = scoreData.aiStrategyScore;
-                                            const colorClass = aiScore >= 70 ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30' : aiScore >= 40 ? 'text-amber-500 bg-amber-500/10 border-amber-500/30' : 'text-red-500 bg-red-500/10 border-red-500/30';
                                             return (
                                               <button onClick={(e) => { e.stopPropagation(); handleSelectClient(client); setTimeout(() => { setDetailTab('ai-results'); }, 50); }}
-                                                className="hover:opacity-80 transition-opacity" title={`AI Strategy Score: ${aiScore}/100 — Click for details`}>
-                                                <span className={`inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded border ${colorClass}`}>
-                                                  {scoreData.total > 0 ? aiScore : '…'}
+                                                className="hover:opacity-80 transition-opacity" title="Click to view AI results">
+                                                <span className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded border text-primary bg-primary/10 border-primary/30">
+                                                  View
                                                 </span>
                                               </button>
                                             );

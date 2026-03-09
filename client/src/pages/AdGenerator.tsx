@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Loader2, Sparkles, Download, Copy, Image as ImageIcon, Palette, Target, Building2, Megaphone, Wand2, Layers, Zap, ScrollText } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
+import AdminHeader from "@/components/AdminHeader";
 import { AdCreativeBrief } from "@/components/AdCreativeBrief";
 // Platform presets with dimensions
 const PLATFORM_PRESETS = {
@@ -438,59 +439,33 @@ export default function AdGenerator() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-purple-950/20 to-slate-950">
-        <div className="relative">
-          <div className="absolute inset-0 blur-2xl bg-gradient-to-r from-purple-500/30 to-pink-500/30 rounded-full animate-pulse" />
-          <Loader2 className="h-12 w-12 animate-spin text-purple-400 relative z-10" />
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950/20 to-slate-950 relative overflow-hidden">
-      {/* Animated Background */}
-      <div className="fixed inset-0 pointer-events-none">
-        {/* Grid Pattern */}
-        <div 
-          className="absolute inset-0 opacity-[0.03]"
-          style={{
-            backgroundImage: `linear-gradient(rgba(139, 92, 246, 0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(139, 92, 246, 0.3) 1px, transparent 1px)`,
-            backgroundSize: '60px 60px',
-          }}
-        />
-        
-        {/* Floating Orbs */}
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-pink-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
-        <div className="absolute top-1/2 right-1/3 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
-        
-        {/* Gradient Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-slate-950/50" />
-      </div>
+    <div className="min-h-screen bg-background">
+      <AdminHeader />
 
-      <div className="container mx-auto px-4 py-8 relative z-10">
-        {/* Premium Header */}
-        <div className="mb-10 text-center">
-          <div className="inline-flex items-center gap-3 mb-4">
-            <div className="relative">
-              <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl blur-lg opacity-50 animate-pulse" />
-              <div className="relative bg-gradient-to-br from-purple-500/20 to-pink-500/20 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
-                <Wand2 className="h-8 w-8 text-purple-300" />
-              </div>
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        {/* Page Header */}
+        <div className="mb-8 text-center">
+          <div className="inline-flex items-center gap-3 mb-3">
+            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary/20 to-purple-500/20">
+              <Wand2 className="h-8 w-8 text-primary" />
             </div>
             <div className="text-left">
-              <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-white via-purple-200 to-pink-200 bg-clip-text text-transparent">
-                Ad Generator
-              </h1>
-              <p className="text-purple-300/70 text-sm md:text-base mt-1">
+              <h1 className="text-3xl md:text-4xl font-bold">Ad Generator</h1>
+              <p className="text-muted-foreground text-sm mt-0.5">
                 AI-Powered Creative Studio
               </p>
             </div>
           </div>
-          
+
           {/* Feature Pills */}
-          <div className="flex flex-wrap justify-center gap-2 mt-6">
+          <div className="flex flex-wrap justify-center gap-2 mt-4">
             {[
               { icon: Layers, label: "Multi-Platform" },
               { icon: Sparkles, label: "AI-Powered" },
@@ -498,9 +473,9 @@ export default function AdGenerator() {
             ].map((feature, i) => (
               <div
                 key={i}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 backdrop-blur-sm border border-white/10 text-purple-200/80 text-sm"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50 text-muted-foreground text-xs"
               >
-                <feature.icon className="h-4 w-4" />
+                <feature.icon className="h-3.5 w-3.5" />
                 {feature.label}
               </div>
             ))}
@@ -513,10 +488,10 @@ export default function AdGenerator() {
             {/* Master Design Policy - Collapsible Card at Top */}
             <div className="group relative">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-amber-500/50 to-orange-500/50 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500" />
-              <Card className="relative bg-white/5 backdrop-blur-xl border-white/10 rounded-2xl overflow-hidden">
+              <Card className="relative bg-card border-border rounded-2xl overflow-hidden">
                 <CardHeader className="border-b border-white/5 cursor-pointer" onClick={() => setPolicyExpanded(!policyExpanded)}>
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg flex items-center gap-2 text-white">
+                    <CardTitle className="text-lg flex items-center gap-2">
                       <div className="p-2 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-500/20">
                         <ScrollText className="h-5 w-5 text-amber-300" />
                       </div>
@@ -524,7 +499,7 @@ export default function AdGenerator() {
                     </CardTitle>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-amber-300/60">{masterPrompt.length} chars</span>
-                      <div className={`p-1 rounded-lg bg-white/5 transition-transform ${policyExpanded ? "rotate-180" : ""}`}>
+                      <div className={`p-1 rounded-lg bg-muted/50 transition-transform ${policyExpanded ? "rotate-180" : ""}`}>
                         <svg className="w-4 h-4 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
@@ -541,7 +516,7 @@ export default function AdGenerator() {
                       placeholder="Enter your design policies, quality standards, and exceptions..."
                       value={masterPrompt}
                       onChange={(e) => setMasterPrompt(e.target.value)}
-                      className="min-h-[180px] bg-black/20 border-amber-500/30 text-white placeholder:text-amber-300/30 focus:border-amber-400/50 rounded-xl resize-none font-mono text-sm"
+                      className="min-h-[180px] bg-muted/50 border-amber-500/30 placeholder:text-muted-foreground/50 focus:border-amber-400/50 rounded-xl resize-none font-mono text-sm"
                     />
                     <div className="flex items-center justify-end mt-3">
                       <button
@@ -570,9 +545,9 @@ export default function AdGenerator() {
             {/* Platform Selection - Glass Card */}
             <div className="group relative">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500/50 to-pink-500/50 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500" />
-              <Card className="relative bg-white/5 backdrop-blur-xl border-white/10 rounded-2xl overflow-hidden">
+              <Card className="relative bg-card border-border rounded-2xl overflow-hidden">
                 <CardHeader className="border-b border-white/5">
-                  <CardTitle className="text-lg flex items-center gap-2 text-white">
+                  <CardTitle className="text-lg flex items-center gap-2">
                     <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500/20 to-pink-500/20">
                       <Target className="h-5 w-5 text-purple-300" />
                     </div>
@@ -589,12 +564,12 @@ export default function AdGenerator() {
                           relative group/btn h-auto py-3 px-3 flex flex-col items-start justify-start text-left rounded-xl transition-all duration-300
                           ${platform === key 
                             ? "bg-gradient-to-br from-purple-500/30 to-pink-500/30 border-purple-400/50 shadow-lg shadow-purple-500/20" 
-                            : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
+                            : "bg-muted/30 border-border hover:bg-muted/50 hover:border-primary/30"
                           }
                           border backdrop-blur-sm
                         `}
                       >
-                        <span className={`font-medium text-xs ${platform === key ? "text-white" : "text-purple-200/80"}`}>
+                        <span className={`font-medium text-xs ${platform === key ? "text-white" : "text-muted-foreground"}`}>
                           {value.name}
                         </span>
                         <span className={`text-xs ${platform === key ? "text-purple-200" : "text-purple-300/50"}`}>
@@ -610,7 +585,7 @@ export default function AdGenerator() {
                   {platform === "custom" && (
                     <div className="mt-4 flex gap-4">
                       <div className="flex-1">
-                        <Label className="text-purple-200/70">Width (512-1920)</Label>
+                        <Label className="text-muted-foreground">Width (512-1920)</Label>
                         <Input
                           type="number"
                           min={512}
@@ -618,11 +593,11 @@ export default function AdGenerator() {
                           step={32}
                           value={customWidth}
                           onChange={(e) => setCustomWidth(Number(e.target.value))}
-                          className="bg-white/5 border-white/10 text-white placeholder:text-purple-300/30 focus:border-purple-400/50"
+                          className="bg-card border-border placeholder:text-muted-foreground/50 focus:border-purple-400/50"
                         />
                       </div>
                       <div className="flex-1">
-                        <Label className="text-purple-200/70">Height (512-1920)</Label>
+                        <Label className="text-muted-foreground">Height (512-1920)</Label>
                         <Input
                           type="number"
                           min={512}
@@ -630,7 +605,7 @@ export default function AdGenerator() {
                           step={32}
                           value={customHeight}
                           onChange={(e) => setCustomHeight(Number(e.target.value))}
-                          className="bg-white/5 border-white/10 text-white placeholder:text-purple-300/30 focus:border-purple-400/50"
+                          className="bg-card border-border placeholder:text-muted-foreground/50 focus:border-purple-400/50"
                         />
                       </div>
                     </div>
@@ -682,9 +657,9 @@ export default function AdGenerator() {
             {/* Style Presets - Glass Card */}
             <div className="group relative">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-pink-500/50 to-orange-500/50 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500" />
-              <Card className="relative bg-white/5 backdrop-blur-xl border-white/10 rounded-2xl overflow-hidden">
+              <Card className="relative bg-card border-border rounded-2xl overflow-hidden">
                 <CardHeader className="border-b border-white/5">
-                  <CardTitle className="text-lg flex items-center gap-2 text-white">
+                  <CardTitle className="text-lg flex items-center gap-2">
                     <div className="p-2 rounded-lg bg-gradient-to-br from-pink-500/20 to-orange-500/20">
                       <Palette className="h-5 w-5 text-pink-300" />
                     </div>
@@ -697,7 +672,7 @@ export default function AdGenerator() {
                 <CardContent className="pt-6 space-y-6">
                   {/* Industry Templates */}
                   <div>
-                    <Label className="flex items-center gap-2 mb-3 text-purple-200/70">
+                    <Label className="flex items-center gap-2 mb-3 text-muted-foreground">
                       <Building2 className="h-4 w-4" />
                       Industry
                     </Label>
@@ -712,7 +687,7 @@ export default function AdGenerator() {
                             px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300
                             ${selectedIndustry === industry.id
                               ? "bg-gradient-to-r from-purple-500/40 to-pink-500/40 text-white border border-purple-400/50 shadow-lg shadow-purple-500/20"
-                              : "bg-white/5 text-purple-200/70 border border-white/10 hover:bg-white/10 hover:border-white/20"
+                              : "bg-muted/30 text-muted-foreground border border-border hover:bg-muted/50 hover:border-primary/30"
                             }
                           `}
                         >
@@ -724,7 +699,7 @@ export default function AdGenerator() {
 
                   {/* Visual Styles */}
                   <div>
-                    <Label className="flex items-center gap-2 mb-3 text-purple-200/70">
+                    <Label className="flex items-center gap-2 mb-3 text-muted-foreground">
                       <Palette className="h-4 w-4" />
                       Visual Style
                     </Label>
@@ -739,7 +714,7 @@ export default function AdGenerator() {
                             px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300
                             ${selectedStyle === style.id
                               ? "bg-gradient-to-r from-blue-500/40 to-purple-500/40 text-white border border-blue-400/50 shadow-lg shadow-blue-500/20"
-                              : "bg-white/5 text-purple-200/70 border border-white/10 hover:bg-white/10 hover:border-white/20"
+                              : "bg-muted/30 text-muted-foreground border border-border hover:bg-muted/50 hover:border-primary/30"
                             }
                           `}
                         >
@@ -751,7 +726,7 @@ export default function AdGenerator() {
 
                   {/* Campaign Types */}
                   <div>
-                    <Label className="flex items-center gap-2 mb-3 text-purple-200/70">
+                    <Label className="flex items-center gap-2 mb-3 text-muted-foreground">
                       <Megaphone className="h-4 w-4" />
                       Campaign Type
                     </Label>
@@ -766,7 +741,7 @@ export default function AdGenerator() {
                             px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300
                             ${selectedCampaign === campaign.id
                               ? "bg-gradient-to-r from-orange-500/40 to-pink-500/40 text-white border border-orange-400/50 shadow-lg shadow-orange-500/20"
-                              : "bg-white/5 text-purple-200/70 border border-white/10 hover:bg-white/10 hover:border-white/20"
+                              : "bg-muted/30 text-muted-foreground border border-border hover:bg-muted/50 hover:border-primary/30"
                             }
                           `}
                         >
@@ -803,15 +778,15 @@ export default function AdGenerator() {
             </div>
 
             {isGenerating && (
-              <div className="space-y-3 p-4 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10">
-                <div className="relative h-2 rounded-full overflow-hidden bg-white/10">
+              <div className="space-y-3 p-4 rounded-xl bg-muted/30 border border-border">
+                <div className="relative h-2 rounded-full overflow-hidden bg-muted">
                   <div 
                     className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all duration-500"
                     style={{ width: `${progress}%` }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" />
                 </div>
-                <p className="text-sm text-center text-purple-200/70">
+                <p className="text-sm text-center text-muted-foreground">
                   {progressMessage}
                 </p>
               </div>
@@ -823,9 +798,9 @@ export default function AdGenerator() {
             {/* Prompt Preview Card */}
             <div className="group relative">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-green-500/30 to-emerald-500/30 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500" />
-              <Card className="relative bg-white/5 backdrop-blur-xl border-white/10 rounded-2xl overflow-hidden">
+              <Card className="relative bg-card border-border rounded-2xl overflow-hidden">
                 <CardHeader className="border-b border-white/5 py-3">
-                  <CardTitle className="text-sm flex items-center gap-2 text-white">
+                  <CardTitle className="text-sm flex items-center gap-2">
                     <div className="p-1.5 rounded-lg bg-gradient-to-br from-green-500/20 to-emerald-500/20">
                       <ScrollText className="h-4 w-4 text-green-300" />
                     </div>
@@ -836,7 +811,7 @@ export default function AdGenerator() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="py-3">
-                  <div className="text-xs text-purple-200/60 bg-black/20 p-3 rounded-xl max-h-48 overflow-y-auto font-mono whitespace-pre-wrap border border-white/5">
+                  <div className="text-xs text-muted-foreground bg-black/20 p-3 rounded-xl max-h-48 overflow-y-auto font-mono whitespace-pre-wrap border border-white/5">
                     {buildFullPrompt() || "Fill in the content above to see the full prompt..."}
                   </div>
                   <p className="text-xs text-purple-300/40 mt-2 text-center">
@@ -849,9 +824,9 @@ export default function AdGenerator() {
             {/* Generated Images Card */}
             <div className="group relative">
               <div className="absolute -inset-0.5 bg-gradient-to-b from-purple-500/30 to-pink-500/30 rounded-2xl blur opacity-30" />
-              <Card className="relative bg-white/5 backdrop-blur-xl border-white/10 rounded-2xl overflow-hidden h-full">
+              <Card className="relative bg-card border-border rounded-2xl overflow-hidden h-full">
                 <CardHeader className="border-b border-white/5">
-                  <CardTitle className="text-lg flex items-center gap-2 text-white">
+                  <CardTitle className="text-lg flex items-center gap-2">
                     <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500/20 to-pink-500/20">
                       <ImageIcon className="h-5 w-5 text-purple-300" />
                     </div>
@@ -867,7 +842,7 @@ export default function AdGenerator() {
                       <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500/10 to-pink-500/10 mb-4">
                         <ImageIcon className="h-10 w-10 text-purple-400/50" />
                       </div>
-                      <p className="text-purple-200/60">No images generated yet</p>
+                      <p className="text-muted-foreground">No images generated yet</p>
                       <p className="text-sm text-purple-300/40 mt-1">Configure your ad and click Generate</p>
                     </div>
                   ) : (
@@ -885,7 +860,7 @@ export default function AdGenerator() {
                               
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {/* Nano Banana (Gemini) */}
-                                <div className="group/img relative rounded-xl overflow-hidden border border-white/10 hover:border-blue-400/50 transition-all duration-300">
+                                <div className="group/img relative rounded-xl overflow-hidden border border-border hover:border-blue-400/50 transition-all duration-300">
                                   <div className="absolute top-2 left-2 z-10 px-2 py-1 rounded-lg bg-blue-500/80 backdrop-blur-sm text-xs font-medium text-white">
                                     🍌 Nano Banana
                                   </div>
@@ -928,7 +903,7 @@ export default function AdGenerator() {
                                 </div>
 
                                 {/* Runware (Flux) */}
-                                <div className="group/img relative rounded-xl overflow-hidden border border-white/10 hover:border-orange-400/50 transition-all duration-300">
+                                <div className="group/img relative rounded-xl overflow-hidden border border-border hover:border-orange-400/50 transition-all duration-300">
                                   <div className="absolute top-2 left-2 z-10 px-2 py-1 rounded-lg bg-orange-500/80 backdrop-blur-sm text-xs font-medium text-white">
                                     ⚡ Runware
                                   </div>
@@ -978,7 +953,7 @@ export default function AdGenerator() {
                           ) : (
                             /* Single Image Display (fallback) */
                             <div 
-                              className="group/img relative rounded-xl overflow-hidden border border-white/10 hover:border-purple-400/50 transition-all duration-300 hover:shadow-xl hover:shadow-purple-500/20"
+                              className="group/img relative rounded-xl overflow-hidden border border-border hover:border-purple-400/50 transition-all duration-300 hover:shadow-xl hover:shadow-purple-500/20"
                             >
                               <div className="relative">
                                 <img
@@ -1033,7 +1008,7 @@ export default function AdGenerator() {
                                   <Button
                                     size="sm"
                                     onClick={() => handleDownload(image.url, image.platform)}
-                                    className="flex-1 bg-white/10 hover:bg-white/20 text-white border-0"
+                                    className="flex-1 bg-muted hover:bg-muted/80 text-white border-0"
                                   >
                                     <Download className="h-4 w-4 mr-2" />
                                     Download
@@ -1041,7 +1016,7 @@ export default function AdGenerator() {
                                   <Button
                                     size="sm"
                                     onClick={() => handleCopyUrl(image.url)}
-                                    className="bg-white/10 hover:bg-white/20 text-white border-0"
+                                    className="bg-muted hover:bg-muted/80 text-white border-0"
                                   >
                                     <Copy className="h-4 w-4" />
                                   </Button>

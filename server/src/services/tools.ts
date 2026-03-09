@@ -4,9 +4,16 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { appendMemory, writeMemory } from "./memory.js";
+import {
+  createMemoryEntry,
+  findMemoryByTitle,
+  updateMemoryEntry,
+  deleteMemoryEntry,
+  listMemoryEntries,
+} from "./memory.js";
 import { getSecret, requireSecret } from "./secrets.js";
 import { listZapierTools, callZapierTool } from "./zapier-mcp.js";
+import { deployToVercel } from "./deployer.js";
 
 const execAsync = promisify(exec);
 
@@ -27,6 +34,30 @@ function safeEnv(extra?: Record<string, string>): Record<string, string | undefi
 const MELLEKA_PROJECT = process.env.MELLEKA_PROJECT_DIR || "";
 const TEAM_TIMEZONE = "America/New_York";
 const GOOGLE_ADS_API_VERSION = process.env.GOOGLE_ADS_API_VERSION || "v23";
+
+// ── Servis CRM token cache (keyed by client_name, 50-min TTL) ──
+interface ServisTokenEntry { token: string; expiresAt: number; }
+const servisTokenCache = new Map<string, ServisTokenEntry>();
+
+async function getServisToken(clientName: string, clientId: string, clientSecret: string): Promise<string> {
+  const cached = servisTokenCache.get(clientName);
+  if (cached && Date.now() < cached.expiresAt) return cached.token;
+
+  const resp = await fetch("https://freeagent.network/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ grant_type: "client_credentials", client_id: clientId, client_secret: clientSecret }),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => "");
+    throw new Error(`Servis CRM OAuth failed (${resp.status}): ${errText}`);
+  }
+  const data = await resp.json();
+  const token = data.access_token as string;
+  // Cache for 50 minutes (tokens expire in 1 hour)
+  servisTokenCache.set(clientName, { token, expiresAt: Date.now() + 50 * 60 * 1000 });
+  return token;
+}
 
 /** Format an ISO timestamp to a human-readable string in the team's timezone */
 function formatTZ(isoStr: string): string {
@@ -291,24 +322,46 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "save_memory",
     description:
-      "Replace this team member's entire memory with new content.",
+      "Save a new memory entry with a title and content. Each memory is stored as a separate entry that can be edited or deleted later.",
     input_schema: {
       type: "object" as const,
       properties: {
+        title: { type: "string", description: "Short descriptive title for this memory (e.g. 'Client preferences', 'Project setup notes')." },
         content: { type: "string", description: "Full memory content in markdown." },
       },
-      required: ["content"],
+      required: ["title", "content"],
     },
   },
   {
     name: "append_memory",
-    description: "Append a new note to this team member's memory.",
+    description: "Append a note to an existing memory entry by title. If no matching entry is found, creates a new one.",
     input_schema: {
       type: "object" as const,
       properties: {
-        note: { type: "string", description: "Note to append." },
+        title: { type: "string", description: "Title of the memory entry to append to." },
+        note: { type: "string", description: "Note to append to the memory entry." },
       },
-      required: ["note"],
+      required: ["title", "note"],
+    },
+  },
+  {
+    name: "delete_memory",
+    description: "Delete a memory entry by title.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string", description: "Title of the memory entry to delete." },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "list_memories",
+    description: "List all saved memory entries with their titles and content previews.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
     },
   },
   {
@@ -719,6 +772,155 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "slack_send_dm",
+    description:
+      "Send a direct message to a Slack user by their email address. Use this to proactively reach out to team members. " +
+      "The bot will look up the user by email, open a DM channel, and send the message.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        email: {
+          type: "string",
+          description: "Email address of the Slack user to DM.",
+        },
+        message: {
+          type: "string",
+          description: "Message to send. Supports Slack mrkdwn formatting (*bold*, _italic_, `code`, etc.).",
+        },
+      },
+      required: ["email", "message"],
+    },
+  },
+  {
+    name: "query_deliverables",
+    description:
+      "Query the task_deliverables table to see what work has been generated, proposed, or completed. " +
+      "Use this at the START of every conversation to check if there are pending deliverables the user should know about. " +
+      "Also use when a user mentions a task you previously worked on to recall what was done.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        assignee_email: {
+          type: "string",
+          description: "Filter by assignee email. Leave empty to get all deliverables.",
+        },
+        status: {
+          type: "string",
+          description: "Filter by status: 'pending_review', 'approved', 'revision_requested', 'in_progress', 'launched', 'rejected'. Leave empty for all.",
+        },
+        client_name: {
+          type: "string",
+          description: "Filter by client name. Leave empty for all clients.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "save_deliverable",
+    description:
+      "Save a record of completed work to the task_deliverables table. Use this EVERY TIME you generate a deliverable " +
+      "(SEO pages, email campaigns, ad proposals, templates, decks, audits, reports, etc.) so it persists across sessions. " +
+      "Also use to update the status of an existing deliverable (e.g. when approved, revised, or launched).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        id: {
+          type: "string",
+          description: "UUID of existing deliverable to update. Omit when creating a new record.",
+        },
+        notion_task_name: {
+          type: "string",
+          description: "The Notion task name this deliverable fulfills.",
+        },
+        client_name: {
+          type: "string",
+          description: "Client this deliverable is for.",
+        },
+        assignee_email: {
+          type: "string",
+          description: "Email of the person this was sent to / assigned to.",
+        },
+        assignee_name: {
+          type: "string",
+          description: "Name of the assignee.",
+        },
+        deliverable_url: {
+          type: "string",
+          description: "URL of the branded page with the completed work.",
+        },
+        deliverable_type: {
+          type: "string",
+          description: "Type: 'seo_pages', 'email_campaign', 'ad_proposal', 'template', 'deck', 'audit', 'report', 'ad_copy', 'general'.",
+        },
+        status: {
+          type: "string",
+          description: "Status: 'pending_review', 'approved', 'revision_requested', 'in_progress', 'launched', 'rejected'.",
+        },
+        content_summary: {
+          type: "string",
+          description: "Brief description of what was delivered.",
+        },
+        revision_notes: {
+          type: "string",
+          description: "Notes about requested revisions or feedback received.",
+        },
+        slack_message_ts: {
+          type: "string",
+          description: "Slack message timestamp for threading follow-ups.",
+        },
+        slack_channel_id: {
+          type: "string",
+          description: "Slack DM channel ID for follow-ups.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "generate_image",
+    description:
+      "Generate an image from a text description using AI. Creates images for ad creatives, social media posts, blog headers, presentations, or any visual content. " +
+      "Returns a public URL to the generated image. Use this when building deliverables that need visuals (ad proposals, decks, SEO pages, email campaigns).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        prompt: {
+          type: "string",
+          description: "Detailed description of the image to generate. Be specific about style, composition, colors, and subject matter.",
+        },
+        aspect_ratio: {
+          type: "string",
+          description: "Aspect ratio: '1:1' (square, default), '16:9' (landscape), '9:16' (portrait/stories), '4:3', '3:4'.",
+        },
+      },
+      required: ["prompt"],
+    },
+  },
+  {
+    name: "generate_video",
+    description:
+      "Generate a short AI video (up to 8 seconds) from a text description using Google Veo 3. Good for social media clips, ad creatives, demos. Returns a public URL to the generated video.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        prompt: {
+          type: "string",
+          description: "Detailed description of the video to generate. Include scene, camera movements, style, mood, and any dialogue.",
+        },
+        aspect_ratio: {
+          type: "string",
+          description: "Aspect ratio: '16:9' (landscape, default), '9:16' (portrait/stories/reels).",
+        },
+        duration: {
+          type: "string",
+          description: "Duration in seconds: '4', '6', or '8' (default '8').",
+        },
+      },
+      required: ["prompt"],
+    },
+  },
+  {
     name: "google_sheets_read",
     description:
       "Read data from a Google Sheets spreadsheet. Requires GOOGLE_SERVICE_ACCOUNT_JSON in team_secrets.",
@@ -865,14 +1067,16 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     description:
       "Look up a client's linked ad accounts, GA4 property, domain, and other metadata from the command center database. " +
       "Returns all account mappings (Google Ads, Meta Ads, TikTok, Bing, LinkedIn) plus client profile info. " +
+      "The response includes 'accounts' (grouped by platform), 'linked_platforms' (array), and 'total_linked_accounts' (count). " +
+      "If 'accounts' is empty {}, the client has no linked ad accounts. If it has platform keys, those accounts ARE linked and ready to use. " +
       "If client_name is omitted, returns ALL active clients with their linked accounts. " +
-      "ALWAYS call this before any Google Ads, Meta Ads, Supermetrics, or GA4 operation to avoid asking the user for account IDs.",
+      "ALWAYS call this FIRST before any Google Ads, Meta Ads, Supermetrics, or GA4 operation. Uses smart fuzzy matching on client names.",
     input_schema: {
       type: "object" as const,
       properties: {
         client_name: {
           type: "string",
-          description: "Client name (case-insensitive). Omit to get all active clients with their accounts.",
+          description: "Client name to search for (fuzzy, case-insensitive). Omit to get all active clients.",
         },
       },
       required: [],
@@ -933,15 +1137,16 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     name: "notion_query_tasks",
     description:
       "Query the Melleka team's Notion task database (IN HOUSE TO-DO). Returns tasks filtered by client name, date range, and completion status. " +
-      "Use this to pull completed or pending tasks for a specific client when generating client updates, weekly reports, or workload analysis. " +
+      "Use this to pull completed or pending tasks for a specific client OR all clients (pass empty client_name or omit it). " +
       "Handles client name fuzzy matching automatically (abbreviations, acronyms, partial names). " +
-      "Example: notion_query_tasks({client_name:'SDPF', start_date:'2026-02-26', end_date:'2026-03-05', status_filter:'completed'})",
+      "Example: notion_query_tasks({client_name:'SDPF', start_date:'2026-02-26', end_date:'2026-03-05', status_filter:'completed'}) " +
+      "or notion_query_tasks({status_filter:'pending'}) to get ALL pending tasks across all clients.",
     input_schema: {
       type: "object" as const,
       properties: {
         client_name: {
           type: "string",
-          description: "Client name to filter by. Supports fuzzy matching (e.g. 'SDPF' matches 'San Diego Parks Foundation', 'GG' matches 'Global Guard').",
+          description: "Client name to filter by. Supports fuzzy matching (e.g. 'SDPF' matches 'San Diego Parks Foundation', 'GG' matches 'Global Guard'). Leave empty or omit to return tasks for ALL clients.",
         },
         database_id: {
           type: "string",
@@ -960,7 +1165,36 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
           description: "Which tasks to return: 'completed' (default) = Done/Archived tasks, 'pending' = in-progress/not-done, 'all' = everything.",
         },
       },
-      required: ["client_name"],
+      required: [],
+    },
+  },
+  {
+    name: "add_task_to_notion",
+    description:
+      "Add one or more tasks to the Melleka IN HOUSE TO-DO Notion database. " +
+      "Use this when the user asks you to create a task, add a to-do, or assign work. " +
+      "Each task needs a task_name and client_name. Optionally set assignee, manager, and status. " +
+      "Assignee and manager names are automatically resolved to Notion user IDs.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        tasks: {
+          type: "array",
+          description: "Array of tasks to create.",
+          items: {
+            type: "object",
+            properties: {
+              task_name: { type: "string", description: "The task title/description." },
+              client_name: { type: "string", description: "Client name to tag the task with." },
+              assignee: { type: "string", description: "Team member name to assign (e.g. 'Anthony Melleka'). Resolved to Notion user ID automatically." },
+              manager: { type: "string", description: "Manager name for the task (e.g. 'Anthony Melleka'). Resolved to Notion user ID automatically." },
+              status: { type: "string", description: "Task status. Defaults to '👋 NEW 👋'. Other options: 'In progress', 'Done', etc." },
+            },
+            required: ["task_name", "client_name"],
+          },
+        },
+      },
+      required: ["tasks"],
     },
   },
   // ─── Canva Design Tools ─────────────────────────────────────
@@ -1192,6 +1426,239 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ["action"],
     },
   },
+  {
+    name: "servis_crm",
+    description:
+      "Query or modify data in Servis CRM (servis.ai) for a specific client. Credentials are per-client — you MUST always provide client_name.\n\n" +
+      "ACTIONS:\n" +
+      "- list_records: List records from an entity (Contacts, Deals, Accounts, Tasks, etc.). Supports filters, sorting, pagination.\n" +
+      "- get_record: Get a single record by entity + record_id.\n" +
+      "- create_record: Create a new record. Provide entity + field_values (JSON object with field names as keys).\n" +
+      "- update_record: Update a record. Provide entity + record_id + field_values.\n" +
+      "- delete_record: Delete a record by entity + record_id.\n" +
+      "- list_activities: List activities (emails, calls, notes, meetings) for a record. Provide entity + record_id.\n" +
+      "- list_apps: List all available entities/apps in the CRM account.\n" +
+      "- list_fields: List all fields for an entity. Useful to discover field names before creating/updating records.\n" +
+      "- list_users: List all team members/agents in the CRM account.\n\n" +
+      "IMPORTANT: client_name is REQUIRED for every call. CRM credentials are isolated per client and NEVER shared between clients.\n" +
+      "Rate limit: 50 requests per 10 seconds.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        client_name: {
+          type: "string",
+          description: "Client name (REQUIRED). CRM credentials are looked up per-client. Example: 'Sin City'.",
+        },
+        action: {
+          type: "string",
+          description: "Action to perform: list_records, get_record, create_record, update_record, delete_record, list_activities, list_apps, list_fields, list_users.",
+        },
+        entity: {
+          type: "string",
+          description: "Entity/app name (e.g. 'contact', 'deal', 'account', 'task'). Required for record operations and list_fields.",
+        },
+        record_id: {
+          type: "string",
+          description: "Record ID for get_record, update_record, delete_record, or list_activities.",
+        },
+        field_values: {
+          type: "object",
+          description: "Field values for create_record or update_record. Use field system names as keys (get them from list_fields). Example: {\"first_name\": \"John\", \"work_email\": \"john@example.com\"}.",
+        },
+        filters: {
+          type: "array",
+          description: "Filters for list_records. Each filter: {\"field\": \"field_name\", \"operator\": \"contains|equals|not_equals|starts_with|after|before|between\", \"value\": \"...\"}.",
+          items: { type: "object" },
+        },
+        order: {
+          type: "array",
+          description: "Sort order for list_records. Array of [field, direction] pairs. Example: [[\"created_at\", \"desc\"]].",
+          items: { type: "array", items: { type: "string" } },
+        },
+        limit: {
+          type: "number",
+          description: "Max records to return (default 50, max 200).",
+        },
+        offset: {
+          type: "number",
+          description: "Offset for pagination.",
+        },
+        pattern: {
+          type: "string",
+          description: "Search pattern/keyword for list_records.",
+        },
+      },
+      required: ["client_name", "action"],
+    },
+  },
+  {
+    name: "social_media",
+    description:
+      "Manage social media via Ayrshare API. Post, schedule, delete, and analyze content across Facebook, Instagram, X/Twitter, LinkedIn, TikTok, Pinterest, Reddit, YouTube, Threads, Telegram, Bluesky, Google Business Profile, and Snapchat. Also supports comments, analytics, hashtag suggestions, AI content generation, media uploads, RSS feeds, and more.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          description:
+            'Action to perform: "post" (publish/schedule a post), "delete_post" (delete a post), "get_post" (get post by ID), "update_post" (update scheduled post), "history" (get post history), "analytics_post" (post analytics), "analytics_social" (profile analytics), "comment" (add comment), "get_comments" (get comments), "reply_comment" (reply to comment), "delete_comment" (delete comment), "auto_schedule" (set auto-schedule times), "get_auto_schedule" (list schedules), "generate_text" (AI generate post), "generate_rewrite" (AI rewrite post), "generate_translate" (translate post), "upload_media" (upload image/video), "get_media" (list uploaded media), "hashtags_recommend" (suggest hashtags), "hashtags_auto" (auto-add hashtags), "shorten_link" (shorten URL), "add_feed" (add RSS feed), "get_feeds" (list RSS feeds), "get_user" (account info), "get_reviews" (get reviews), "reply_review" (reply to review), "validate_post" (validate before publishing), "send_message" (send DM), "get_messages" (get messages), "brand_search" (search social accounts), "custom" (raw API call).',
+        },
+        platforms: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            'Social platforms to target. Options: "facebook", "instagram", "twitter", "linkedin", "tiktok", "pinterest", "reddit", "youtube", "threads", "telegram", "bluesky", "gmb", "snapchat".',
+        },
+        post: {
+          type: "string",
+          description: "Text content for the post.",
+        },
+        media_urls: {
+          type: "array",
+          items: { type: "string" },
+          description: "Array of image/video URLs to include in the post.",
+        },
+        schedule_date: {
+          type: "string",
+          description:
+            'ISO 8601 date-time to schedule the post (e.g. "2026-03-15T14:00:00Z"). Omit to post immediately.',
+        },
+        post_id: {
+          type: "string",
+          description: "Ayrshare post ID (for delete, get, update, analytics, comments).",
+        },
+        comment: {
+          type: "string",
+          description: "Comment text (for comment/reply_comment actions).",
+        },
+        comment_id: {
+          type: "string",
+          description: "Comment ID (for reply_comment, delete_comment).",
+        },
+        platform: {
+          type: "string",
+          description: "Single platform (for history by platform, analytics, brand_search, etc.).",
+        },
+        params: {
+          type: "object",
+          description:
+            "Additional parameters passed directly to the Ayrshare API. Use for advanced options like title, subreddit, flair_id, pin, shortenLinks, requiresApproval, etc.",
+        },
+        method: {
+          type: "string",
+          description: 'HTTP method for "custom" action: GET, POST, PUT, DELETE. Default: GET.',
+        },
+        endpoint: {
+          type: "string",
+          description:
+            'API endpoint path for "custom" action (e.g. "/user", "/feeds"). Relative to https://api.ayrshare.com/api.',
+        },
+        profile_key: {
+          type: "string",
+          description: "Profile key for multi-profile accounts. Omit for primary profile.",
+        },
+      },
+      required: ["action"],
+    },
+  },
+
+  // ── Website Builder Tools ──
+  {
+    name: "website_create_project",
+    description: "Create a new website builder project. Returns the project ID and slug. Always call this before saving pages.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Human-readable project name (e.g. 'Acme Corp Website')" },
+        slug: { type: "string", description: "URL-safe slug used as subdomain (e.g. 'acme-corp' -> acme-corp.melleka.app). Lowercase, hyphens only." },
+        description: { type: "string", description: "Brief description of the website project." },
+      },
+      required: ["name", "slug"],
+    },
+  },
+  {
+    name: "website_save_page",
+    description: "Create or update a page in a website project. Provide the COMPLETE HTML content for the page. Uses upsert by project_id + filename.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        project_id: { type: "string", description: "UUID of the website project." },
+        filename: { type: "string", description: "HTML filename (e.g. 'index.html', 'about.html', 'contact.html')." },
+        title: { type: "string", description: "Page title for display and SEO." },
+        html_content: { type: "string", description: "Complete HTML content of the page including <!DOCTYPE html>, <head>, and <body>." },
+      },
+      required: ["project_id", "filename", "html_content"],
+    },
+  },
+  {
+    name: "website_get_project",
+    description: "Get a website project's details including its page list. Optionally fetch full HTML for a specific page.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        project_id: { type: "string", description: "UUID of the website project." },
+        page_filename: { type: "string", description: "If provided, also return the full HTML content of this specific page." },
+      },
+      required: ["project_id"],
+    },
+  },
+  {
+    name: "website_list_projects",
+    description: "List all website projects for the current team member.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "website_deploy",
+    description: "Deploy a website project to production. Publishes all pages as static HTML to Vercel and returns the branded melleka.app URL.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        project_id: { type: "string", description: "UUID of the website project to deploy." },
+        commit_message: { type: "string", description: "Optional note describing what changed in this version." },
+      },
+      required: ["project_id"],
+    },
+  },
+  {
+    name: "website_upload_asset",
+    description: "Upload an image or file to the website's asset storage. Accepts a URL to download from or base64-encoded data. Returns a public URL to use in HTML.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        project_id: { type: "string", description: "UUID of the website project." },
+        source_url: { type: "string", description: "URL of an image/file to download and store. Use this OR base64_data." },
+        base64_data: { type: "string", description: "Base64-encoded file data. Use this OR source_url." },
+        filename: { type: "string", description: "Filename with extension (e.g. 'hero-image.jpg', 'logo.png')." },
+        content_type: { type: "string", description: "MIME type (e.g. 'image/jpeg', 'image/png', 'video/mp4'). Auto-detected from filename if omitted." },
+      },
+      required: ["project_id", "filename"],
+    },
+  },
+  {
+    name: "manage_uploads",
+    description: "Search, list, describe, and manage uploaded files/images. Use this to find previously uploaded files, get their public URLs for embedding in reports/content/HTML, view specific images, or add descriptions/tags. Actions: 'list' (paginated with filters), 'search' (by name/description), 'view' (single upload details), 'describe' (add description + optionally assign client), 'tag' (add/remove tags), 'delete' (remove upload).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action: { type: "string", description: "Action: 'list', 'search', 'view', 'describe', 'tag', 'delete'." },
+        upload_id: { type: "string", description: "UUID of a specific upload (required for 'view', 'describe', 'tag', 'delete')." },
+        query: { type: "string", description: "Search query — matches original_name or description (for 'search' action)." },
+        client_name: { type: "string", description: "Filter by client name (for 'list' and 'search')." },
+        batch_id: { type: "string", description: "Filter by batch ID to see all files from one upload session." },
+        conversation_id: { type: "string", description: "Filter by conversation ID." },
+        mime_filter: { type: "string", description: "Filter by MIME type prefix, e.g. 'image/' (for 'list')." },
+        description: { type: "string", description: "Description text to save (for 'describe' action)." },
+        tags: { type: "array", items: { type: "string" }, description: "Tags to add (for 'tag'). Prefix with '-' to remove, e.g. ['-old', 'new']." },
+        limit: { type: "number", description: "Max results (default 20, max 50)." },
+        assign_client: { type: "string", description: "Client name to associate with the upload (for 'describe' action)." },
+      },
+      required: ["action"],
+    },
+  },
 ];
 
 /** Refresh a Canva OAuth access token and update the DB */
@@ -1391,52 +1858,55 @@ export async function executeTool(
       case "deploy_site": {
         const dir = toolInput.directory as string;
         const projectName = toolInput.project_name as string | undefined;
-        const token = await requireSecret("VERCEL_TOKEN", "Vercel Token");
-        // Build the vercel deploy command (production so custom domains work)
-        const nameFlag = projectName ? `--name "${projectName}"` : "";
-        const cmd = `vercel deploy --yes --prod --token ${token} ${nameFlag}`.trim();
-        const { stdout, stderr } = await execAsync(cmd, {
-          cwd: dir,
-          timeout: 120000,
-          env: safeEnv({ HOME: tmpDir }),
-        });
-        const output = [stdout, stderr].filter(Boolean).join("\n").trim();
-
-        // Assign branded domain as a proper project domain (not just an alias)
-        // Using `vercel domains add` ensures the subdomain is treated as a
-        // custom domain, which bypasses Vercel's SSO deployment protection.
-        const BRANDED_DOMAIN = "melleka.app";
-        if (projectName) {
-          const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-          const brandedUrl = `${slug}.${BRANDED_DOMAIN}`;
-          try {
-            await execAsync(
-              `vercel domains add ${brandedUrl} ${projectName} --token ${token}`,
-              { timeout: 30000, env: safeEnv({ HOME: tmpDir }) }
-            );
-            return `Live at: https://${brandedUrl}`;
-          } catch (domainErr: any) {
-            // Domain might already be assigned — check if it was a "duplicate" error
-            const errMsg = domainErr?.stderr || domainErr?.message || "";
-            if (errMsg.includes("already") || errMsg.includes("exists")) {
-              return `Live at: https://${brandedUrl}`;
-            }
-            // Fall back to default Vercel URL
-            return `${output}\n\n(Branded domain ${brandedUrl} not yet configured — using default Vercel URL above)`;
-          }
+        if (!projectName) {
+          return "(deploy completed — provide project_name for a branded URL)";
         }
-
-        return output || "(deploy completed, check Vercel dashboard for URL)";
+        const result = await deployToVercel(dir, projectName, tmpDir);
+        if (result.domainOk) {
+          return `Live at: https://${result.brandedUrl}`;
+        }
+        return `Live at: https://${result.brandedUrl}\n(Note: domain assignment had issues — verify the URL works)`;
       }
 
       case "save_memory": {
-        await writeMemory(memberName, toolInput.content as string);
-        return "Memory saved.";
+        const title = toolInput.title as string;
+        const content = toolInput.content as string;
+        await createMemoryEntry(memberName, title, content);
+        return `Memory entry "${title}" saved.`;
       }
 
       case "append_memory": {
-        await appendMemory(memberName, toolInput.note as string);
-        return "Memory updated.";
+        const title = toolInput.title as string;
+        const note = toolInput.note as string;
+        const existing = await findMemoryByTitle(memberName, title);
+        if (existing) {
+          const timestamp = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const updated = `${existing.content}\n\n[${timestamp}] ${note}`;
+          await updateMemoryEntry(existing.id, { content: updated });
+          return `Appended note to memory "${title}".`;
+        } else {
+          const timestamp = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          await createMemoryEntry(memberName, title, `[${timestamp}] ${note}`);
+          return `Created new memory "${title}" with note.`;
+        }
+      }
+
+      case "delete_memory": {
+        const title = toolInput.title as string;
+        const entry = await findMemoryByTitle(memberName, title);
+        if (entry) {
+          await deleteMemoryEntry(entry.id);
+          return `Memory "${title}" deleted.`;
+        }
+        return `No memory found with title "${title}".`;
+      }
+
+      case "list_memories": {
+        const entries = await listMemoryEntries(memberName);
+        if (entries.length === 0) return "No memories saved yet.";
+        return entries
+          .map((e) => `- **${e.title}**: ${e.content.slice(0, 100)}${e.content.length > 100 ? "..." : ""}`)
+          .join("\n");
       }
 
       case "create_agent": {
@@ -1539,14 +2009,38 @@ export async function executeTool(
       case "delete_cron_job": {
         const { supabase } = await import("./supabase.js");
         const jobName = toolInput.name as string;
-        const { error, count } = await supabase
+
+        // Find the job first to get its conversation_id
+        const { data: jobToDelete } = await supabase
           .from("team_cron_jobs")
-          .delete({ count: "exact" })
+          .select("id, conversation_id")
           .eq("member_name", memberName.toLowerCase())
-          .eq("name", jobName);
+          .eq("name", jobName)
+          .single();
+
+        if (!jobToDelete) return `No job named "${jobName}" found.`;
+
+        // Delete the cron job row
+        const { error } = await supabase
+          .from("team_cron_jobs")
+          .delete()
+          .eq("id", jobToDelete.id);
         if (error) return `Error deleting job: ${error.message}`;
+
+        // Clean up the associated conversation and messages
+        if (jobToDelete.conversation_id) {
+          await supabase
+            .from("team_messages")
+            .delete()
+            .eq("conversation_id", jobToDelete.conversation_id);
+          await supabase
+            .from("team_conversations")
+            .delete()
+            .eq("id", jobToDelete.conversation_id);
+        }
+
         cronReloadCallbacks.forEach((cb) => cb());
-        return count ? `Cron job "${jobName}" deleted.` : `No job named "${jobName}" found.`;
+        return `Cron job "${jobName}" deleted (conversation history cleaned up).`;
       }
 
       case "google_ads_query": {
@@ -1755,6 +2249,268 @@ export async function executeTool(
         return data.channels
           .map((c) => `• #${c.name} — ID: ${c.id} ${c.is_member ? "(joined)" : ""} (${c.num_members} members)`)
           .join("\n");
+      }
+
+      case "slack_send_dm": {
+        const token = await requireSecret("SLACK_BOT_TOKEN", "Slack Bot Token");
+        const email = toolInput.email as string;
+        const message = toolInput.message as string;
+        if (!email || !message) return "Error: email and message are required.";
+
+        // Step 1: Look up user by email
+        const lookupResp = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const lookupData = await lookupResp.json() as { ok: boolean; error?: string; user?: { id: string; real_name?: string } };
+        if (!lookupData.ok) {
+          if (lookupData.error === "users_not_found") return `No Slack user found with email "${email}". They may not be in this workspace.`;
+          return `Slack lookup error: ${lookupData.error}`;
+        }
+        const userId = lookupData.user!.id;
+        const userName = lookupData.user!.real_name || email;
+
+        // Step 2: Open DM channel
+        const openResp = await fetch("https://slack.com/api/conversations.open", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ users: userId }),
+        });
+        const openData = await openResp.json() as { ok: boolean; error?: string; channel?: { id: string } };
+        if (!openData.ok) return `Slack DM open error: ${openData.error}`;
+        const dmChannelId = openData.channel!.id;
+
+        // Step 3: Send message
+        const sendResp = await fetch("https://slack.com/api/chat.postMessage", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ channel: dmChannelId, text: message }),
+        });
+        const sendData = await sendResp.json() as { ok: boolean; error?: string; ts?: string };
+        if (!sendData.ok) return `Slack send error: ${sendData.error}`;
+        return `DM sent to ${userName} (${email}) successfully.`;
+      }
+
+      case "query_deliverables": {
+        const filters: string[] = [];
+        const assigneeEmail = toolInput.assignee_email as string | undefined;
+        const statusFilter = toolInput.status as string | undefined;
+        const clientFilter = toolInput.client_name as string | undefined;
+        if (assigneeEmail) filters.push(`assignee_email=ilike.*${encodeURIComponent(assigneeEmail)}*`);
+        if (statusFilter) filters.push(`status=eq.${encodeURIComponent(statusFilter)}`);
+        if (clientFilter) filters.push(`client_name=ilike.*${encodeURIComponent(clientFilter)}*`);
+        const qs = filters.length ? `&${filters.join("&")}` : "";
+        const resp = await fetch(
+          `${process.env.SUPABASE_URL}/rest/v1/task_deliverables?select=*&order=created_at.desc&limit=50${qs}`,
+          { headers: { apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY!}` } }
+        );
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}));
+          return `Error querying deliverables (${resp.status}): ${JSON.stringify(errData)}`;
+        }
+        const data = await resp.json();
+        if (!Array.isArray(data) || data.length === 0) return "No deliverables found matching those filters.";
+        const lines = data.map((d: any) =>
+          `- [${d.status}] ${d.notion_task_name} (${d.client_name})${d.deliverable_url ? `\n  URL: ${d.deliverable_url}` : ""}${d.content_summary ? `\n  Summary: ${d.content_summary}` : ""}${d.assignee_name ? `\n  Assignee: ${d.assignee_name}` : ""}${d.revision_notes ? `\n  Revision notes: ${d.revision_notes}` : ""}\n  Created: ${new Date(d.created_at).toLocaleDateString()}\n  ID: ${d.id}`
+        );
+        return `${data.length} deliverable(s) found:\n\n${lines.join("\n\n")}`;
+      }
+
+      case "save_deliverable": {
+        const delivId = toolInput.id as string | undefined;
+        const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+        if (toolInput.notion_task_name) payload.notion_task_name = toolInput.notion_task_name;
+        if (toolInput.client_name) payload.client_name = toolInput.client_name;
+        if (toolInput.assignee_email) payload.assignee_email = toolInput.assignee_email;
+        if (toolInput.assignee_name) payload.assignee_name = toolInput.assignee_name;
+        if (toolInput.deliverable_url) payload.deliverable_url = toolInput.deliverable_url;
+        if (toolInput.deliverable_type) payload.deliverable_type = toolInput.deliverable_type;
+        if (toolInput.status) payload.status = toolInput.status;
+        if (toolInput.content_summary) payload.content_summary = toolInput.content_summary;
+        if (toolInput.revision_notes !== undefined) payload.revision_notes = toolInput.revision_notes;
+        if (toolInput.slack_message_ts) payload.slack_message_ts = toolInput.slack_message_ts;
+        if (toolInput.slack_channel_id) payload.slack_channel_id = toolInput.slack_channel_id;
+        if (toolInput.created_by) payload.created_by = toolInput.created_by;
+
+        if (delivId) {
+          // Update existing
+          const resp = await fetch(
+            `${process.env.SUPABASE_URL}/rest/v1/task_deliverables?id=eq.${delivId}`,
+            {
+              method: "PATCH",
+              headers: {
+                apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+                Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY!}`,
+                "Content-Type": "application/json",
+                Prefer: "return=representation",
+              },
+              body: JSON.stringify(payload),
+            }
+          );
+          if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            return `Error updating deliverable: ${JSON.stringify(errData)}`;
+          }
+          const data = await resp.json();
+          if (Array.isArray(data) && data.length === 0) return `Error: No deliverable found with ID ${delivId}. Use query_deliverables to find the correct ID.`;
+          return `Deliverable updated: ${delivId}`;
+        } else {
+          // Insert new
+          if (!payload.notion_task_name || !payload.client_name) return "Error: notion_task_name and client_name are required for new deliverables.";
+          payload.created_by = payload.created_by || memberName || "agent";
+          const resp = await fetch(
+            `${process.env.SUPABASE_URL}/rest/v1/task_deliverables`,
+            {
+              method: "POST",
+              headers: {
+                apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+                Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY!}`,
+                "Content-Type": "application/json",
+                Prefer: "return=representation",
+              },
+              body: JSON.stringify(payload),
+            }
+          );
+          const data = await resp.json();
+          if (!resp.ok) return `Error saving deliverable: ${JSON.stringify(data)}`;
+          const newId = Array.isArray(data) ? data[0]?.id : data?.id;
+          return `Deliverable saved with ID: ${newId}`;
+        }
+      }
+
+      case "generate_image": {
+        const googleAiKey = process.env.GOOGLE_AI_API_KEY;
+        if (!googleAiKey) return "Error: GOOGLE_AI_API_KEY is not configured.";
+        const { supabase: sbImg } = await import("./supabase.js");
+
+        const imgPrompt = toolInput.prompt as string;
+        const imgAspect = (toolInput.aspect_ratio as string) || "1:1";
+
+        const uploadGenImage = async (buf: Buffer, mimeType: string): Promise<string> => {
+          const ext = mimeType.includes("png") ? "png" : "jpg";
+          const storagePath = `generated/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+          const { error } = await sbImg.storage
+            .from("ad-creatives")
+            .upload(storagePath, buf, { contentType: mimeType, upsert: false });
+          if (error) throw new Error(`Upload failed: ${error.message}`);
+          const { data: urlData } = sbImg.storage
+            .from("ad-creatives")
+            .getPublicUrl(storagePath);
+          return urlData.publicUrl;
+        };
+
+        const tryGeminiImgModel = async (model: string): Promise<string | null> => {
+          try {
+            const resp = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleAiKey}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: `Generate an image with the following description. Aspect ratio: ${imgAspect}.\n\n${imgPrompt}` }] }],
+                  generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+                }),
+              }
+            );
+            if (!resp.ok) { console.log(`[generate_image] ${model} HTTP ${resp.status}`); return null; }
+            const data = await resp.json() as any;
+            const parts = data.candidates?.[0]?.content?.parts || [];
+            let text = "";
+            for (const part of parts) {
+              if (part.text) text += part.text;
+              if (part.inlineData?.mimeType?.startsWith("image/")) {
+                const buf = Buffer.from(part.inlineData.data, "base64");
+                const url = await uploadGenImage(buf, part.inlineData.mimeType);
+                return `${text}\n\n![Generated Image](${url})`;
+              }
+            }
+            return null;
+          } catch (err) { console.error(`[generate_image] ${model} error:`, err); return null; }
+        };
+
+        const tryImagenModel = async (model: string): Promise<string | null> => {
+          try {
+            const resp = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${googleAiKey}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ instances: [{ prompt: imgPrompt }], parameters: { sampleCount: 1, aspectRatio: imgAspect } }),
+              }
+            );
+            if (!resp.ok) { console.log(`[generate_image] ${model} HTTP ${resp.status}`); return null; }
+            const data = await resp.json() as any;
+            const imageB64 = data.predictions?.[0]?.bytesBase64Encoded;
+            if (!imageB64) return null;
+            const buf = Buffer.from(imageB64, "base64");
+            const url = await uploadGenImage(buf, "image/png");
+            return `![Generated Image](${url})`;
+          } catch (err) { console.error(`[generate_image] ${model} error:`, err); return null; }
+        };
+
+        const imgModels: Array<{ name: string; fn: () => Promise<string | null> }> = [
+          { name: "gemini-2.0-flash-exp-image-generation", fn: () => tryGeminiImgModel("gemini-2.0-flash-exp-image-generation") },
+          { name: "imagen-4.0-generate-001", fn: () => tryImagenModel("imagen-4.0-generate-001") },
+        ];
+
+        for (const model of imgModels) {
+          console.log(`[generate_image] Trying ${model.name}...`);
+          const result = await model.fn();
+          if (result) { console.log(`[generate_image] Success with ${model.name}`); return result; }
+        }
+        return "Image generation failed across all models. The prompt may have been blocked by safety filters. Try rephrasing.";
+      }
+
+      case "generate_video": {
+        const googleAiKey = process.env.GOOGLE_AI_API_KEY;
+        if (!googleAiKey) return "Error: GOOGLE_AI_API_KEY is not configured.";
+        const { supabase: sbVid } = await import("./supabase.js");
+
+        const videoPrompt = toolInput.prompt as string;
+        const videoAspect = (toolInput.aspect_ratio as string) || "16:9";
+        const videoDuration = (toolInput.duration as string) || "8";
+        const apiBase = "https://generativelanguage.googleapis.com/v1beta";
+
+        const startResp = await fetch(
+          `${apiBase}/models/veo-3.1-generate-preview:predictLongRunning?key=${googleAiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              instances: [{ prompt: videoPrompt }],
+              parameters: { aspectRatio: videoAspect, durationSeconds: parseInt(videoDuration, 10) || 8 },
+            }),
+          }
+        );
+        if (!startResp.ok) {
+          const errText = await startResp.text().catch(() => "");
+          return `Video generation failed to start (${startResp.status}): ${errText.slice(0, 500)}`;
+        }
+        const startData = await startResp.json() as any;
+        const operationName = startData.name;
+        if (!operationName) return `Video generation failed: no operation ID returned.`;
+
+        const maxPolls = 30;
+        for (let i = 0; i < maxPolls; i++) {
+          await new Promise(r => setTimeout(r, 10_000));
+          const pollResp = await fetch(`${apiBase}/${operationName}?key=${googleAiKey}`);
+          if (!pollResp.ok) continue;
+          const pollData = await pollResp.json() as any;
+          if (pollData.done) {
+            const videoUri = pollData.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
+            if (!videoUri) return `Video completed but no URI returned.`;
+            const videoResp = await fetch(`${videoUri}${videoUri.includes('?') ? '&' : '?'}key=${googleAiKey}`);
+            if (!videoResp.ok) return `Video generated but download failed.`;
+            const videoBuf = Buffer.from(await videoResp.arrayBuffer());
+            const storagePath = `generated/video-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.mp4`;
+            const { error: uploadErr } = await sbVid.storage
+              .from("ad-creatives")
+              .upload(storagePath, videoBuf, { contentType: "video/mp4", upsert: false });
+            if (uploadErr) return `Video generated but upload failed: ${uploadErr.message}`;
+            const { data: urlData } = sbVid.storage.from("ad-creatives").getPublicUrl(storagePath);
+            return `Video generated!\n\nWatch here: ${urlData.publicUrl}\n\nDuration: ${videoDuration}s | Aspect: ${videoAspect}`;
+          }
+        }
+        return `Video generation timed out. The job may still be processing. Try again in a few minutes.`;
       }
 
       case "google_sheets_read": {
@@ -2014,40 +2770,55 @@ export async function executeTool(
         const clientName = toolInput.client_name as string | undefined;
         const client = await getSupabaseClient();
 
-        // Fetch clients
-        let clientQuery = client
+        let matchedClients: typeof allClients = [];
+        // Fetch ALL active clients first (needed for fuzzy fallback)
+        const { data: allClients, error: cErr } = await client
           .from("managed_clients")
-          .select("client_name, domain, ga4_property_id, industry, tier, is_active, primary_conversion_goal");
-        if (clientName) {
-          clientQuery = clientQuery.ilike("client_name", `%${clientName}%`);
-        } else {
-          clientQuery = clientQuery.eq("is_active", true);
-        }
-        const { data: clients, error: cErr } = await clientQuery;
+          .select("client_name, domain, ga4_property_id, industry, tier, is_active, primary_conversion_goal, tracked_conversion_types, multi_account_enabled, site_audit_url")
+          .eq("is_active", true);
         if (cErr) return `Error querying managed_clients: ${cErr.message}`;
-        if (!clients || clients.length === 0) {
-          return clientName
-            ? `No client found matching "${clientName}". Use supabase_query on managed_clients to see all clients.`
-            : "No active clients found in managed_clients.";
+        if (!allClients || allClients.length === 0) return "No active clients found in managed_clients.";
+
+        if (clientName) {
+          const search = clientName.toLowerCase().trim();
+          // Strategy 1: Exact match (case-insensitive)
+          matchedClients = allClients.filter((c) => c.client_name.toLowerCase() === search);
+          // Strategy 2: DB name contains search term
+          if (matchedClients.length === 0) {
+            matchedClients = allClients.filter((c) => c.client_name.toLowerCase().includes(search));
+          }
+          // Strategy 3: Search term contains DB name (handles "Sin City Diabetics" matching "Sin City")
+          if (matchedClients.length === 0) {
+            matchedClients = allClients.filter((c) => search.includes(c.client_name.toLowerCase()));
+          }
+          // Strategy 4: Word overlap (handles "TMI Traffic" matching "TMI")
+          if (matchedClients.length === 0) {
+            const searchWords = search.split(/[\s\-_]+/).filter(Boolean);
+            matchedClients = allClients.filter((c) => {
+              const nameWords = c.client_name.toLowerCase().split(/[\s\-_]+/).filter(Boolean);
+              return searchWords.some((sw: string) => nameWords.some((nw: string) => nw.includes(sw) || sw.includes(nw)));
+            });
+          }
+          if (matchedClients.length === 0) {
+            const allNames = allClients.map((c) => c.client_name).join(", ");
+            return `No client found matching "${clientName}". Active clients: ${allNames}`;
+          }
+          console.log(`[get_client_accounts] Searched "${clientName}" -> matched: ${matchedClients.map((c) => c.client_name).join(", ")}`);
+        } else {
+          matchedClients = allClients;
         }
 
-        // Fetch all account mappings for these clients
-        const names = clients.map((c) => c.client_name);
-        const { data: mappings } = await client
+        // Fetch all account mappings for matched clients
+        const names = matchedClients.map((c) => c.client_name);
+        const { data: mappings, error: mapErr } = await client
           .from("client_account_mappings")
           .select("client_name, platform, account_id, account_name")
           .in("client_name", names);
-
-        // Also fetch ppc_client_settings for any extra account IDs
-        const { data: ppcSettings } = await client
-          .from("ppc_client_settings")
-          .select("client_name, google_account_id, meta_account_id")
-          .in("client_name", names);
+        if (mapErr) console.error(`[get_client_accounts] Error fetching mappings: ${mapErr.message}`);
 
         // Build result
-        const result = clients.map((c) => {
+        const result = matchedClients.map((c) => {
           const accts = (mappings || []).filter((m) => m.client_name === c.client_name);
-          const ppc = (ppcSettings || []).find((p) => p.client_name === c.client_name);
           const grouped: Record<string, Array<{ account_id: string; account_name: string | null }>> = {};
           for (const a of accts) {
             if (!grouped[a.platform]) grouped[a.platform] = [];
@@ -2060,8 +2831,12 @@ export async function executeTool(
             industry: c.industry,
             tier: c.tier,
             primary_conversion_goal: c.primary_conversion_goal,
+            tracked_conversion_types: (c as any).tracked_conversion_types,
+            multi_account_enabled: (c as any).multi_account_enabled,
+            site_audit_url: (c as any).site_audit_url,
             accounts: grouped,
-            ppc_settings: ppc ? { google_account_id: ppc.google_account_id, meta_account_id: ppc.meta_account_id } : null,
+            linked_platforms: Object.keys(grouped),
+            total_linked_accounts: Object.values(grouped).flat().length,
           };
         });
 
@@ -2173,13 +2948,12 @@ export async function executeTool(
       }
 
       case "notion_query_tasks": {
-        const clientName = toolInput.client_name as string;
-        if (!clientName) return "Error: client_name is required.";
+        const clientName = ((toolInput.client_name as string) || "").trim();
 
         const notionApiKey = process.env.NOTION_API_KEY;
         if (!notionApiKey) return "Error: NOTION_API_KEY is not configured.";
 
-        const databaseId = (toolInput.database_id as string) || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
+        const databaseId = (toolInput.database_id as string) || process.env.NOTION_TASK_DATABASE_ID || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
         const startDate = toolInput.start_date as string | undefined;
         const endDate = toolInput.end_date as string | undefined;
         const statusFilter = (toolInput.status_filter as string) || "completed";
@@ -2190,8 +2964,14 @@ export async function executeTool(
           "Notion-Version": "2022-06-28",
         };
 
-        // Build date filter
+        // Build filter clauses
         const filterClauses: unknown[] = [];
+
+        // Always exclude tasks where "Done ?" checkbox is checked
+        if (statusFilter !== "all" && statusFilter !== "completed") {
+          filterClauses.push({ property: "Done ?", checkbox: { equals: false } });
+        }
+
         if (startDate) {
           filterClauses.push({ timestamp: "last_edited_time", last_edited_time: { on_or_after: startDate } });
         }
@@ -2218,7 +2998,7 @@ export async function executeTool(
             ...(cursor ? { start_cursor: cursor } : {}),
           };
 
-          let resp: Response;
+          let resp: Response | undefined;
           for (let attempt = 0; attempt < 3; attempt++) {
             resp = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
               method: "POST", headers: notionHeaders, body: JSON.stringify(queryBody),
@@ -2231,7 +3011,11 @@ export async function executeTool(
             break;
           }
 
-          if (!resp!.ok) {
+          if (!resp) {
+            return "Notion API rate limited after 3 retries. Please try again in a minute.";
+          }
+
+          if (!resp.ok) {
             const errText = await resp!.text();
             return `Notion API error (${resp!.status}): ${errText.slice(0, 1000)}`;
           }
@@ -2272,7 +3056,7 @@ export async function executeTool(
         };
 
         // Parse and filter tasks
-        const results: Array<{ title: string; status: string; client: string; assignee: string; lastEdited: string; isCompleted: boolean }> = [];
+        const results: Array<{ title: string; status: string; client: string; assignee: string; manager: string; lastEdited: string; isCompleted: boolean }> = [];
 
         for (const task of allTasks) {
           const props = task.properties || {};
@@ -2294,42 +3078,202 @@ export async function executeTool(
           else if (cp?.type === "multi_select") client = cp.multi_select.map((x: any) => x.name).join(", ");
           else if (cp?.type === "select") client = cp.select?.name || "";
 
-          // Assignee
+          // Assignee (include email for Slack DM lookups)
           let assignee = "";
-          const ap = props["Assign"] || props["Managers"];
-          if (ap?.people) assignee = ap.people.map((p: any) => p.name || "").filter(Boolean).join(", ");
+          const assignProp = props["Assign"];
+          if (assignProp?.people) assignee = assignProp.people.map((p: any) => {
+            const name = p.name || "";
+            const email = p.person?.email || "";
+            return email ? `${name} <${email}>` : name;
+          }).filter(Boolean).join(", ");
+
+          // Manager (separate field for DM routing)
+          let manager = "";
+          const managerProp = props["Managers"];
+          if (managerProp?.people) manager = managerProp.people.map((p: any) => {
+            const name = p.name || "";
+            const email = p.person?.email || "";
+            return email ? `${name} <${email}>` : name;
+          }).filter(Boolean).join(", ");
 
           const lastEdited = task.last_edited_time || "";
           const statusLower = status.toLowerCase();
-          const isCompleted = ["done", "good to launch", "archived", "complete", "completed"].some(s => statusLower.includes(s));
+          const isCompleted = ["done", "good to launch", "archived", "complete", "completed", "finished", "approved", "launched", "published"].some(s => statusLower.includes(s));
           const isNonEssential = statusLower.includes("non-essential") || statusLower.includes("non essential");
 
-          if (isNonEssential) continue;
-          if (!matchesClient(client, title)) continue;
-          if (statusFilter === "completed" && !isCompleted) continue;
-          if (statusFilter === "pending" && isCompleted) continue;
+          // Check "Done ?" checkbox
+          const doneCheckbox = props["Done ?"]?.checkbox === true;
 
-          results.push({ title, status, client, assignee, lastEdited, isCompleted });
+          if (isNonEssential) continue;
+          if (clientName && !matchesClient(client, title)) continue;
+          if (statusFilter === "completed" && !isCompleted && !doneCheckbox) continue;
+          if (statusFilter === "pending" && (isCompleted || doneCheckbox)) continue;
+
+          results.push({ title, status, client, assignee, manager, lastEdited, isCompleted });
         }
 
         // Format output
         const label = statusFilter === "completed" ? "Completed" : statusFilter === "pending" ? "Pending" : "All";
-        let output = `${label} Tasks for "${clientName}"\n`;
+        const scope = clientName ? `"${clientName}"` : "ALL clients";
+        let output = `${label} Tasks for ${scope}\n`;
         output += `Database: IN HOUSE TO-DO | Date range: ${startDate || "all time"} to ${endDate || "present"}\n`;
         output += `Total tasks scanned: ${allTasks.length} | Matched: ${results.length}\n\n`;
 
         if (results.length === 0) {
-          output += `No ${label.toLowerCase()} tasks found for "${clientName}" in the given date range.\n`;
-          output += `\nTip: Try broader date range or different name/alias. Aliases tried: ${[...aliases].join(", ")}`;
+          output += `No ${label.toLowerCase()} tasks found for ${scope} in the given date range.\n`;
+          if (clientName) output += `\nTip: Try broader date range or different name/alias. Aliases tried: ${[...aliases].join(", ")}`;
         } else {
           for (const t of results) {
-            output += `- ${t.title}\n`;
+            output += `- ${t.title}`;
+            if (!clientName && t.client) output += ` [${t.client}]`;
+            output += "\n";
             output += `  Status: ${t.status} | Edited: ${new Date(t.lastEdited).toLocaleDateString()}`;
-            if (t.assignee) output += ` | Assigned: ${t.assignee}`;
+            if (t.assignee) output += ` | Assignee: ${t.assignee}`;
+            if (t.manager) output += ` | Manager: ${t.manager}`;
             output += "\n";
           }
         }
 
+        return output;
+      }
+
+      case "add_task_to_notion": {
+        const notionApiKey = process.env.NOTION_API_KEY;
+        if (!notionApiKey) return "Error: NOTION_API_KEY is not configured.";
+
+        const databaseId = process.env.NOTION_TASK_DATABASE_ID || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
+        const ntHeaders = {
+          Authorization: `Bearer ${notionApiKey}`,
+          "Content-Type": "application/json",
+          "Notion-Version": "2022-06-28",
+        };
+
+        const tasks = toolInput.tasks as Array<{
+          task_name: string;
+          client_name: string;
+          assignee?: string;
+          manager?: string;
+          status?: string;
+        }>;
+
+        if (!tasks || tasks.length === 0) return "Error: No tasks provided. Pass an array of tasks with task_name and client_name.";
+
+        // Fetch Notion workspace users once to resolve names to IDs
+        let notionUsers: Array<{ id: string; name: string }> = [];
+        const needsUserLookup = tasks.some(t => t.assignee || t.manager);
+        if (needsUserLookup) {
+          try {
+            const usersResp = await fetch("https://api.notion.com/v1/users", { headers: ntHeaders });
+            if (usersResp.ok) {
+              const usersData = await usersResp.json();
+              notionUsers = (usersData.results || [])
+                .filter((u: any) => u.type === "person")
+                .map((u: any) => ({ id: u.id, name: u.name || "" }));
+            }
+          } catch { /* proceed without user resolution */ }
+        }
+
+        const resolveUserId = (name: string): string | null => {
+          if (!name) return null;
+          const lower = name.toLowerCase().trim();
+          // Exact match first
+          const exact = notionUsers.find(u => u.name.toLowerCase() === lower);
+          if (exact) return exact.id;
+          // Partial/fuzzy match
+          const partial = notionUsers.find(u =>
+            u.name.toLowerCase().includes(lower) || lower.includes(u.name.toLowerCase())
+          );
+          if (partial) return partial.id;
+          // First name match
+          const firstName = lower.split(/\s+/)[0];
+          const firstMatch = notionUsers.find(u => u.name.toLowerCase().startsWith(firstName));
+          return firstMatch?.id || null;
+        };
+
+        const results: Array<{ task_name: string; success: boolean; error?: string; notionId?: string }> = [];
+
+        for (const task of tasks) {
+          try {
+            const properties: Record<string, any> = {
+              "Task name": {
+                title: [{ text: { content: task.task_name } }],
+              },
+              STATUS: {
+                status: { name: task.status || "👋 NEW 👋" },
+              },
+              CLIENTS: {
+                rich_text: [{ text: { content: task.client_name } }],
+              },
+            };
+
+            // Set Teammate (select) and Assign (people) for assignee
+            if (task.assignee && task.assignee !== "Unassigned") {
+              properties["Teammate"] = {
+                select: { name: task.assignee },
+              };
+              const assigneeId = resolveUserId(task.assignee);
+              if (assigneeId) {
+                properties["Assign"] = {
+                  people: [{ id: assigneeId }],
+                };
+              }
+            }
+
+            // Set Managers (people) for manager
+            if (task.manager) {
+              const managerId = resolveUserId(task.manager);
+              if (managerId) {
+                properties["Managers"] = {
+                  people: [{ id: managerId }],
+                };
+              }
+            }
+
+            const resp = await fetch(`https://api.notion.com/v1/pages`, {
+              method: "POST",
+              headers: ntHeaders,
+              body: JSON.stringify({
+                parent: { database_id: databaseId },
+                properties,
+              }),
+            });
+
+            if (!resp.ok) {
+              const err = await resp.json();
+              results.push({
+                task_name: task.task_name,
+                success: false,
+                error: err.message || JSON.stringify(err).slice(0, 300),
+              });
+            } else {
+              const data = await resp.json();
+              results.push({
+                task_name: task.task_name,
+                success: true,
+                notionId: data.id,
+              });
+            }
+
+            // Small delay to avoid Notion rate limits
+            if (tasks.length > 1) await new Promise((r) => setTimeout(r, 350));
+          } catch (err: any) {
+            results.push({
+              task_name: task.task_name,
+              success: false,
+              error: err.message,
+            });
+          }
+        }
+
+        const successCount = results.filter((r) => r.success).length;
+        let output = `Created ${successCount}/${tasks.length} tasks in Notion.\n\n`;
+        for (const r of results) {
+          if (r.success) {
+            output += `✓ "${r.task_name}" — added (ID: ${r.notionId})\n`;
+          } else {
+            output += `✗ "${r.task_name}" — failed: ${r.error}\n`;
+          }
+        }
         return output;
       }
 
@@ -2846,6 +3790,821 @@ export async function executeTool(
         }
 
         return `Unknown action "${action}". Use "create", "update", or "list".`;
+      }
+
+      case "servis_crm": {
+        const clientName = toolInput.client_name as string;
+        const action = toolInput.action as string;
+        if (!clientName) return "Error: client_name is required. CRM credentials are per-client.";
+        if (!action) return "Error: action is required.";
+
+        // Fetch per-client CRM credentials (strict isolation)
+        const client = await getSupabaseClient();
+        const { data: creds, error: credsErr } = await client
+          .from("client_crm_credentials")
+          .select("client_id, client_secret, base_url")
+          .eq("client_name", clientName)
+          .eq("crm_provider", "servis")
+          .eq("is_active", true)
+          .single();
+
+        if (credsErr || !creds) {
+          return `Error: Servis CRM not configured for "${clientName}". Set up CRM credentials in Client Settings > Manage CRM.`;
+        }
+
+        const baseUrl = (creds.base_url as string) || "https://freeagent.network";
+        let token: string;
+        try {
+          token = await getServisToken(clientName, creds.client_id as string, creds.client_secret as string);
+        } catch (err: any) {
+          return `Error authenticating with Servis CRM for "${clientName}": ${err.message}`;
+        }
+
+        const graphqlUrl = `${baseUrl}/api/graphql`;
+
+        // Helper to execute GraphQL
+        const runGraphQL = async (query: string, variables: Record<string, unknown>): Promise<any> => {
+          const resp = await fetch(graphqlUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`,
+            },
+            body: JSON.stringify({ query, variables }),
+          });
+
+          if (resp.status === 401) {
+            // Token expired — clear cache and retry once
+            servisTokenCache.delete(clientName);
+            token = await getServisToken(clientName, creds.client_id as string, creds.client_secret as string);
+            const retry = await fetch(graphqlUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+              body: JSON.stringify({ query, variables }),
+            });
+            if (!retry.ok) {
+              const errText = await retry.text().catch(() => "");
+              throw new Error(`Servis API error (${retry.status}): ${errText.slice(0, 1000)}`);
+            }
+            return retry.json();
+          }
+
+          if (resp.status === 429) {
+            throw new Error("Servis CRM rate limit exceeded (50 req/10s). Wait a moment and retry.");
+          }
+
+          if (!resp.ok) {
+            const errText = await resp.text().catch(() => "");
+            throw new Error(`Servis API error (${resp.status}): ${errText.slice(0, 1000)}`);
+          }
+
+          const result = await resp.json();
+          if (result.errors && result.errors.length > 0) {
+            throw new Error(`GraphQL error: ${JSON.stringify(result.errors).slice(0, 1000)}`);
+          }
+          return result;
+        };
+
+        try {
+          switch (action) {
+            case "list_records": {
+              const entity = toolInput.entity as string;
+              if (!entity) return "Error: entity is required for list_records (e.g. 'contact', 'deal', 'account').";
+              const q = `query listEntityValues($entity: String!, $fields: [String], $order: [[String]], $limit: Int, $offset: Int, $pattern: String, $filters: [Filter], $count_only: Boolean) {
+                listEntityValues(entity: $entity, fields: $fields, order: $order, limit: $limit, offset: $offset, pattern: $pattern, filters: $filters, count_only: $count_only) {
+                  count
+                  entity_values { id seq_id field_values }
+                }
+              }`;
+              const vars: Record<string, unknown> = { entity };
+              if (toolInput.limit) vars.limit = toolInput.limit;
+              if (toolInput.offset) vars.offset = toolInput.offset;
+              if (toolInput.order) vars.order = toolInput.order;
+              if (toolInput.pattern) vars.pattern = toolInput.pattern;
+              if (toolInput.filters) vars.filters = toolInput.filters;
+              const result = await runGraphQL(q, vars);
+              const out = JSON.stringify(result.data?.listEntityValues, null, 2);
+              return out.length > 8000 ? out.slice(0, 8000) + "\n[...truncated]" : out;
+            }
+
+            case "get_record": {
+              const entity = toolInput.entity as string;
+              const recordId = toolInput.record_id as string;
+              if (!entity || !recordId) return "Error: entity and record_id are required for get_record.";
+              const q = `query listEntityValues($entity: String!, $id: String) {
+                listEntityValues(entity: $entity, id: $id) {
+                  entity_values { id seq_id field_values lines }
+                }
+              }`;
+              const result = await runGraphQL(q, { entity, id: recordId });
+              const vals = result.data?.listEntityValues?.entity_values;
+              if (!vals || vals.length === 0) return `No record found with ID "${recordId}" in ${entity}.`;
+              return JSON.stringify(vals[0], null, 2).slice(0, 8000);
+            }
+
+            case "create_record": {
+              const entity = toolInput.entity as string;
+              const fieldValues = toolInput.field_values as Record<string, unknown>;
+              if (!entity || !fieldValues) return "Error: entity and field_values are required for create_record.";
+              const q = `mutation createEntity($entity: String!, $field_values: JSON!) {
+                createEntity(entity: $entity, field_values: $field_values) {
+                  entity_value { id seq_id field_values }
+                }
+              }`;
+              const result = await runGraphQL(q, { entity, field_values: fieldValues });
+              const created = result.data?.createEntity?.entity_value;
+              return created
+                ? `Record created successfully!\n${JSON.stringify(created, null, 2).slice(0, 4000)}`
+                : `Create response: ${JSON.stringify(result.data, null, 2).slice(0, 4000)}`;
+            }
+
+            case "update_record": {
+              const entity = toolInput.entity as string;
+              const recordId = toolInput.record_id as string;
+              const fieldValues = toolInput.field_values as Record<string, unknown>;
+              if (!entity || !recordId || !fieldValues) return "Error: entity, record_id, and field_values are required for update_record.";
+              const q = `mutation updateEntity($entity: String!, $id: String!, $field_values: JSON!) {
+                updateEntity(entity: $entity, id: $id, field_values: $field_values) {
+                  entity_value { id seq_id field_values }
+                }
+              }`;
+              const result = await runGraphQL(q, { entity, id: recordId, field_values: fieldValues });
+              const updated = result.data?.updateEntity?.entity_value;
+              return updated
+                ? `Record updated successfully!\n${JSON.stringify(updated, null, 2).slice(0, 4000)}`
+                : `Update response: ${JSON.stringify(result.data, null, 2).slice(0, 4000)}`;
+            }
+
+            case "delete_record": {
+              const entity = toolInput.entity as string;
+              const recordId = toolInput.record_id as string;
+              if (!entity || !recordId) return "Error: entity and record_id are required for delete_record.";
+              const q = `mutation deleteEntity($entity: String!, $id: String!) {
+                deleteEntity(entity: $entity, id: $id) {
+                  success
+                }
+              }`;
+              const result = await runGraphQL(q, { entity, id: recordId });
+              return result.data?.deleteEntity?.success
+                ? `Record ${recordId} deleted successfully from ${entity}.`
+                : `Delete response: ${JSON.stringify(result.data, null, 2)}`;
+            }
+
+            case "list_activities": {
+              const entity = toolInput.entity as string;
+              const recordId = toolInput.record_id as string;
+              if (!entity || !recordId) return "Error: entity and record_id are required for list_activities.";
+              const q = `query listEventLogs($entity: String!, $fa_entity_id: String!, $limit: Int, $offset: Int) {
+                listEventLogs(entity: $entity, fa_entity_id: $fa_entity_id, limit: $limit, offset: $offset) {
+                  count
+                  entity_values { id seq_id field_values }
+                }
+              }`;
+              const vars: Record<string, unknown> = { entity, fa_entity_id: recordId };
+              if (toolInput.limit) vars.limit = toolInput.limit;
+              if (toolInput.offset) vars.offset = toolInput.offset;
+              const result = await runGraphQL(q, vars);
+              const out = JSON.stringify(result.data?.listEventLogs, null, 2);
+              return out.length > 8000 ? out.slice(0, 8000) + "\n[...truncated]" : out;
+            }
+
+            case "list_apps": {
+              const q = `query getEntities($alphabetical_order: Boolean) {
+                getEntities(alphabetical_order: $alphabetical_order) {
+                  name display_name label label_plural entity_id
+                }
+              }`;
+              const result = await runGraphQL(q, { alphabetical_order: true });
+              return JSON.stringify(result.data?.getEntities, null, 2).slice(0, 8000);
+            }
+
+            case "list_fields": {
+              const entity = toolInput.entity as string;
+              if (!entity) return "Error: entity is required for list_fields.";
+              const q = `query getFields($entity: String) {
+                getFields(entity: $entity) {
+                  id name name_label main_type is_required is_visible default_value
+                }
+              }`;
+              const result = await runGraphQL(q, { entity });
+              return JSON.stringify(result.data?.getFields, null, 2).slice(0, 8000);
+            }
+
+            case "list_users": {
+              const q = `query getTeamMembers {
+                getTeamMembers {
+                  agents { id full_name email_address job_title access_level status }
+                }
+              }`;
+              const result = await runGraphQL(q, {});
+              return JSON.stringify(result.data?.getTeamMembers?.agents, null, 2).slice(0, 8000);
+            }
+
+            default:
+              return `Unknown Servis CRM action "${action}". Use: list_records, get_record, create_record, update_record, delete_record, list_activities, list_apps, list_fields, list_users.`;
+          }
+        } catch (err: any) {
+          return `Servis CRM error for "${clientName}": ${err.message}`;
+        }
+      }
+
+      case "social_media": {
+        const apiKey = await requireSecret("AYRSHARE_API_KEY", "Ayrshare API Key");
+        const action = toolInput.action as string;
+        const platforms = toolInput.platforms as string[] | undefined;
+        const postText = toolInput.post as string | undefined;
+        const mediaUrls = toolInput.media_urls as string[] | undefined;
+        const scheduleDate = toolInput.schedule_date as string | undefined;
+        const postId = toolInput.post_id as string | undefined;
+        const commentText = toolInput.comment as string | undefined;
+        const commentId = toolInput.comment_id as string | undefined;
+        const singlePlatform = toolInput.platform as string | undefined;
+        const extraParams = (toolInput.params as Record<string, unknown>) || {};
+        const profileKey = toolInput.profile_key as string | undefined;
+        const customMethod = ((toolInput.method as string) || "GET").toUpperCase();
+        const customEndpoint = toolInput.endpoint as string | undefined;
+
+        const BASE = "https://api.ayrshare.com/api";
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        };
+        if (profileKey) headers["Profile-Key"] = profileKey;
+
+        // Helper to make Ayrshare API calls
+        async function ayrCall(
+          method: string,
+          path: string,
+          body?: Record<string, unknown>
+        ): Promise<string> {
+          const url = `${BASE}${path}`;
+          const opts: RequestInit = { method, headers };
+          if (body && (method === "POST" || method === "PUT" || method === "DELETE")) {
+            opts.body = JSON.stringify(body);
+          }
+          const resp = await fetch(url, opts);
+          const text = await resp.text();
+          if (!resp.ok) {
+            return `Ayrshare API error (${resp.status}): ${text.slice(0, 2000)}`;
+          }
+          try {
+            const json = JSON.parse(text);
+            return JSON.stringify(json, null, 2).slice(0, 8000);
+          } catch {
+            return text.slice(0, 8000);
+          }
+        }
+
+        switch (action) {
+          case "post": {
+            const body: Record<string, unknown> = { ...extraParams };
+            if (platforms) body.platforms = platforms;
+            if (postText) body.post = postText;
+            if (mediaUrls) body.mediaUrls = mediaUrls;
+            if (scheduleDate) body.scheduleDate = scheduleDate;
+            return ayrCall("POST", "/post", body);
+          }
+          case "delete_post": {
+            if (!postId) return "post_id is required for delete_post.";
+            return ayrCall("DELETE", "/post", { id: postId, ...extraParams });
+          }
+          case "get_post": {
+            if (!postId) return "post_id is required for get_post.";
+            return ayrCall("GET", `/post/${postId}`);
+          }
+          case "update_post": {
+            if (!postId) return "post_id is required for update_post.";
+            return ayrCall("PUT", `/post/${postId}`, { ...extraParams });
+          }
+          case "history": {
+            if (singlePlatform) return ayrCall("GET", `/history/platform/${singlePlatform}`);
+            return ayrCall("GET", "/history");
+          }
+          case "analytics_post": {
+            const body: Record<string, unknown> = { ...extraParams };
+            if (postId) body.id = postId;
+            if (platforms) body.platforms = platforms;
+            return ayrCall("POST", "/analytics/post", body);
+          }
+          case "analytics_social": {
+            const body: Record<string, unknown> = { ...extraParams };
+            if (platforms) body.platforms = platforms;
+            return ayrCall("POST", "/analytics/social", body);
+          }
+          case "comment": {
+            if (!postId) return "post_id is required for comment.";
+            if (!commentText) return "comment text is required.";
+            const body: Record<string, unknown> = { id: postId, comment: commentText, ...extraParams };
+            if (platforms) body.platforms = platforms;
+            return ayrCall("POST", "/comments", body);
+          }
+          case "get_comments": {
+            if (!postId) return "post_id is required for get_comments.";
+            return ayrCall("GET", `/comments/${postId}`);
+          }
+          case "reply_comment": {
+            if (!commentId) return "comment_id is required for reply_comment.";
+            if (!commentText) return "comment text is required.";
+            return ayrCall("POST", "/comments/reply", { commentId, comment: commentText, ...extraParams });
+          }
+          case "delete_comment": {
+            const body: Record<string, unknown> = { ...extraParams };
+            if (commentId) body.commentId = commentId;
+            if (postId) body.id = postId;
+            return ayrCall("DELETE", "/comments", body);
+          }
+          case "auto_schedule": {
+            const body: Record<string, unknown> = { ...extraParams };
+            if (platforms) body.platforms = platforms;
+            return ayrCall("POST", "/auto-schedule", body);
+          }
+          case "get_auto_schedule": {
+            return ayrCall("GET", "/auto-schedule");
+          }
+          case "generate_text": {
+            return ayrCall("POST", "/generate/text", { ...extraParams });
+          }
+          case "generate_rewrite": {
+            const body: Record<string, unknown> = { ...extraParams };
+            if (postText) body.post = postText;
+            return ayrCall("POST", "/generate/rewrite", body);
+          }
+          case "generate_translate": {
+            const body: Record<string, unknown> = { ...extraParams };
+            if (postText) body.post = postText;
+            return ayrCall("POST", "/generate/translate", body);
+          }
+          case "upload_media": {
+            return ayrCall("POST", "/media/upload", { ...extraParams });
+          }
+          case "get_media": {
+            return ayrCall("GET", "/media");
+          }
+          case "hashtags_recommend": {
+            return ayrCall("GET", `/hashtags/recommend?${new URLSearchParams(extraParams as Record<string, string>).toString()}`);
+          }
+          case "hashtags_auto": {
+            const body: Record<string, unknown> = { ...extraParams };
+            if (postText) body.post = postText;
+            return ayrCall("POST", "/hashtags/auto", body);
+          }
+          case "shorten_link": {
+            return ayrCall("POST", "/links/shorten", { ...extraParams });
+          }
+          case "add_feed": {
+            return ayrCall("POST", "/feeds", { ...extraParams });
+          }
+          case "get_feeds": {
+            return ayrCall("GET", "/feeds");
+          }
+          case "get_user": {
+            return ayrCall("GET", "/user");
+          }
+          case "get_reviews": {
+            const qs = singlePlatform ? `?platform=${singlePlatform}` : "";
+            return ayrCall("GET", `/reviews${qs}`);
+          }
+          case "reply_review": {
+            return ayrCall("POST", "/reviews/reply", { ...extraParams });
+          }
+          case "validate_post": {
+            const body: Record<string, unknown> = { ...extraParams };
+            if (postText) body.post = postText;
+            if (platforms) body.platforms = platforms;
+            return ayrCall("POST", "/validate/post", body);
+          }
+          case "send_message": {
+            return ayrCall("POST", "/messages", { ...extraParams });
+          }
+          case "get_messages": {
+            return ayrCall("GET", "/messages");
+          }
+          case "brand_search": {
+            if (!singlePlatform) return "platform is required for brand_search (e.g. 'facebook', 'linkedin').";
+            return ayrCall("GET", `/brand/search/${singlePlatform}?${new URLSearchParams(extraParams as Record<string, string>).toString()}`);
+          }
+          case "custom": {
+            if (!customEndpoint) return 'endpoint is required for "custom" action.';
+            const body = (customMethod === "POST" || customMethod === "PUT" || customMethod === "DELETE")
+              ? { ...extraParams }
+              : undefined;
+            return ayrCall(customMethod, customEndpoint, body);
+          }
+          default:
+            return `Unknown social_media action "${action}". Available: post, delete_post, get_post, update_post, history, analytics_post, analytics_social, comment, get_comments, reply_comment, delete_comment, auto_schedule, get_auto_schedule, generate_text, generate_rewrite, generate_translate, upload_media, get_media, hashtags_recommend, hashtags_auto, shorten_link, add_feed, get_feeds, get_user, get_reviews, reply_review, validate_post, send_message, get_messages, brand_search, custom.`;
+        }
+      }
+
+      // ── Website Builder Tools ──
+
+      case "website_create_project": {
+        const name = toolInput.name as string;
+        const slug = (toolInput.slug as string).toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+        const description = toolInput.description as string | undefined;
+
+        const client = await getSupabaseClient();
+        const { data, error } = await client
+          .from("website_projects")
+          .insert({
+            member_name: memberName.toLowerCase(),
+            name,
+            slug,
+            description: description || null,
+          })
+          .select("id, slug")
+          .single();
+
+        if (error) {
+          if (error.code === "23505") return `A project with slug "${slug}" already exists. Use a different slug.`;
+          return `Error creating project: ${error.message}`;
+        }
+
+        // Auto-create index.html
+        await client.from("website_pages").insert({
+          project_id: data.id,
+          filename: "index.html",
+          title: "Home",
+          html_content: "",
+          is_homepage: true,
+          sort_order: 0,
+        });
+
+        return `Project created!\nproject_id: ${data.id}\nslug: ${data.slug}\nThe index.html page has been created. Use website_save_page to add content.`;
+      }
+
+      case "website_save_page": {
+        const projectId = toolInput.project_id as string;
+        const filename = toolInput.filename as string;
+        const title = toolInput.title as string | undefined;
+        let htmlContent = toolInput.html_content as string;
+
+        // Ensure valid HTML document
+        if (htmlContent && !htmlContent.trim().toLowerCase().startsWith("<!doctype") && !htmlContent.trim().toLowerCase().startsWith("<html")) {
+          htmlContent = `<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n<title>${title || filename.replace(".html", "")}</title>\n<script src="https://cdn.tailwindcss.com"><\/script>\n</head>\n<body>\n${htmlContent}\n</body>\n</html>`;
+        }
+
+        const client = await getSupabaseClient();
+
+        // Check if page exists
+        const { data: existing } = await client
+          .from("website_pages")
+          .select("id")
+          .eq("project_id", projectId)
+          .eq("filename", filename)
+          .single();
+
+        if (existing) {
+          // Update existing page
+          const updates: Record<string, unknown> = {
+            html_content: htmlContent,
+            updated_at: new Date().toISOString(),
+          };
+          if (title) updates.title = title;
+
+          const { error: updateErr } = await client.from("website_pages").update(updates).eq("id", existing.id);
+          if (updateErr) return `Error updating page: ${updateErr.message}`;
+        } else {
+          // Create new page
+          const { error } = await client.from("website_pages").insert({
+            project_id: projectId,
+            filename,
+            title: title || filename.replace(".html", ""),
+            html_content: htmlContent,
+            is_homepage: filename === "index.html",
+          });
+          if (error) return `Error saving page: ${error.message}`;
+        }
+
+        // Update project timestamp
+        const { error: tsErr } = await client.from("website_projects").update({ updated_at: new Date().toISOString() }).eq("id", projectId);
+        if (tsErr) console.error(`[tools] Failed to update project timestamp: ${tsErr.message}`);
+
+        return `Page saved: ${filename} (project_id: ${projectId}). The preview will update automatically.`;
+      }
+
+      case "website_get_project": {
+        const projectId = toolInput.project_id as string;
+        const pageFilename = toolInput.page_filename as string | undefined;
+
+        const client = await getSupabaseClient();
+        const { data: project, error } = await client
+          .from("website_projects")
+          .select("id, name, slug, status, branded_url, custom_domain, settings, seo_defaults")
+          .eq("id", projectId)
+          .single();
+
+        if (error || !project) return `Project not found: ${projectId}`;
+
+        // Get page list
+        const { data: pages } = await client
+          .from("website_pages")
+          .select("id, filename, title, is_homepage, sort_order, updated_at")
+          .eq("project_id", projectId)
+          .order("sort_order", { ascending: true });
+
+        let result = `Project: ${project.name} (${project.slug})\nStatus: ${project.status}`;
+        if (project.branded_url) result += `\nLive: https://${project.branded_url}`;
+        if (project.custom_domain) result += `\nCustom domain: ${project.custom_domain}`;
+        result += `\n\nPages:\n${(pages ?? []).map(p => `- ${p.filename} (${p.title})`).join("\n")}`;
+
+        // Optionally fetch full HTML for a specific page
+        if (pageFilename) {
+          const { data: page } = await client
+            .from("website_pages")
+            .select("html_content")
+            .eq("project_id", projectId)
+            .eq("filename", pageFilename)
+            .single();
+
+          if (page) {
+            result += `\n\n--- ${pageFilename} content ---\n${page.html_content}`;
+          } else {
+            result += `\n\nPage "${pageFilename}" not found.`;
+          }
+        }
+
+        return result;
+      }
+
+      case "website_list_projects": {
+        const client = await getSupabaseClient();
+        const { data, error } = await client
+          .from("website_projects")
+          .select("id, name, slug, status, branded_url, last_deployed_at, updated_at")
+          .eq("member_name", memberName.toLowerCase())
+          .neq("status", "archived")
+          .order("updated_at", { ascending: false })
+          .limit(20);
+
+        if (error) return `Error listing projects: ${error.message}`;
+        if (!data || data.length === 0) return "No website projects found. Use website_create_project to start one.";
+
+        return data.map(p =>
+          `- ${p.name} (${p.slug}) [${p.status}]${p.branded_url ? ` → https://${p.branded_url}` : ""}`
+        ).join("\n");
+      }
+
+      case "website_deploy": {
+        const projectId = toolInput.project_id as string;
+        const commitMessage = toolInput.commit_message as string | undefined;
+
+        const client = await getSupabaseClient();
+
+        // Fetch project
+        const { data: project } = await client
+          .from("website_projects")
+          .select("*")
+          .eq("id", projectId)
+          .single();
+
+        if (!project) return `Project not found: ${projectId}`;
+
+        // Fetch all pages
+        const { data: pages } = await client
+          .from("website_pages")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("sort_order", { ascending: true });
+
+        if (!pages || pages.length === 0) return "No pages to deploy. Use website_save_page first.";
+
+        // Write pages to temp directory
+        const siteDir = `${tmpDir}/website-${project.slug}`;
+        await fs.mkdir(siteDir, { recursive: true });
+
+        for (const page of pages) {
+          const filePath = path.join(siteDir, page.filename);
+          await fs.writeFile(filePath, page.html_content, "utf-8");
+        }
+
+        // Deploy
+        let result;
+        try {
+          result = await deployToVercel(siteDir, project.slug, tmpDir);
+        } catch (deployErr: any) {
+          return `Deployment failed: ${deployErr.message}`;
+        }
+
+        // Get next version number
+        const { data: lastVersion } = await client
+          .from("website_versions")
+          .select("version_number")
+          .eq("project_id", projectId)
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .single();
+
+        const nextVersion = (lastVersion?.version_number ?? 0) + 1;
+
+        // Create version snapshot
+        const { error: versionErr } = await client.from("website_versions").insert({
+          project_id: projectId,
+          version_number: nextVersion,
+          snapshot: { pages: pages.map(p => ({ filename: p.filename, title: p.title, html_content: p.html_content, seo: p.seo })) },
+          deploy_url: result.vercelUrl,
+          deployed_by: memberName.toLowerCase(),
+          commit_message: commitMessage || `Version ${nextVersion}`,
+        });
+        if (versionErr) console.error(`[tools] Failed to save version snapshot: ${versionErr.message}`);
+
+        // Update project
+        const { error: projUpdateErr } = await client.from("website_projects").update({
+          status: "published",
+          branded_url: result.brandedUrl,
+          vercel_deployment_url: result.vercelUrl,
+          vercel_project_id: project.slug,
+          last_deployed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq("id", projectId);
+        if (projUpdateErr) console.error(`[tools] Failed to update project after deploy: ${projUpdateErr.message}`);
+
+        return `Website deployed! 🌐\nLive at: https://${result.brandedUrl}\nVersion: ${nextVersion}${result.vercelUrl ? `\nVercel URL: ${result.vercelUrl}` : ""}`;
+      }
+
+      case "website_upload_asset": {
+        const projectId = toolInput.project_id as string;
+        const sourceUrl = toolInput.source_url as string | undefined;
+        const base64Data = toolInput.base64_data as string | undefined;
+        const filename = toolInput.filename as string;
+        const contentType = toolInput.content_type as string | undefined;
+
+        if (!sourceUrl && !base64Data) return "Provide either source_url or base64_data.";
+
+        let buffer: Buffer;
+        let mimeType = contentType || "application/octet-stream";
+
+        if (sourceUrl) {
+          // Download from URL
+          const resp = await fetch(sourceUrl);
+          if (!resp.ok) return `Failed to download from ${sourceUrl}: ${resp.status}`;
+          buffer = Buffer.from(await resp.arrayBuffer());
+          if (!contentType) {
+            mimeType = resp.headers.get("content-type") || mimeType;
+          }
+        } else {
+          // Decode base64
+          buffer = Buffer.from(base64Data!, "base64");
+        }
+
+        // Auto-detect mime type from extension if not provided
+        if (!contentType) {
+          const ext = filename.split(".").pop()?.toLowerCase();
+          const mimeMap: Record<string, string> = {
+            jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
+            webp: "image/webp", svg: "image/svg+xml", mp4: "video/mp4", webm: "video/webm",
+            pdf: "application/pdf", ico: "image/x-icon",
+          };
+          if (ext && mimeMap[ext]) mimeType = mimeMap[ext];
+        }
+
+        const { randomUUID } = await import("crypto");
+        const storagePath = `${projectId}/${randomUUID()}-${filename}`;
+
+        const client = await getSupabaseClient();
+        const { error: uploadErr } = await client.storage
+          .from("website-assets")
+          .upload(storagePath, buffer, { contentType: mimeType, upsert: true, cacheControl: "3600" });
+
+        if (uploadErr) return `Upload failed: ${uploadErr.message}`;
+
+        const { data: urlData } = client.storage.from("website-assets").getPublicUrl(storagePath);
+        return `Asset uploaded! Use this URL in your HTML:\n${urlData.publicUrl}`;
+      }
+
+      case "manage_uploads": {
+        const action = toolInput.action as string;
+        const client = await getSupabaseClient();
+
+        switch (action) {
+          case "list": {
+            let query = client
+              .from("team_uploads")
+              .select("id, member_name, client_name, batch_id, original_name, public_url, mime_type, file_size, description, tags, created_at")
+              .order("created_at", { ascending: false })
+              .limit(Math.min(Number(toolInput.limit) || 20, 50));
+
+            if (toolInput.client_name) query = query.ilike("client_name", `%${toolInput.client_name}%`);
+            if (toolInput.batch_id) query = query.eq("batch_id", toolInput.batch_id as string);
+            if (toolInput.conversation_id) query = query.eq("conversation_id", toolInput.conversation_id as string);
+            if (toolInput.mime_filter) query = query.ilike("mime_type", `${toolInput.mime_filter}%`);
+
+            const { data, error } = await query;
+            if (error) return `Error listing uploads: ${error.message}`;
+            if (!data || data.length === 0) return "No uploads found matching those filters.";
+
+            const lines = data.map((u: any) =>
+              `- ${u.original_name} | ${u.public_url} | ${u.mime_type} | ${(u.file_size / 1024).toFixed(0)}KB | client: ${u.client_name || "none"} | tags: [${(u.tags || []).join(", ")}] | ${u.description ? `desc: "${u.description}"` : "no description"} | id: ${u.id}`
+            );
+            return `Found ${data.length} uploads:\n${lines.join("\n")}`;
+          }
+
+          case "search": {
+            const q = toolInput.query as string;
+            if (!q) return "Provide a 'query' for search.";
+
+            let query = client
+              .from("team_uploads")
+              .select("id, original_name, public_url, mime_type, client_name, description, tags, created_at")
+              .or(`original_name.ilike.%${q}%,description.ilike.%${q}%`)
+              .order("created_at", { ascending: false })
+              .limit(Math.min(Number(toolInput.limit) || 20, 50));
+
+            if (toolInput.client_name) query = query.ilike("client_name", `%${toolInput.client_name}%`);
+
+            const { data, error } = await query;
+            if (error) return `Search error: ${error.message}`;
+            if (!data || data.length === 0) return `No uploads found matching "${q}".`;
+
+            const lines = data.map((u: any) =>
+              `- ${u.original_name} | ${u.public_url} | client: ${u.client_name || "none"} | id: ${u.id}`
+            );
+            return `Found ${data.length} uploads matching "${q}":\n${lines.join("\n")}`;
+          }
+
+          case "view": {
+            const uploadId = toolInput.upload_id as string;
+            if (!uploadId) return "Provide upload_id to view.";
+
+            const { data: upload } = await client
+              .from("team_uploads")
+              .select("*")
+              .eq("id", uploadId)
+              .single();
+
+            if (!upload) return "Upload not found.";
+
+            return `Upload details:\n- Name: ${upload.original_name}\n- URL: ${upload.public_url}\n- Type: ${upload.mime_type}\n- Size: ${(upload.file_size / 1024).toFixed(0)}KB\n- Client: ${upload.client_name || "none"}\n- Description: ${upload.description || "none"}\n- Tags: [${(upload.tags || []).join(", ")}]\n- Uploaded: ${upload.created_at}\n- Batch: ${upload.batch_id}`;
+          }
+
+          case "describe": {
+            const uploadId = toolInput.upload_id as string;
+            if (!uploadId) return "Provide upload_id to describe.";
+            const desc = toolInput.description as string;
+            if (!desc) return "Provide description text.";
+
+            const updates: Record<string, unknown> = { description: desc };
+            if (toolInput.assign_client) updates.client_name = toolInput.assign_client;
+
+            const { error } = await client
+              .from("team_uploads")
+              .update(updates)
+              .eq("id", uploadId);
+
+            if (error) return `Error updating description: ${error.message}`;
+            return `Description saved for upload ${uploadId}.${toolInput.assign_client ? ` Client set to "${toolInput.assign_client}".` : ""}`;
+          }
+
+          case "tag": {
+            const uploadId = toolInput.upload_id as string;
+            if (!uploadId) return "Provide upload_id to tag.";
+            const newTags = toolInput.tags as string[];
+            if (!newTags || newTags.length === 0) return "Provide tags array.";
+
+            const { data: upload } = await client
+              .from("team_uploads")
+              .select("tags")
+              .eq("id", uploadId)
+              .single();
+
+            if (!upload) return "Upload not found.";
+
+            let currentTags: string[] = upload.tags || [];
+            const toRemove = newTags.filter((t: string) => t.startsWith("-")).map((t: string) => t.slice(1));
+            const toAdd = newTags.filter((t: string) => !t.startsWith("-"));
+
+            currentTags = currentTags.filter((t: string) => !toRemove.includes(t));
+            currentTags = [...new Set([...currentTags, ...toAdd])];
+
+            const { error } = await client
+              .from("team_uploads")
+              .update({ tags: currentTags })
+              .eq("id", uploadId);
+
+            if (error) return `Error updating tags: ${error.message}`;
+            return `Tags updated: [${currentTags.join(", ")}]`;
+          }
+
+          case "delete": {
+            const uploadId = toolInput.upload_id as string;
+            if (!uploadId) return "Provide upload_id to delete.";
+
+            const { data: upload } = await client
+              .from("team_uploads")
+              .select("storage_path, original_name")
+              .eq("id", uploadId)
+              .single();
+
+            if (!upload) return "Upload not found.";
+
+            await client.storage.from("team-uploads").remove([upload.storage_path]);
+            await client.from("team_uploads").delete().eq("id", uploadId);
+
+            return `Deleted upload: ${upload.original_name}`;
+          }
+
+          default:
+            return `Unknown manage_uploads action "${action}". Available: list, search, view, describe, tag, delete.`;
+        }
       }
 
       default:

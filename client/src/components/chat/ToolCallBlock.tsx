@@ -17,6 +17,7 @@ import {
   BarChart2,
   Database,
   MessageSquare,
+  Share2,
 } from "lucide-react";
 
 interface ToolCallBlockProps {
@@ -58,6 +59,7 @@ const TOOL_ICONS: Record<string, React.ReactNode> = {
   get_current_date: <Clock size={13} />,
   slack_history: <MessageSquare size={13} />,
   slack_list_channels: <MessageSquare size={13} />,
+  social_media: <Share2 size={13} />,
 };
 
 export function ToolCallBlock({ name, output, pending }: ToolCallBlockProps) {

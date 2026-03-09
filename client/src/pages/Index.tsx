@@ -4,7 +4,7 @@ import {
   Search, Plus, Loader2, MessageSquare, Trash2,
   PanelLeftClose, PanelLeft, ArrowRight, Check, X,
   Pencil, Brain, Bell, Square, Paperclip, FileText,
-  Clock, ChevronDown, ChevronRight, FolderClock, Activity,
+  Activity,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import AdminHeader from '@/components/AdminHeader';
@@ -25,19 +25,18 @@ import {
   fetchConversations as apiFetchConversations,
   fetchMessages as apiFetchMessages,
   deleteConversation as apiDeleteConversation,
-  fetchMemory as apiFetchMemory,
   fetchNotifications as apiFetchNotifications,
-  fetchCronJobs as apiFetchCronJobs,
   ensureTeamMember,
   checkJobStatus,
   fetchActiveJobs,
   reconnectToJob,
   type SSEEvent,
   type Conversation as ApiConversation,
-  type CronJob,
 } from '@/lib/chatApi';
 import { ToolCallBlock } from '@/components/chat/ToolCallBlock';
 import { useVoiceChat, VoiceModeToggle, MicButton } from '@/components/chat/VoiceChat';
+import { VoiceConversationOverlay } from '@/components/chat/VoiceConversationOverlay';
+import { MemoryPanel } from '@/components/MemoryPanel';
 
 // ── Types ────────────────────────────────────────────
 
@@ -107,6 +106,7 @@ const Index = () => {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
 
   // Conversation state
@@ -118,14 +118,9 @@ const Index = () => {
   const [editing, setEditing] = useState<EditingState>(null);
 
   // Memory & notifications
-  const [memory, setMemory] = useState<string>('');
   const [showMemory, setShowMemory] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [memberName, setMemberName] = useState('');
-
-  // Cron jobs
-  const [cronJobs, setCronJobs] = useState<CronJob[]>([]);
-  const [cronFolderOpen, setCronFolderOpen] = useState(false);
 
   // Active background jobs
   const [activeJobConvIds, setActiveJobConvIds] = useState<Set<string>>(new Set());
@@ -149,8 +144,10 @@ const Index = () => {
 
   // Voice chat — use refs for callbacks to avoid stale closures
   const sendMessageRef = useRef<(text?: string) => void>(() => {});
+  const [showVoiceOverlay, setShowVoiceOverlay] = useState(false);
   const voiceChat = useVoiceChat({
     onTranscript: (text) => sendMessageRef.current(text),
+    onError: (msg) => toast.error(msg),
   });
   const voiceFeedTextRef = useRef(voiceChat.feedText);
   voiceFeedTextRef.current = voiceChat.feedText;
@@ -158,18 +155,14 @@ const Index = () => {
   voiceFinishRef.current = voiceChat.finishSpeaking;
   const voiceEnabledRef = useRef(voiceChat.voiceEnabled);
   voiceEnabledRef.current = voiceChat.voiceEnabled;
+  const insideToolCallRef = useRef(false);
 
-  // Spacebar hotkey: interrupt agent / toggle mic during voice mode
-  // Works globally — when voice is on, spacebar always controls the mic
-  // (textarea is blurred in voice mode so spacebar won't type a space)
+  // Backtick (`) hotkey: interrupt agent / toggle mic during voice mode
+  // Works globally — when voice is on, backtick always controls the mic
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!voiceChat.voiceEnabled) return;
-      if (e.code !== 'Space') return;
-      // Don't hijack space when user is typing in a non-voice input
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'SELECT') return;
-      // In voice mode, always capture spacebar (even in textarea)
+      if (e.key !== '`') return;
       e.preventDefault();
 
       if (voiceChat.isSpeaking) {
@@ -178,9 +171,11 @@ const Index = () => {
       } else if (voiceChat.isListening) {
         // Already listening — stop
         voiceChat.stopListening();
+        setShowVoiceOverlay(false);
       } else {
         // Idle — start listening
         voiceChat.startListening();
+        setShowVoiceOverlay(true);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -200,7 +195,6 @@ const Index = () => {
         setMemberName(name);
       } catch { /* auth will handle redirect */ }
       loadConversations();
-      loadCronJobs();
     })();
   }, []);
 
@@ -215,7 +209,6 @@ const Index = () => {
         const ids = await fetchActiveJobs();
         setActiveJobConvIds(new Set(ids));
       } catch { /* ignore */ }
-      loadCronJobs();
     };
     poll();
     const interval = setInterval(poll, 30_000);
@@ -234,16 +227,14 @@ const Index = () => {
     try {
       const data = await apiFetchConversations();
       setConversations(data);
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error('[loadConversations] Failed:', err);
+      toast.error('Failed to load past conversations');
+    }
     setLoadingHistory(false);
   };
 
-  const loadCronJobs = async () => {
-    try {
-      const data = await apiFetchCronJobs();
-      setCronJobs(data);
-    } catch { /* ignore */ }
-  };
+
 
   const selectConversation = async (convoId: string) => {
     // Abort current stream if switching conversations (server-side loop keeps running)
@@ -278,8 +269,13 @@ const Index = () => {
           convoId,
           (event: SSEEvent) => {
             if (event.type === 'text' && event.delta) {
-              voiceFeedTextRef.current(event.delta);
+              if (!insideToolCallRef.current) voiceFeedTextRef.current(event.delta);
+            } else if (event.type === 'tool_start') {
+              insideToolCallRef.current = true;
+            } else if (event.type === 'tool_result') {
+              insideToolCallRef.current = false;
             } else if (event.type === 'done') {
+              insideToolCallRef.current = false;
               voiceFinishRef.current();
             }
 
@@ -377,15 +373,7 @@ const Index = () => {
     setEditing(null);
   };
 
-  const loadMemory = async () => {
-    try {
-      const content = await apiFetchMemory();
-      setMemory(content);
-      setShowMemory(true);
-    } catch {
-      toast.error('Failed to load memory');
-    }
-  };
+  const loadMemory = () => setShowMemory(true);
 
   // ── Sending messages ──────────────────────────────
 
@@ -434,8 +422,13 @@ const Index = () => {
       (event: SSEEvent) => {
         // Voice TTS side effects (via refs to avoid stale closures)
         if (event.type === 'text' && event.delta) {
-          voiceFeedTextRef.current(event.delta);
+          if (!insideToolCallRef.current) voiceFeedTextRef.current(event.delta);
+        } else if (event.type === 'tool_start') {
+          insideToolCallRef.current = true;
+        } else if (event.type === 'tool_result') {
+          insideToolCallRef.current = false;
         } else if (event.type === 'done') {
+          insideToolCallRef.current = false;
           voiceFinishRef.current();
         }
 
@@ -628,6 +621,23 @@ const Index = () => {
     setFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length > 0) {
+      setFiles(prev => [...prev, ...droppedFiles]);
+    }
+  };
+
   // ── Filtered conversations ─────────────────────────
 
   const filteredConversations = conversations.filter(c =>
@@ -804,51 +814,6 @@ const Index = () => {
         )}
       </div>
 
-      {/* Cron Jobs folder */}
-      {cronJobs.length > 0 && (
-        <div className="border-t border-border">
-          <button
-            onClick={() => setCronFolderOpen(v => !v)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors"
-          >
-            {cronFolderOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-            <FolderClock className="w-3.5 h-3.5 text-primary" />
-            <span className="text-muted-foreground font-medium uppercase tracking-wider text-[10px]">Cron Jobs</span>
-            <span className="ml-auto text-[10px] text-muted-foreground bg-muted/50 px-1.5 rounded">{cronJobs.length}</span>
-          </button>
-          {cronFolderOpen && (
-            <div className="px-2 pb-2">
-              {cronJobs.map(job => (
-                <button
-                  key={job.id}
-                  onClick={() => {
-                    if (job.conversation_id) {
-                      selectConversation(job.conversation_id);
-                    } else {
-                      toast.error('This cron job has not run yet');
-                    }
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-xs group flex items-center gap-2 mb-0.5 transition-colors ${
-                    activeConvoId === job.conversation_id
-                      ? 'bg-accent text-foreground'
-                      : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                  }`}
-                >
-                  <Clock className="w-3 h-3 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm">{job.name}</p>
-                    <p className="text-[10px] text-muted-foreground truncate">{job.cron_expr} &middot; {job.member_name}</p>
-                  </div>
-                  {job.last_run && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" title={`Last run: ${new Date(job.last_run).toLocaleString()}`} />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Footer: memory + notifications */}
       <div className="p-3 border-t border-border space-y-2">
         <div className="flex items-center gap-2">
@@ -1019,9 +984,59 @@ const Index = () => {
                 onSelect={handleMentionSelect}
                 onClose={() => setShowMentionPopover(false)}
               />
-              <div className="bg-card border border-border rounded-2xl focus-within:ring-2 focus-within:ring-primary/50 focus-within:border-primary transition-all">
+              <div
+                className={`bg-card border rounded-2xl transition-all ${
+                  isDragging
+                    ? 'border-primary border-dashed bg-primary/5'
+                    : 'border-border focus-within:ring-2 focus-within:ring-primary/50 focus-within:border-primary'
+                }`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                {/* Drag overlay */}
+                {isDragging && (
+                  <div className="px-4 py-3 text-center text-sm text-primary font-medium">
+                    Drop files here to upload
+                  </div>
+                )}
                 {/* File preview strip */}
                 {files.length > 0 && (
+                  files.length > 5 ? (
+                    <div className="flex items-center gap-2 px-3 pt-2 pb-1">
+                      <div className="flex -space-x-2">
+                        {files.slice(0, 4).map((file, i) => (
+                          isImageFile(file) ? (
+                            <img
+                              key={i}
+                              src={URL.createObjectURL(file)}
+                              alt={file.name}
+                              className="w-8 h-8 rounded border-2 border-background object-cover"
+                              onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
+                            />
+                          ) : (
+                            <div key={i} className="w-8 h-8 rounded border-2 border-background bg-muted flex items-center justify-center">
+                              <FileText className="w-3 h-3" />
+                            </div>
+                          )
+                        ))}
+                        {files.length > 4 && (
+                          <div className="w-8 h-8 rounded border-2 border-background bg-muted flex items-center justify-center text-xs font-medium">
+                            +{files.length - 4}
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {files.length} files ({formatSize(files.reduce((sum, f) => sum + f.size, 0))})
+                      </span>
+                      <button
+                        onClick={() => setFiles([])}
+                        className="text-xs text-muted-foreground hover:text-destructive ml-auto"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+                  ) : (
                   <div className="flex flex-wrap gap-2 px-3 pt-2 pb-1">
                     {files.map((file, i) => (
                       <div
@@ -1051,6 +1066,7 @@ const Index = () => {
                       </div>
                     ))}
                   </div>
+                  )
                 )}
 
                 {/* Input row */}
@@ -1075,7 +1091,15 @@ const Index = () => {
                       isListening={voiceChat.isListening}
                       isSpeaking={voiceChat.isSpeaking}
                       disabled={isStreaming}
-                      onToggle={() => voiceChat.isListening ? voiceChat.stopListening() : voiceChat.startListening()}
+                      onToggle={() => {
+                        if (voiceChat.isListening) {
+                          voiceChat.stopListening();
+                          setShowVoiceOverlay(false);
+                        } else {
+                          voiceChat.startListening();
+                          setShowVoiceOverlay(true);
+                        }
+                      }}
                       onInterrupt={voiceChat.interruptAndListen}
                     />
                   )}
@@ -1115,29 +1139,24 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Memory modal */}
-      {showMemory && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowMemory(false)}>
-          <div className="bg-card border border-border rounded-xl max-w-lg w-full max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <div className="flex items-center gap-2">
-                <Brain className="w-4 h-4 text-primary" />
-                <h3 className="font-medium text-foreground text-sm">My Memory</h3>
-              </div>
-              <button onClick={() => setShowMemory(false)} className="text-muted-foreground hover:text-foreground">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-4 overflow-y-auto max-h-[60vh]">
-              {memory ? (
-                <pre className="text-sm text-foreground font-mono whitespace-pre-wrap">{memory}</pre>
-              ) : (
-                <p className="text-sm text-muted-foreground">No memory saved yet. The AI will build your memory as you chat.</p>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* Voice conversation overlay (mobile) */}
+      {(showVoiceOverlay || voiceChat.inConversation) && voiceChat.voiceEnabled && (
+        <VoiceConversationOverlay
+          isListening={voiceChat.isListening}
+          isTranscribing={voiceChat.isTranscribing}
+          isSpeaking={voiceChat.isSpeaking}
+          interimTranscript={voiceChat.interimTranscript}
+          spokenText={voiceChat.spokenText}
+          onInterrupt={voiceChat.interruptAndListen}
+          onStop={() => {
+            voiceChat.stopListening();
+            setShowVoiceOverlay(false);
+          }}
+        />
       )}
+
+      {/* Memory panel */}
+      <MemoryPanel open={showMemory} onOpenChange={setShowMemory} />
     </div>
   );
 };

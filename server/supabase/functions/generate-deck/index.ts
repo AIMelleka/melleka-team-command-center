@@ -52,8 +52,7 @@ interface DeckRequest {
   slug?: string;
 }
 
-// Looker Directory spreadsheet for client lookups
-const LOOKER_DIRECTORY_SHEET_ID = "1t43DRbgSo7pOqKh2DIt7xSsKrN6JgLgLSWAJe92SDQI";
+// Client Directory (managed_clients) is the sole source of truth
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -364,10 +363,8 @@ serve(async (req) => {
         }
       }
 
-    // Parallel fetch for other data sources (Notion removed — tasks come from user uploads only)
-      const [sheetsResult, ghlResult] = await Promise.allSettled([
-      // Google Sheets data
-      fetchSheetsData(supabaseUrl, clientName),
+    // Parallel fetch for other data sources (Notion + Google Sheets removed — all data from Supermetrics, Looker, GHL, or user uploads)
+      const [ghlResult] = await Promise.allSettled([
       // GHL data with retry
       withQARetry(
         'GHL_FETCH',
@@ -377,15 +374,14 @@ serve(async (req) => {
       ),
     ]);
 
-    // No Notion — tasks come exclusively from user-provided taskNotes
+    // No Notion or Sheets — tasks come exclusively from user-provided taskNotes
       const notionTasks: any[] = [];
-      const sheetsData = sheetsResult.status === 'fulfilled' ? sheetsResult.value : null;
+      const sheetsData = null; // Sheets data source removed — Supermetrics is the primary data source
       const ghlData = ghlResult.status === 'fulfilled' ? ghlResult.value.result : null;
       await updateJob(50, "Fetching data sources...");
 
     console.log("=== DATA FETCH RESULTS ===");
     console.log(`Screenshots: ${lookerData ? `SUCCESS - ${lookerData.screenshots?.length || 0} screenshots` : 'FAILED'} (${hasUploadedScreenshots ? 'uploaded' : 'scraped'})`);
-    console.log(`Sheets: ${sheetsData ? 'SUCCESS' : 'FAILED'}`);
     console.log(`GHL: ${ghlData ? `SUCCESS - ${ghlData.contacts?.total || 0} contacts, ${ghlData.workflows?.active || 0} workflows` : 'FAILED'}`);
 
     // Collect all data checks
@@ -791,7 +787,7 @@ serve(async (req) => {
           },
           summary: {
             screenshots: lookerData?.screenshots?.length || 0,
-            hasSheetData: !!sheetsData,
+            hasSheetData: false,
             hasGHLData: !!ghlData,
             dateRangeConfirmed: allQAChecks.find(c => c.checkName === 'DATE_RANGE_CONFIRMED')?.passed || false,
           }
@@ -842,7 +838,7 @@ serve(async (req) => {
 });
 
 /**
- * Fetch client info from Looker Directory spreadsheet
+ * Fetch client info from managed_clients (Client Directory - sole source of truth)
  */
 async function fetchClientFromDirectory(supabaseUrl: string, clientName: string): Promise<{
   lookerUrl?: string;
@@ -850,39 +846,29 @@ async function fetchClientFromDirectory(supabaseUrl: string, clientName: string)
   domain?: string;
 } | null> {
   try {
-    const response = await fetch(`${supabaseUrl}/functions/v1/fetch-google-sheet`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        spreadsheetId: LOOKER_DIRECTORY_SHEET_ID,
-        sheetName: "Directory"
-      }),
-    });
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-    if (!response.ok) {
-      console.warn("Failed to fetch directory:", await response.text());
+    const { data, error } = await supabase
+      .from("managed_clients")
+      .select("looker_url, ga4_property_id, domain")
+      .ilike("client_name", `%${clientName}%`)
+      .eq("is_active", true)
+      .limit(1)
+      .single();
+
+    if (error || !data) {
+      console.warn(`Client "${clientName}" not found in Client Directory`);
       return null;
     }
 
-    const data = await response.json();
-    const rows = data.rows || [];
-    
-    // Fuzzy match client name
-    const clientLower = clientName.toLowerCase();
-    for (const row of rows) {
-      const rowClientName = (row["Client Name"] || row["client_name"] || row["Name"] || "").toLowerCase();
-      if (rowClientName.includes(clientLower) || clientLower.includes(rowClientName)) {
-        return {
-          lookerUrl: row["Looker URL"] || row["looker_url"] || row["Dashboard URL"],
-          ga4PropertyId: row["GA4 Property ID"] || row["ga4_property_id"],
-          domain: row["Domain"] || row["Website"] || row["domain"],
-        };
-      }
-    }
-
-    return null;
+    return {
+      lookerUrl: data.looker_url || undefined,
+      ga4PropertyId: data.ga4_property_id || undefined,
+      domain: data.domain || undefined,
+    };
   } catch (error) {
-    console.error("Error fetching directory:", error);
+    console.error("Error fetching from Client Directory:", error);
     return null;
   }
 }
@@ -977,60 +963,7 @@ async function fetchLookerScreenshots(
 
 // Notion integration removed — tasks come from user-provided taskNotes only
 
-/**
- * Fetch Google Sheets data for client metrics
- */
-async function fetchSheetsData(supabaseUrl: string, clientName: string): Promise<any> {
-  try {
-    // First, get sheet names to find client tab
-    const sheetsResponse = await fetch(`${supabaseUrl}/functions/v1/fetch-google-sheet`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        spreadsheetId: LOOKER_DIRECTORY_SHEET_ID,
-      }),
-    });
-
-    if (!sheetsResponse.ok) {
-      return null;
-    }
-
-    const sheetsData = await sheetsResponse.json();
-    const sheetNames = sheetsData.sheetNames || [];
-    
-    // Find client's sheet (fuzzy match)
-    const clientLower = clientName.toLowerCase();
-    const matchedSheet = sheetNames.find((name: string) => {
-      const nameLower = name.toLowerCase();
-      return nameLower.includes(clientLower) || clientLower.includes(nameLower);
-    });
-
-    if (!matchedSheet) {
-      console.log(`No sheet found for client: ${clientName}`);
-      return null;
-    }
-
-    // Fetch the client's sheet data
-    const dataResponse = await fetch(`${supabaseUrl}/functions/v1/fetch-google-sheet`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        spreadsheetId: LOOKER_DIRECTORY_SHEET_ID,
-        sheetName: matchedSheet,
-      }),
-    });
-
-    if (!dataResponse.ok) {
-      return null;
-    }
-
-    const clientData = await dataResponse.json();
-    return parseClientSheetData(clientData.rows || []);
-  } catch (error) {
-    console.error("Error fetching Sheets data:", error);
-    return null;
-  }
-}
+// fetchSheetsData removed — all metric data comes from Supermetrics, Looker screenshots, or user uploads
 
 /**
  * Fetch GHL data (workflows, emails, SMS, contacts, opportunities, appointments, calls, forms, payments, reviews)
@@ -1093,62 +1026,8 @@ async function fetchGHLData(
   }
 }
 
-/**
- * Parse client sheet data into structured metrics
- */
-function parseClientSheetData(rows: Record<string, string>[]): any {
-  const metrics = {
-    googleAds: { spend: 0, impressions: 0, clicks: 0, conversions: 0, ctr: 0, cpc: 0, roas: 0 },
-    metaAds: { spend: 0, impressions: 0, clicks: 0, conversions: 0, cpm: 0, frequency: 0 },
-    sms: { messagesSent: 0, deliveryRate: 0, responseRate: 0 },
-    email: { openRate: 0, clickRate: 0, campaigns: [] },
-    workflows: { activeCount: 0, newAutomations: [] },
-  };
+// parseClientSheetData removed — no longer needed
 
-  // Parse rows looking for metric labels and values
-  for (const row of rows) {
-    const values = Object.values(row);
-    for (let i = 0; i < values.length - 1; i++) {
-      const label = String(values[i] || "").toLowerCase();
-      const value = values[i + 1];
-      
-      // Google Ads metrics
-      if (label.includes("google") && label.includes("spend")) {
-        metrics.googleAds.spend = parseNumber(value);
-      } else if (label.includes("google") && label.includes("clicks")) {
-        metrics.googleAds.clicks = parseNumber(value);
-      } else if (label.includes("google") && label.includes("conv")) {
-        metrics.googleAds.conversions = parseNumber(value);
-      }
-      
-      // Meta Ads metrics
-      if (label.includes("meta") && label.includes("spend") || label.includes("facebook") && label.includes("spend")) {
-        metrics.metaAds.spend = parseNumber(value);
-      }
-      
-      // SMS metrics
-      if (label.includes("sms") && label.includes("sent")) {
-        metrics.sms.messagesSent = parseNumber(value);
-      } else if (label.includes("delivery")) {
-        metrics.sms.deliveryRate = parsePercentage(value);
-      }
-      
-      // Email metrics
-      if (label.includes("open") && label.includes("rate")) {
-        metrics.email.openRate = parsePercentage(value);
-      } else if (label.includes("click") && label.includes("rate")) {
-        metrics.email.clickRate = parsePercentage(value);
-      }
-      
-      // Workflows
-      if (label.includes("workflow") || label.includes("automation")) {
-        metrics.workflows.activeCount = parseNumber(value) || metrics.workflows.activeCount;
-      }
-    }
-  }
-
-  return metrics;
-}
 /**
  * Extract comprehensive branding from website using Firecrawl
  */

@@ -160,7 +160,7 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={handleClose}>
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col mx-4" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
@@ -204,11 +204,13 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
                       <Badge variant="outline" className={`text-xs ${platform.color}`}>
                         {platform.label}
                       </Badge>
-                      {currentMappings.length > 0 && (
+                      {currentMappings.length > 0 ? (
                         <span className="text-xs text-emerald-400 flex items-center gap-1">
                           <Check className="h-3 w-3" />
                           {currentMappings.length} linked
                         </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Not linked</span>
                       )}
                     </div>
                     {accounts.length > 1 && (
@@ -279,12 +281,12 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
 
                         {/* Dropdown to add another */}
                         {unmapped.length > 0 && (
-                          <div className="flex items-center gap-2">
+                          <div className="space-y-2">
                             <select
                               value={pendingSelections[platform.key] || ''}
                               onChange={(e) => setPendingSelections(prev => ({ ...prev, [platform.key]: e.target.value }))}
                               disabled={isSaving}
-                              className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer"
+                              className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer"
                               style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23888\' stroke-width=\'2\'%3E%3Cpath d=\'m6 9 6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
                             >
                               <option value="">Add another account...</option>
@@ -303,7 +305,7 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
                                   addMapping(platform.key, pendingSelections[platform.key]);
                                 }
                               }}
-                              className="h-9 gap-1"
+                              className="w-full h-9 gap-1"
                             >
                               <Plus className="h-3.5 w-3.5" /> Add
                             </Button>

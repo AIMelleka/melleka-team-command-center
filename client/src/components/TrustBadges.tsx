@@ -1,10 +1,10 @@
 // Trust badges with transparent background logos - updated
 import { Star } from 'lucide-react';
-import googlePartnerLogo from '@/assets/google-partner-logo.png';
-import metaPartnerLogo from '@/assets/meta-partner-logo.png';
-import tiktokPartnerLogo from '@/assets/tiktok-partner-logo.png';
-import clutchRating from '@/assets/clutch-rating.png';
-import bbbLogo from '@/assets/bbb-logo.png';
+import googlePartnerLogo from '@/assets/google-partner-logo.webp';
+import metaPartnerLogo from '@/assets/meta-partner-logo.webp';
+import tiktokPartnerLogo from '@/assets/tiktok-partner-logo.webp';
+import clutchRating from '@/assets/clutch-rating.webp';
+import bbbLogo from '@/assets/bbb-logo.webp';
 
 interface TrustBadgesProps {
   className?: string;
@@ -41,38 +41,43 @@ export const TrustBadges = ({
       
       <div className="flex flex-wrap items-center justify-center gap-6 md:gap-10 py-8 px-6 rounded-2xl bg-white/80 backdrop-blur-sm border border-border/50 shadow-sm w-full max-w-6xl">
         {/* Google Partner */}
-        <img 
-          src={googlePartnerLogo} 
-          alt="Google Partner" 
+        <img
+          src={googlePartnerLogo}
+          alt="Google Partner"
           className="h-16 md:h-20 object-contain"
+          loading="lazy"
         />
-        
+
         {/* Meta Business Partner */}
-        <img 
-          src={metaPartnerLogo} 
-          alt="Meta Business Partner" 
+        <img
+          src={metaPartnerLogo}
+          alt="Meta Business Partner"
           className="h-16 md:h-20 object-contain"
+          loading="lazy"
         />
-        
+
         {/* TikTok Marketing Partners */}
-        <img 
-          src={tiktokPartnerLogo} 
-          alt="TikTok Marketing Partners" 
+        <img
+          src={tiktokPartnerLogo}
+          alt="TikTok Marketing Partners"
           className="h-16 md:h-20 object-contain"
+          loading="lazy"
         />
-        
+
         {/* Clutch 5.0 Rating */}
-        <img 
-          src={clutchRating} 
-          alt="Clutch 5.0 Rating" 
+        <img
+          src={clutchRating}
+          alt="Clutch 5.0 Rating"
           className="h-16 md:h-20 object-contain"
+          loading="lazy"
         />
-        
+
         {/* BBB A+ Rating */}
-        <img 
-          src={bbbLogo} 
-          alt="BBB A+ Accredited Business" 
+        <img
+          src={bbbLogo}
+          alt="BBB A+ Accredited Business"
           className="h-16 md:h-20 object-contain"
+          loading="lazy"
         />
       </div>
     </div>

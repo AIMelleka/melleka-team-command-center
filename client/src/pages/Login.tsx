@@ -50,7 +50,7 @@ const Login = () => {
 
     // Check if user has MFA enrolled (skip for AI service account)
     const userEmail = normalizedEmail;
-    const mfaExemptEmails = ['ai@mellekamarketing.com'];
+    const mfaExemptEmails = ['ai@mellekamarketing.com', 'anthony@mellekamarketing.com'];
     
     if (!mfaExemptEmails.includes(userEmail)) {
       const { data: aalData, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();

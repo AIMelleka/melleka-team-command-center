@@ -76,9 +76,9 @@ export function QAHistoryList() {
 
   if (loading) {
     return (
-      <Card className="bg-white/5 border-white/10">
+      <Card>
         <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-purple-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </CardContent>
       </Card>
     );
@@ -86,11 +86,11 @@ export function QAHistoryList() {
 
   if (submissions.length === 0) {
     return (
-      <Card className="bg-white/5 border-white/10">
+      <Card>
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-          <History className="h-12 w-12 text-purple-400/50 mb-4" />
-          <h3 className="text-lg font-medium text-white mb-1">No History Yet</h3>
-          <p className="text-purple-200/60">
+          <History className="h-12 w-12 text-primary/50 mb-4" />
+          <h3 className="text-lg font-medium mb-1">No History Yet</h3>
+          <p className="text-muted-foreground">
             Your QA submissions will appear here
           </p>
         </CardContent>
@@ -99,12 +99,12 @@ export function QAHistoryList() {
   }
 
   return (
-    <Card className="bg-white/5 border-white/10">
+    <Card>
       <CardHeader>
-        <CardTitle className="text-white flex items-center gap-2">
-          <History className="h-5 w-5 text-purple-400" />
+        <CardTitle className="flex items-center gap-2">
+          <History className="h-5 w-5 text-primary" />
           QA History
-          <Badge variant="outline" className="ml-2 border-white/20 text-purple-200/60">
+          <Badge variant="outline" className="ml-2 border-border text-muted-foreground">
             {submissions.length} submissions
           </Badge>
         </CardTitle>
@@ -117,21 +117,21 @@ export function QAHistoryList() {
           return (
             <div
               key={submission.id}
-              className="rounded-xl border border-white/10 bg-white/5 overflow-hidden"
+              className="rounded-xl border border-border bg-muted/30 overflow-hidden"
             >
               <button
                 onClick={() => setExpandedId(isExpanded ? null : submission.id)}
-                className="w-full p-4 flex items-center justify-between hover:bg-white/5 transition-colors"
+                className="w-full p-4 flex items-center justify-between hover:bg-muted/50 transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-white/10">
-                    <Icon className="h-4 w-4 text-purple-400" />
+                  <div className="p-2 rounded-lg bg-muted">
+                    <Icon className="h-4 w-4 text-primary" />
                   </div>
                   <div className="text-left">
-                    <p className="text-white font-medium">
+                    <p className="font-medium">
                       {submission.file_name || "Untitled"}
                     </p>
-                    <p className="text-xs text-purple-200/50">
+                    <p className="text-xs text-muted-foreground">
                       {format(new Date(submission.created_at), "MMM d, yyyy 'at' h:mm a")}
                     </p>
                   </div>
@@ -159,7 +159,7 @@ export function QAHistoryList() {
                       </span>
                     </>
                   ) : submission.status === "analyzing" ? (
-                    <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30">
+                    <Badge className="bg-primary/10 text-primary border-primary/50">
                       <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                       Analyzing
                     </Badge>
@@ -169,27 +169,27 @@ export function QAHistoryList() {
                     </Badge>
                   )}
                   {isExpanded ? (
-                    <ChevronUp className="h-4 w-4 text-purple-200/50" />
+                    <ChevronUp className="h-4 w-4 text-muted-foreground" />
                   ) : (
-                    <ChevronDown className="h-4 w-4 text-purple-200/50" />
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
                   )}
                 </div>
               </button>
 
               {/* Expanded Details */}
               {isExpanded && submission.analysis && (
-                <div className="px-4 pb-4 border-t border-white/10 pt-4 space-y-4">
+                <div className="px-4 pb-4 border-t border-border pt-4 space-y-4">
                   <div>
-                    <h4 className="text-sm font-medium text-purple-200/70 mb-2">Summary</h4>
-                    <p className="text-white text-sm">{submission.analysis.summary}</p>
+                    <h4 className="text-sm font-medium text-muted-foreground mb-2">Summary</h4>
+                    <p className="text-sm">{submission.analysis.summary}</p>
                   </div>
 
                   {submission.analysis.improvements?.length > 0 && (
                     <div>
-                      <h4 className="text-sm font-medium text-purple-200/70 mb-2">Improvements Needed</h4>
+                      <h4 className="text-sm font-medium text-muted-foreground mb-2">Improvements Needed</h4>
                       <ul className="space-y-1">
                         {submission.analysis.improvements.map((imp: string, i: number) => (
-                          <li key={i} className="text-sm text-purple-200/60 flex items-start gap-2">
+                          <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
                             <span className="text-yellow-400">•</span>
                             {imp}
                           </li>
