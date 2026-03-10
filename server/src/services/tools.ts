@@ -1065,12 +1065,13 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "get_client_accounts",
     description:
-      "Look up a client's linked ad accounts, GA4 property, domain, and other metadata from the command center database. " +
-      "Returns all account mappings (Google Ads, Meta Ads, TikTok, Bing, LinkedIn) plus client profile info. " +
+      "Look up a client's linked ad accounts, social media pages, GA4 property, domain, and other metadata from the command center database. " +
+      "Returns all account mappings (Google Ads, Meta Ads, TikTok, Bing, LinkedIn, Facebook Page, Instagram Account, Ayrshare Profile) plus client profile info. " +
       "The response includes 'accounts' (grouped by platform), 'linked_platforms' (array), and 'total_linked_accounts' (count). " +
-      "If 'accounts' is empty {}, the client has no linked ad accounts. If it has platform keys, those accounts ARE linked and ready to use. " +
+      "If 'accounts' is empty {}, the client has no linked accounts. If it has platform keys, those accounts ARE linked and ready to use. " +
+      "Platform keys: 'google_ads' = Google Ads customer ID, 'meta_ads' = Meta ad account ID (act_xxx), 'facebook_page' = Facebook Page ID (use with Meta Graph API for published_posts and page insights), 'instagram_account' = IG business account ID, 'ayrshare_profile' = Ayrshare profile key for per-client social media management. " +
       "If client_name is omitted, returns ALL active clients with their linked accounts. " +
-      "ALWAYS call this FIRST before any Google Ads, Meta Ads, Supermetrics, or GA4 operation. Uses smart fuzzy matching on client names.",
+      "ALWAYS call this FIRST before any Google Ads, Meta Ads, social media, Supermetrics, or GA4 operation. Uses smart fuzzy matching on client names.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -1556,6 +1557,10 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         profile_key: {
           type: "string",
           description: "Profile key for multi-profile accounts. Omit for primary profile.",
+        },
+        client_name: {
+          type: "string",
+          description: "Client name to auto-resolve the Ayrshare profile_key from client_account_mappings (platform='ayrshare_profile'). If provided and the client has a linked Ayrshare profile, the profile_key will be set automatically. Overridden by explicit profile_key parameter.",
         },
       },
       required: ["action"],
@@ -4020,9 +4025,27 @@ export async function executeTool(
         const commentId = toolInput.comment_id as string | undefined;
         const singlePlatform = toolInput.platform as string | undefined;
         const extraParams = (toolInput.params as Record<string, unknown>) || {};
-        const profileKey = toolInput.profile_key as string | undefined;
+        let profileKey = toolInput.profile_key as string | undefined;
+        const smClientName = toolInput.client_name as string | undefined;
         const customMethod = ((toolInput.method as string) || "GET").toUpperCase();
         const customEndpoint = toolInput.endpoint as string | undefined;
+
+        // Auto-resolve profile_key from client_account_mappings if client_name provided
+        if (smClientName && !profileKey) {
+          try {
+            const smClient = await getSupabaseClient();
+            const { data: ayrMapping } = await smClient
+              .from("client_account_mappings")
+              .select("account_id")
+              .ilike("client_name", smClientName)
+              .eq("platform", "ayrshare_profile")
+              .limit(1)
+              .maybeSingle();
+            if (ayrMapping?.account_id) {
+              profileKey = ayrMapping.account_id;
+            }
+          } catch { /* ignore, proceed without profile key */ }
+        }
 
         const BASE = "https://api.ayrshare.com/api";
         const headers: Record<string, string> = {

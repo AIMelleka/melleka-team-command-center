@@ -5,8 +5,10 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-
 interface SupermetricsAccount { id: string; name: string; }
+interface MetaPage { id: string; name: string; instagram: { id: string; username: string } | null; }
+
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 interface AccountMapping {
   id: string;
@@ -24,11 +26,14 @@ interface Props {
 }
 
 const PLATFORMS = [
-  { key: 'google_ads', smKey: 'AW', label: 'Google Ads', color: 'bg-blue-500/15 text-blue-400 border-blue-500/20' },
-  { key: 'meta_ads', smKey: 'FA', label: 'Meta Ads', color: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20' },
-  { key: 'tiktok_ads', smKey: 'TT', label: 'TikTok Ads', color: 'bg-pink-500/15 text-pink-400 border-pink-500/20' },
-  { key: 'bing_ads', smKey: 'BI', label: 'Microsoft Ads', color: 'bg-teal-500/15 text-teal-400 border-teal-500/20' },
-  { key: 'linkedin_ads', smKey: 'LI', label: 'LinkedIn Ads', color: 'bg-sky-500/15 text-sky-400 border-sky-500/20' },
+  { key: 'google_ads', smKey: 'AW', label: 'Google Ads', color: 'bg-blue-500/15 text-blue-400 border-blue-500/20', manual: false },
+  { key: 'meta_ads', smKey: 'FA', label: 'Meta Ads', color: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20', manual: false },
+  { key: 'tiktok_ads', smKey: 'TT', label: 'TikTok Ads', color: 'bg-pink-500/15 text-pink-400 border-pink-500/20', manual: false },
+  { key: 'bing_ads', smKey: 'BI', label: 'Microsoft Ads', color: 'bg-teal-500/15 text-teal-400 border-teal-500/20', manual: false },
+  { key: 'linkedin_ads', smKey: 'LI', label: 'LinkedIn Ads', color: 'bg-sky-500/15 text-sky-400 border-sky-500/20', manual: false },
+  { key: 'facebook_page', smKey: '', label: 'Facebook Page', color: 'bg-blue-600/15 text-blue-500 border-blue-600/20', manual: false, source: 'meta' as const },
+  { key: 'instagram_account', smKey: '', label: 'Instagram Account', color: 'bg-pink-600/15 text-pink-500 border-pink-600/20', manual: false, source: 'meta' as const },
+  { key: 'ayrshare_profile', smKey: '', label: 'Ayrshare Profile', color: 'bg-purple-500/15 text-purple-400 border-purple-500/20', manual: true },
 ];
 
 export default function AccountMappingModal({ clientName, smAccounts, onClose, onSaved }: Props) {
@@ -42,6 +47,13 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
 
   // Pending selection per platform (for dropdown)
   const [pendingSelections, setPendingSelections] = useState<Record<string, string>>({});
+
+  // Manual input state for social/manual platforms
+  const [manualInputs, setManualInputs] = useState<Record<string, { id: string; name: string }>>({});
+
+  // Meta pages (Facebook Pages + Instagram accounts from Meta API)
+  const [metaPages, setMetaPages] = useState<MetaPage[]>([]);
+  const [metaPagesLoading, setMetaPagesLoading] = useState(false);
 
   // Load existing mappings
   useEffect(() => {
@@ -68,6 +80,40 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     })();
   }, [clientName]);
 
+  // Fetch Facebook Pages + Instagram accounts from Meta API
+  useEffect(() => {
+    (async () => {
+      setMetaPagesLoading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) {
+          const resp = await fetch(`${API_URL}/api/social/meta-pages`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (resp.ok) {
+            const json = await resp.json();
+            if (json?.pages) setMetaPages(json.pages);
+          }
+        }
+      } catch { /* Meta pages unavailable */ }
+      setMetaPagesLoading(false);
+    })();
+  }, []);
+
+  // Get available Meta accounts for a platform
+  const getMetaAccountsForPlatform = (platformKey: string): SupermetricsAccount[] => {
+    if (platformKey === 'facebook_page') {
+      return metaPages.map(p => ({ id: p.id, name: p.name }));
+    }
+    if (platformKey === 'instagram_account') {
+      return metaPages
+        .filter(p => p.instagram)
+        .map(p => ({ id: p.instagram!.id, name: `${p.instagram!.username} (${p.name})` }));
+    }
+    return [];
+  };
+
   // Get available accounts for a platform from Supermetrics
   const getAccountsForPlatform = (platformKey: string): SupermetricsAccount[] => {
     const platform = PLATFORMS.find(p => p.key === platformKey);
@@ -86,9 +132,16 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     return new Set(getMappingsForPlatform(platformKey).map(m => m.account_id));
   };
 
+  // Resolve account from either Supermetrics or Meta sources
+  const resolveAccount = (platformKey: string, accountId: string): SupermetricsAccount | undefined => {
+    const platform = PLATFORMS.find(p => p.key === platformKey);
+    const isMeta = platform && (platform as any).source === 'meta';
+    const accounts = isMeta ? getMetaAccountsForPlatform(platformKey) : getAccountsForPlatform(platformKey);
+    return accounts.find(a => a.id === accountId);
+  };
+
   const addMapping = async (platformKey: string, accountId: string) => {
-    const accounts = getAccountsForPlatform(platformKey);
-    const account = accounts.find(a => a.id === accountId);
+    const account = resolveAccount(platformKey, accountId);
     if (!account) return;
 
     setIsSaving(true);
@@ -122,8 +175,7 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
 
   // Replace the single mapping for a platform (when NOT in multi-account mode)
   const replaceMapping = async (platformKey: string, accountId: string) => {
-    const accounts = getAccountsForPlatform(platformKey);
-    const account = accounts.find(a => a.id === accountId);
+    const account = resolveAccount(platformKey, accountId);
     if (!account) return;
 
     setIsSaving(true);
@@ -150,13 +202,34 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     setIsSaving(false);
   };
 
+  // Add a manual mapping (for social/manual platforms where user types the ID)
+  const addManualMapping = async (platformKey: string) => {
+    const input = manualInputs[platformKey];
+    if (!input?.id?.trim()) return;
+
+    setIsSaving(true);
+    const { data, error } = await supabase
+      .from('client_account_mappings')
+      .insert({ client_name: clientName, platform: platformKey, account_id: input.id.trim(), account_name: input.name.trim() || null })
+      .select()
+      .single();
+    if (error) {
+      toast({ title: 'Failed to add account', description: error.message, variant: 'destructive' });
+    } else if (data) {
+      setMappings(prev => [...prev, data as AccountMapping]);
+      toast({ title: `Linked ${input.name.trim() || input.id.trim()}` });
+    }
+    setManualInputs(prev => ({ ...prev, [platformKey]: { id: '', name: '' } }));
+    setIsSaving(false);
+  };
+
   const handleClose = () => {
     onSaved();
     onClose();
   };
 
-  // Check if there are any Supermetrics accounts at all
-  const hasAnyAccounts = PLATFORMS.some(p => getAccountsForPlatform(p.key).length > 0);
+  // Check if there are any accounts available (Supermetrics, Meta, or manual platforms)
+  const hasAnyAccounts = PLATFORMS.some(p => p.manual || (p as any).source === 'meta' || getAccountsForPlatform(p.key).length > 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={handleClose}>
@@ -166,7 +239,7 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
           <div>
             <h2 className="text-lg font-bold flex items-center gap-2">
               <Link className="h-5 w-5 text-primary" />
-              Link Ad Accounts
+              Link Accounts
             </h2>
             <p className="text-sm text-muted-foreground mt-0.5">{clientName}</p>
           </div>
@@ -187,14 +260,15 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
             </div>
           ) : (
             PLATFORMS.map(platform => {
-              const accounts = getAccountsForPlatform(platform.key);
+              const isMeta = (platform as any).source === 'meta';
+              const accounts = isMeta ? getMetaAccountsForPlatform(platform.key) : getAccountsForPlatform(platform.key);
               const currentMappings = getMappingsForPlatform(platform.key);
               const mappedIds = getMappedIds(platform.key);
               const isMulti = multiAccountPlatforms.has(platform.key);
               const unmapped = accounts.filter(a => !mappedIds.has(a.id));
 
-              // Skip platforms with no available accounts and no existing mappings
-              if (accounts.length === 0 && currentMappings.length === 0) return null;
+              // Skip non-manual, non-meta platforms with no available accounts and no existing mappings
+              if (!platform.manual && !isMeta && accounts.length === 0 && currentMappings.length === 0) return null;
 
               return (
                 <div key={platform.key} className="rounded-lg border border-border overflow-hidden">
@@ -213,7 +287,7 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
                         <span className="text-xs text-muted-foreground">Not linked</span>
                       )}
                     </div>
-                    {accounts.length > 1 && (
+                    {!platform.manual && accounts.length > 1 && (
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] text-muted-foreground">Multiple accounts</span>
                         <Switch
@@ -232,8 +306,60 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
                   </div>
 
                   <div className="px-4 py-3 space-y-2">
-                    {/* Single account mode — one dropdown that replaces */}
-                    {!isMulti ? (
+                    {/* Manual input mode — user types account ID directly */}
+                    {platform.manual ? (
+                      <div className="space-y-2">
+                        {/* List existing manual mappings */}
+                        {currentMappings.map(m => (
+                          <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded-md bg-muted/30 group">
+                            <div>
+                              <p className="text-sm font-medium">{m.account_name || m.account_id}</p>
+                              <p className="text-[10px] text-muted-foreground">ID: {m.account_id}</p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-500"
+                              onClick={() => removeMapping(m)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                        {/* Input to add new */}
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder={platform.key === 'facebook_page' ? 'Facebook Page ID' : platform.key === 'instagram_account' ? 'Instagram Account ID' : 'Ayrshare Profile Key'}
+                            value={manualInputs[platform.key]?.id || ''}
+                            onChange={(e) => setManualInputs(prev => ({ ...prev, [platform.key]: { ...prev[platform.key], id: e.target.value, name: prev[platform.key]?.name || '' } }))}
+                            className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Display name"
+                            value={manualInputs[platform.key]?.name || ''}
+                            onChange={(e) => setManualInputs(prev => ({ ...prev, [platform.key]: { ...prev[platform.key], name: e.target.value, id: prev[platform.key]?.id || '' } }))}
+                            className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!manualInputs[platform.key]?.id?.trim() || isSaving}
+                            onClick={() => addManualMapping(platform.key)}
+                            className="h-9 px-3"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          {platform.key === 'facebook_page' && 'Find your Page ID in Meta Business Suite under Page Settings.'}
+                          {platform.key === 'instagram_account' && 'Find your IG Business Account ID in Meta Business Suite.'}
+                          {platform.key === 'ayrshare_profile' && 'Enter the Ayrshare profile key for this client (found in Ayrshare dashboard).'}
+                        </p>
+                      </div>
+                    ) : !isMulti ? (
+                      /* Single account mode — one dropdown that replaces */
                       <div>
                         <select
                           value={currentMappings[0]?.account_id || ''}
@@ -318,8 +444,12 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
                       </div>
                     )}
 
-                    {accounts.length === 0 && (
-                      <p className="text-xs text-muted-foreground italic py-1">No accounts available from Supermetrics for this platform.</p>
+                    {!platform.manual && accounts.length === 0 && currentMappings.length === 0 && (
+                      <p className="text-xs text-muted-foreground italic py-1">
+                        {isMeta && metaPagesLoading ? 'Loading pages from Meta...' :
+                         isMeta ? 'No pages found from Meta API. Check your Meta access token.' :
+                         'No accounts available from Supermetrics for this platform.'}
+                      </p>
                     )}
                   </div>
                 </div>

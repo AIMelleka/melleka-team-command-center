@@ -291,4 +291,53 @@ router.get("/connect/status", requireAuth, async (_req: AuthRequest, res) => {
   }
 });
 
+// ─── GET /api/social/meta-pages — list Facebook Pages + Instagram accounts from Meta API ──
+router.get("/meta-pages", requireAuth, async (_req: AuthRequest, res) => {
+  try {
+    // Get Meta access token (same resolution as meta_ads_manage tool)
+    let token = process.env.META_ACCESS_TOKEN;
+    if (!token) {
+      const { data: oauthRow } = await supabase
+        .from("oauth_connections")
+        .select("access_token, token_expires_at")
+        .eq("provider", "meta_ads")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (oauthRow?.token_expires_at && new Date(oauthRow.token_expires_at) < new Date()) {
+        return res.status(401).json({ error: "Meta access token has expired." });
+      }
+      token = oauthRow?.access_token ?? undefined;
+    }
+    if (!token) {
+      return res.status(400).json({ error: "No Meta access token configured." });
+    }
+
+    const META_API_VERSION = process.env.META_API_VERSION || "v21.0";
+    const baseUrl = `https://graph.facebook.com/${META_API_VERSION}`;
+
+    // Fetch all pages the token has access to, including connected Instagram accounts
+    const pagesResp = await fetch(
+      `${baseUrl}/me/accounts?fields=id,name,instagram_business_account{id,username,name}&limit=100&access_token=${token}`
+    );
+    const pagesData = await pagesResp.json() as { data?: Array<{ id: string; name: string; instagram_business_account?: { id: string; username?: string; name?: string } }>; error?: any };
+
+    if (!pagesResp.ok || pagesData.error) {
+      return res.status(pagesResp.status).json({ error: pagesData.error?.message || "Failed to fetch pages" });
+    }
+
+    const pages = (pagesData.data || []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      instagram: p.instagram_business_account
+        ? { id: p.instagram_business_account.id, username: p.instagram_business_account.username || p.instagram_business_account.name }
+        : null,
+    }));
+
+    res.json({ pages });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

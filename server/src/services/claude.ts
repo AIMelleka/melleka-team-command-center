@@ -572,19 +572,20 @@ ${communitySkills}
 
 When generating a client update (whether triggered manually, by a cron job, or any request for a client report/update), follow ALL of these rules EXACTLY. Do NOT deviate.
 
-OBJECTIVE: For each client, produce a COMPLETE and UNEDITED 1:1 task list. Every single Notion task becomes exactly one bullet. NEVER summarize, merge, combine, rephrase, or invent tasks. If Notion has 12 tasks for a client, the output MUST have exactly 12 bullets distributed across categories.
+OBJECTIVE: For each client, produce a COMPREHENSIVE update that includes ALL completed tasks from Notion, ALL ad platform performance data AND change history, and social media activity. Every single Notion task becomes exactly one bullet. NEVER summarize, merge, combine, rephrase, or invent tasks. This update must be thorough enough to send directly to a client.
 
-STEP 0 - FILTER:
-Call notion_query_tasks with empty client_name (to get ALL clients), status_filter=completed, date range = past 7 days. This returns every completed task across all clients in one call.
+STEP 0 - SETUP:
+Call get_client_accounts with the client_name to find ALL linked accounts (Google Ads, Meta Ads, Facebook Page, Instagram, Ayrshare profile). Store the results. You will need account IDs for every subsequent step.
 
-STEP 1 - MATCH:
-Group the returned tasks by client name from the CLIENTS field. Each unique client name becomes its own section in the output.
+STEP 1 - NOTION TASKS:
+Call notion_query_tasks with client_name, start_date, end_date, status_filter="completed".
+If no tasks are returned, note "No completed tasks found in Notion for this period" but CONTINUE with ad data and social media. Do NOT stop here.
 
-STEP 2 - CATEGORIZE:
-Assign each task to EXACTLY ONE platform category based on keywords in the task title. Categories and their keyword triggers:
+STEP 2 - CATEGORIZE TASKS:
+Assign each Notion task to EXACTLY ONE platform category based on keywords in the task title:
 
-GOOGLE: Google Ads, Google campaign, search ads, PPC, display ads, Performance Max, Google account
-META: Meta Ads, Facebook Ads, Instagram Ads, Meta campaign, ad set, Meta account, boosted post
+GOOGLE ADS: Google Ads, Google campaign, search ads, PPC, display ads, Performance Max, Google account
+META ADS: Meta Ads, Facebook Ads, Instagram Ads, Meta campaign, ad set, Meta account, boosted post
 WEBSITE: website, landing page, web page, Elementor, WordPress, Divi, Shopify, WooCommerce, site update, homepage, URL, CMS, plugin, page speed, redesign
 SEO: SEO, keyword, backlink, search console, sitemap, meta tags, alt text, schema, ranking, organic, indexing, Google Business Profile, GBP, citation, local SEO
 EMAIL MARKETING: email, Mailchimp, Klaviyo, drip, newsletter, email sequence, email campaign, automation flow, abandoned cart email
@@ -592,81 +593,162 @@ CRM / AUTOMATIONS: CRM, HubSpot, GoHighLevel, GHL, Salesforce, Zoho, pipeline, a
 CONTENT / CREATIVE: content, graphic, video, reel, carousel, blog, copy, caption, creative, thumbnail, asset, design, photography, brand kit
 REPORTING / ANALYTICS: report, analytics, dashboard, data, metrics, KPI, GA4, Google Analytics, conversion tracking, UTM, attribution
 
-STEP 3 - OVERRIDE RULES (apply AFTER initial categorization):
+Override rules (apply AFTER initial categorization):
 - SEO task that is just copy edits on a page -> move to WEBSITE
 - META task that is only about creating an asset/graphic (not placing an ad) -> move to CONTENT / CREATIVE
 - GOOGLE task about writing ad copy only (not managing the campaign) -> move to CONTENT / CREATIVE
 - WEBSITE task about blog writing (not technical site changes) -> move to CONTENT / CREATIVE
-- If a task truly spans two categories, keep it in the more dominant/actionable one
+- Default catch-all for ambiguous tasks: CONTENT / CREATIVE. NEVER skip a task. NEVER create "Other" or "Miscellaneous".
+- Remove ALL URLs from task bullets. If a task title is ONLY a URL, write a short descriptor.
 
-STEP 4 - URL STRIP:
-Remove ALL URLs from every task bullet. If a task title is ONLY a URL with no other text, write a short descriptor instead (e.g., "Updated landing page"). No exceptions.
+STEP 3 - GOOGLE ADS PERFORMANCE:
+If the client has a google_ads account linked, call google_ads_query with their customer_id:
+Query: SELECT campaign.name, campaign.status, metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions, metrics.all_conversions, metrics.conversions_value, metrics.all_conversions_value FROM campaign WHERE segments.date BETWEEN '{start_date}' AND '{end_date}' AND campaign.status != 'REMOVED' ORDER BY metrics.cost_micros DESC
+Convert cost_micros to dollars (divide by 1,000,000). Calculate CTR (clicks/impressions*100), CPC (cost/clicks), CPA (cost/conversions).
+IMPORTANT: Use metrics.all_conversions (not just metrics.conversions) as the primary conversion number. Many accounts have conversion actions that only appear in all_conversions. If metrics.conversions is 0 but metrics.all_conversions has data, use all_conversions as the reported number. Same for all_conversions_value vs conversions_value.
+If no account linked, skip silently.
 
-STEP 5 - PLATFORM DECISION GATE:
-If a task title has NO clear keyword match to any platform, place it in CONTENT / CREATIVE as the default catch-all. NEVER skip a task. NEVER create an "Other" or "Miscellaneous" category. Every task MUST appear in the output.
+STEP 4 - GOOGLE ADS CHANGE HISTORY:
+If the client has a google_ads account linked, call google_ads_query to pull recent changes:
+Query: SELECT change_event.change_date_time, change_event.change_resource_type, change_event.resource_change_operation, change_event.user_email, change_event.client_type, change_event.old_resource, change_event.new_resource, campaign.name FROM change_event WHERE change_event.change_date_time >= '{start_date}' AND change_event.change_date_time <= '{end_date}' ORDER BY change_event.change_date_time DESC LIMIT 50
+Summarize what changed: budget changes, new campaigns created, paused campaigns, keyword additions/removals, bid adjustments, new ad copy, targeting changes.
+If the query errors (some accounts may not support change_event), skip silently and continue.
 
-STEP 6 - GOOGLE ADS DATA:
-For each client that has a Google Ads account linked (check via get_client_accounts), call google_ads_query to pull spend, clicks, impressions, conversions for the past 7 days. Add a "Google Ads Performance" subsection under that client. If no account is linked, skip silently.
+STEP 5 - META ADS PERFORMANCE:
+If the client has a meta_ads account linked, call meta_ads_manage:
+Method: GET, Endpoint: /{account_id}/insights (include the act_ prefix), Params: { "fields": "impressions,clicks,spend,cpm,ctr,cpc,actions,cost_per_action_type", "time_range": "{\"since\":\"{start_date}\",\"until\":\"{end_date}\"}", "level": "campaign" }
+Also: GET /{account_id}/campaigns with fields=id,name,status,daily_budget,lifetime_budget,objective
+Calculate totals: spend, clicks, impressions, CTR, CPC. List active campaigns.
+If no account linked, skip silently.
 
-STEP 7 - META ADS DATA:
-For each client with a Meta Ads account (check via get_client_accounts), call meta_ads_manage to pull spend, clicks, impressions for the past 7 days. Add a "Meta Ads Performance" subsection. If no account is linked, skip silently.
+STEP 6 - META ADS CHANGE HISTORY:
+If the client has a meta_ads account linked, call meta_ads_manage:
+Method: GET, Endpoint: /{account_id}/activities, Params: { "fields": "event_time,event_type,extra_data,object_id,object_name" }
+Note: the activities endpoint uses UNIX timestamps for filtering if needed.
+Summarize what changed: campaign status changes, budget modifications, new ads created, targeting updates, bid strategy changes.
+If the endpoint returns errors or no data, skip silently.
 
-STEP 8 - SOCIAL MEDIA:
-For each client with a linked Facebook page, check how many social posts were published in the past 7 days using meta_ads_manage (endpoint: /{page_id}/published_posts). Add a line: "Social Media: [X] posts published this week." At the END of each client section, add: "Reminder: Check if social media posts are scheduled for next week." If no page is linked, skip silently.
+STEP 7 - SOCIAL MEDIA POSTS:
+If the client has a facebook_page linked in accounts, call meta_ads_manage:
+Method: GET, Endpoint: /{page_id}/published_posts, Params: { "fields": "message,created_time,shares,likes.summary(true),comments.summary(true)", "limit": "50" }
+Count posts within the date range and summarize engagement (total likes, comments, shares).
+If no facebook_page is linked, add a note: "Social Media: No Facebook Page linked for this client. Add the Page ID in Client Settings to track posts."
+Always add at end of client section: "Reminder: Check if social media posts are scheduled for next week."
 
-OUTPUT FORMAT (per client, inside ONE consolidated output):
+STEP 8 - BUILD BRANDED HTML UPDATE PAGE (LIVE CHAT ONLY, NOT CRON):
+When generating for live chat (not a cron job or scheduled task):
+1. Build a complete, self-contained HTML page. Do NOT read any template file. Use the EXACT design system below.
+2. MANDATORY LIGHT THEME - The page MUST use a LIGHT color scheme:
+   - Body background: #f0f2f5 (light gray)
+   - Body text color: #2d3436 (dark gray)
+   - Section backgrounds: #fff (white) with box-shadow: 0 2px 12px rgba(0,0,0,0.06)
+   - Section titles: color #1a1a2e with border-bottom: 2px solid #e94560
+   - Stat cards: background #f8f9fa, value color #1a1a2e
+   - Table header: background #1a1a2e, color #fff
+   - Table rows: alternating #fff and #fafafa
+   - Task text: color #444
+   - Only the header gradient and "Coming Up Next Week" section use dark backgrounds
+3. HTML structure (follow this exactly):
+   - Google Fonts link for Poppins (400,500,600,700)
+   - Header: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%), white text, agency name "MELLEKA MARKETING" in #e94560, client name as h1, date range below
+   - Container: max-width 880px, centered
+   - Sections: white cards with 12px border-radius, 36px padding, 28px margin-bottom
+   - Stat grid: CSS grid with auto-fit minmax(180px, 1fr), 16px gap
+   - Stat cards: label (12px uppercase #888), value (28px bold #1a1a2e), sub text (12px #888)
+   - Platform labels: .google (bg #e8f0fe, color #1a73e8), .meta (bg #e7f0fd, color #1877f2)
+   - Tables: full width, 14px font, dark header row, alternating row colors, total row with bold + #f0f4ff bg
+   - Task lists: no bullets, flex layout with checkmark circles (20px, bg #0f3460, white SVG check), task text in #444
+   - Category badges: inline-block, 11px uppercase, white text, colored bg (blue=#0f3460, green=#27ae60, red=#e94560, orange=#e67e22, purple=#8e44ad)
+   - Highlight boxes: left border 4px #0f3460, bg #f0f4ff, 20px padding
+   - Coming Up Next Week: dark section with gradient bg (#1a1a2e to #0f3460), white text
+   - Footer: centered, #999 text, Melleka.com link in #e94560
+   - Responsive: stack to 2 columns on mobile, reduce padding
+4. Page content must include ALL collected data:
+   - Google Ads stat cards (Spend, Clicks, Impressions, Conversions, CTR, CPC) + campaign breakdown table
+   - Meta Ads stat cards + campaign breakdown table
+   - Changes This Period section as a highlight-box for each platform
+   - Social media activity stat cards (if data available)
+   - Work Completed with ALL Notion tasks organized by category with checkmark bullets
+   - Coming Up Next Week section with scheduling reminder
+   - Melleka Marketing footer
+5. Write the complete HTML file to /tmp/{member-name}/update-{client-slug}/index.html using write_file
+6. Deploy with deploy_site: directory="/tmp/{member-name}/update-{client-slug}", project_name="{client-slug}-update"
+7. Present the melleka.app URL in the chat response
+
+STEP 9 - PLAIN TEXT SUMMARY:
+After deploying the branded page, ALSO output a plain text summary in chat (copy-paste ready for email/Slack):
 
 [CLIENT NAME]
 
 Google Ads
-- [exact task title from Notion, no URLs]
-- [exact task title from Notion, no URLs]
+- [exact task title, no URLs]
 
 Google Ads Performance
-- Spend: $X | Clicks: X | Impressions: X | Conversions: X
+- Total Spend: $X | Clicks: X | Impressions: X | Conversions: X
+- CTR: X% | CPC: $X | CPA: $X
+- [Campaign Name]: $X spend, X clicks, X conversions
+
+Google Ads Changes This Period
+- [Date]: [Change description - e.g., Increased daily budget from $50 to $75 on Campaign X]
+- [Date]: [Change description]
 
 Meta Ads
-- [exact task title from Notion, no URLs]
+- [exact task title, no URLs]
 
 Meta Ads Performance
-- Spend: $X | Clicks: X | Impressions: X
+- Total Spend: $X | Clicks: X | Impressions: X
+- CTR: X% | CPC: $X
+- [Campaign Name] (status): $X spend, X clicks
+
+Meta Ads Changes This Period
+- [Date]: [Change description]
 
 Website
-- [exact task title from Notion, no URLs]
+- [exact task title, no URLs]
 
 SEO
-- [exact task title from Notion, no URLs]
+- [exact task title, no URLs]
 
 Email Marketing
-- [exact task title from Notion, no URLs]
+- [exact task title, no URLs]
 
 CRM / Automations
-- [exact task title from Notion, no URLs]
+- [exact task title, no URLs]
 
 Content / Creative
-- [exact task title from Notion, no URLs]
+- [exact task title, no URLs]
 
 Reporting / Analytics
-- [exact task title from Notion, no URLs]
+- [exact task title, no URLs]
 
-Social Media: [X] posts published this week
+Social Media: [X] posts published this week ([total likes] likes, [total comments] comments)
 Reminder: Check if social media posts are scheduled for next week
+
+Branded Update Page: https://{client-slug}-update.melleka.app
 
 Source: https://www.notion.so/9e7cd72f-e62c-4514-9456-5f51cbcfe981
 
 ---
 
-Only include category sections that have actual items. Skip empty sections entirely. Repeat this format for EVERY client that has completed tasks.
+Only include category sections that have actual items. Skip empty sections entirely.
 
 CONSOLIDATED EMAIL (for cron jobs):
 After generating ALL client sections, send ONE email via send_email with ALL clients listed back to back in one email body. Do NOT send separate emails per client. Do NOT deploy branded pages for cron runs.
 
 APPROVAL FLOW (for live chat only):
-When in a live chat (not a cron job), after generating the text update, ask: "Approved? If yes, I will send the email."
+After generating the text update and deploying the branded page, ask: "Approved? If yes, I will send the email with the branded page link included."
 When running as a CRON JOB or scheduled task, SKIP approval entirely and send the email directly.
 
+EDGE CASE HANDLING:
+- No ad accounts linked: Skip ad performance and change history sections silently. Still show Notion tasks.
+- Meta token expired: Show "Meta Ads data unavailable (token expired)" and continue with other data.
+- No Facebook page linked: Skip social media post count. Still include the scheduling reminder.
+- No Notion tasks found: Show "No completed tasks found in this period" and still pull all ad data and social media.
+- Change history query errors: Skip that section silently and continue with remaining steps.
+- All data sources empty: Generate a minimal update stating no data was found for the period, suggest verifying the date range and account linkages.
+
 FORMATTING RULES (NON-NEGOTIABLE):
-- Plain text headlines for each section (e.g., Google Ads, Meta Ads). No markdown symbols.
+- Plain text headlines for each section. No markdown symbols.
 - Dashes (-) for bullet points only. No other bullet symbols.
 - Past tense for completed work.
 - Factual, specific. Preserve original task details exactly as written in Notion.

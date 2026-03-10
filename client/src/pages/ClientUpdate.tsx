@@ -60,60 +60,9 @@ function uid() { return `cu-msg-${++nextMsgId}`; }
 const LEGACY_NOTION_DATABASE_ID = 'bf762858-67b7-49ca-992d-fdfc8c43d7fa';
 const DEFAULT_NOTION_DATABASE_ID = '9e7cd72f-e62c-4514-9456-5f51cbcfe981';
 
-// Default master prompt
-const DEFAULT_MASTER_PROMPT = `OBJECTIVE (NON-NEGOTIABLE)
-
-Produce a COMPLETE client update that includes all completed tasks from Notion, plus recent Google Ads and Meta Ads activity, plus social media posting activity.
-
-Never summarize tasks. Never merge tasks. Never invent. Never omit completed tasks.
-
-DATA SOURCES (ALWAYS PULL FROM ALL OF THESE)
-1. NOTION TASKS: Pull all completed tasks for the client in the date range
-2. GOOGLE ADS: Look up the client's Google Ads account via get_client_accounts, then query for campaign performance, spend, clicks, impressions, conversions, and any changes made during the date range
-3. META ADS: Look up the client's Meta Ads account via get_client_accounts, then query for campaign performance, spend, clicks, impressions, and any changes made during the date range
-4. SOCIAL MEDIA POSTS: Check Meta for recent posts on the client's Facebook page. Report how many posts were published during the date range and note any engagement or activity trends
-
-If a client has no account linked for a platform, skip that section silently.
-
-NOTION FILTERING RULES (MANDATORY)
-- Date field: Last edited time
-- Date range: User-provided range
-- Status: STATUS contains "Done"
-- Hard exclusion: STATUS does NOT contain "NON-ESSENTIAL" or "NON ESSENTIAL"
-
-CLIENT MATCHING (ERR ON INCLUSION)
-Include a task if CLIENTS or Task name contains the client name, abbreviation, alias, shorthand, or common typo (case-insensitive). If unsure, include the task.
-
-COMPLETION DEFINITION (STRICT)
-A task is completed if STATUS contains "Done" or clearly implies completion. Ignore checkboxes entirely.
-
-CATEGORIZATION (STRICT PLATFORM RULES)
-Tasks must be categorized by the platform actually modified, not implied.
-
-GOOGLE ADS: Google Ads campaigns, ad groups, keywords, budget changes, performance metrics
-META ADS: Meta/Facebook/Instagram ad campaigns, ad sets, budget changes, performance metrics
-SOCIAL MEDIA ACTIVITY: Posts published, engagement trends, posting frequency
-WEBSITE: Website banners, page edits, copy changes, UX/UI, videos added to site, link replacements
-SEO: Keywords, metadata, rankings, on-page optimization, SEO-related structured snippets
-EMAIL MARKETING: Campaigns, automations, templates, newsletters
-CRM / AUTOMATIONS: HubSpot, Zapier, pipelines, integrations
-CONTENT / CREATIVE: Copywriting, video creation, graphics, creative assets
-REPORTING / ANALYTICS: Reports, dashboards, tracking verification, Google Analytics/GA4, Tag Manager, Search Console, Business Profile
-
-OUTPUT FORMAT (LOCKED)
-- Plain text section headers (no markdown, no ## or **)
-- Bullet list (dashes) under each header
-- 1 task = 1 bullet, ad metrics get their own bullets
-- Past tense only
-- Original task specificity preserved
-- NEVER use quotation marks anywhere
-- NEVER use emojis
-- NEVER use em dashes
-- NEVER use ## or ** or any markdown formatting
-- No summaries, no intro text, no sign-offs, no filler
-- NO URLs in task bullets (strip all links)
-- The output must be copy-paste ready to send directly to a client
-- Only include sections that have actual items. Skip empty sections.`;
+// Default master prompt — empty because the server system prompt is the single source of truth.
+// Users can add custom instructions here that get appended as overrides.
+const DEFAULT_MASTER_PROMPT = '';
 
 // ── Component ────────────────────────────────────────
 
@@ -196,14 +145,14 @@ const ClientUpdate = () => {
   const savePrompt = () => {
     localStorage.setItem('client-update-master-prompt', masterPrompt);
     setPromptSaved(true);
-    toast({ title: 'Master prompt saved!' });
+    toast({ title: 'Custom instructions saved!' });
   };
 
   const resetPrompt = () => {
-    setMasterPrompt(DEFAULT_MASTER_PROMPT);
-    localStorage.setItem('client-update-master-prompt', DEFAULT_MASTER_PROMPT);
+    setMasterPrompt('');
+    localStorage.setItem('client-update-master-prompt', '');
     setPromptSaved(true);
-    toast({ title: 'Master prompt reset to default' });
+    toast({ title: 'Custom instructions cleared' });
   };
 
   const handleAliasesChange = (value: string) => {
@@ -403,23 +352,27 @@ const ClientUpdate = () => {
       ? `, database_id="${notionDatabaseId}"`
       : '';
 
+    const masterOverride = masterPrompt.trim()
+      ? `\n[ADDITIONAL INSTRUCTIONS]\n${masterPrompt.trim()}`
+      : '';
+
     const message = [
-      `[CLIENT UPDATE INSTRUCTIONS]`,
-      masterPrompt,
-      ``,
-      `[TASK]`,
-      `Generate a client update for "${clientName}" covering ${startDate} to ${endDate}.`,
+      `[CLIENT UPDATE REQUEST]`,
+      `Generate a comprehensive client update for "${clientName}" covering ${startDate} to ${endDate}.`,
       ``,
       `Steps:`,
-      `1. Call get_client_accounts with client_name="${clientName}" to find their linked Google Ads, Meta Ads, and other account IDs`,
+      `1. Call get_client_accounts with client_name="${clientName}" to find ALL linked accounts (ad accounts, social pages, etc.)`,
       `2. Call notion_query_tasks with client_name="${clientName}", start_date="${startDate}", end_date="${endDate}", status_filter="completed"${dbOverride}`,
-      `3. If the client has a Google Ads account, call google_ads_query to get campaign performance for the date range (spend, clicks, impressions, conversions, and any changes)`,
-      `4. If the client has a Meta Ads account, call meta_ads_manage to get campaign performance and any changes for the date range`,
-      `5. Check Meta for social media posts published during the date range and report the count and engagement trends`,
-      `6. Review ALL returned data carefully - do not skip any tasks or metrics`,
-      `7. Format the update EXACTLY according to the instructions above - plain text, no markdown, no quotes, copy-paste ready`,
+      `3. Pull Google Ads performance AND change history for the date range`,
+      `4. Pull Meta Ads performance AND change history/activities for the date range`,
+      `5. Check social media posts (Facebook page and/or Ayrshare profile)`,
+      `6. Build and deploy a branded HTML update page (use the client-update-template.html as the base)`,
+      `7. Output the plain text summary in chat`,
+      ``,
+      `Follow the CLIENT UPDATE BOT rules from your system prompt exactly. Do not skip ANY data source.`,
       aliasInfo,
       additionalContext ? `\nAdditional context from team: ${additionalContext}` : '',
+      masterOverride,
     ].filter(Boolean).join('\n');
 
     // Reset for new generation
@@ -561,9 +514,9 @@ const ClientUpdate = () => {
               {/* Master Prompt */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <Label className="text-xs font-medium text-muted-foreground">Master Prompt (AI Instructions)</Label>
+                  <Label className="text-xs font-medium text-muted-foreground">Custom Instructions (optional, appended to system rules)</Label>
                   <div className="flex gap-2">
-                    <Button variant="ghost" size="sm" onClick={resetPrompt} className="h-7 text-xs">Reset</Button>
+                    <Button variant="ghost" size="sm" onClick={resetPrompt} className="h-7 text-xs">Clear</Button>
                     <Button variant="outline" size="sm" onClick={savePrompt} disabled={promptSaved} className="h-7 text-xs">
                       <Save className="h-3 w-3 mr-1" />Save
                     </Button>
@@ -572,7 +525,7 @@ const ClientUpdate = () => {
                 <Textarea
                   value={masterPrompt}
                   onChange={(e) => handlePromptChange(e.target.value)}
-                  placeholder="Enter the master prompt for the AI..."
+                  placeholder="Optional: Add custom instructions that will be appended to the system prompt. Leave blank to use default behavior (recommended)."
                   rows={10}
                   className="font-mono text-sm"
                 />
