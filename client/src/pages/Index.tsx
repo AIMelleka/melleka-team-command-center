@@ -35,6 +35,7 @@ import {
 } from '@/lib/chatApi';
 import { ToolCallBlock } from '@/components/chat/ToolCallBlock';
 import { useVoiceChat, VoiceModeToggle, MicButton } from '@/components/chat/VoiceChat';
+import { useVoicePreference } from '@/hooks/useVoicePreference';
 import { VoiceConversationOverlay } from '@/components/chat/VoiceConversationOverlay';
 import { MemoryPanel } from '@/components/MemoryPanel';
 
@@ -145,9 +146,11 @@ const Index = () => {
   // Voice chat — use refs for callbacks to avoid stale closures
   const sendMessageRef = useRef<(text?: string) => void>(() => {});
   const [showVoiceOverlay, setShowVoiceOverlay] = useState(false);
+  const { voiceId } = useVoicePreference();
   const voiceChat = useVoiceChat({
     onTranscript: (text) => sendMessageRef.current(text),
     onError: (msg) => toast.error(msg),
+    voiceId,
   });
   const voiceFeedTextRef = useRef(voiceChat.feedText);
   voiceFeedTextRef.current = voiceChat.feedText;
@@ -187,14 +190,22 @@ const Index = () => {
     if (!isMobile) setSidebarOpen(true);
   }, [isMobile]);
 
-  // Initialize: ensure team member + load conversations
+  // Initialize: ensure team member + load conversations (retry once on auth failure)
   useEffect(() => {
     (async () => {
       try {
         const { name } = await ensureTeamMember();
         setMemberName(name);
-      } catch { /* auth will handle redirect */ }
-      loadConversations();
+        loadConversations();
+      } catch {
+        // Token might not be ready yet after login — wait and retry once
+        await new Promise(r => setTimeout(r, 1500));
+        try {
+          const { name } = await ensureTeamMember();
+          setMemberName(name);
+          loadConversations();
+        } catch { /* auth will handle redirect */ }
+      }
     })();
   }, []);
 
@@ -222,13 +233,18 @@ const Index = () => {
 
   // ── Data loading ───────────────────────────────────
 
-  const loadConversations = async () => {
+  const loadConversations = async (retried = false) => {
     setLoadingHistory(true);
     try {
       const data = await apiFetchConversations();
       setConversations(data);
     } catch (err) {
       console.error('[loadConversations] Failed:', err);
+      if (!retried) {
+        // Retry once after a short delay (handles token refresh timing)
+        await new Promise(r => setTimeout(r, 2000));
+        return loadConversations(true);
+      }
       toast.error('Failed to load past conversations');
     }
     setLoadingHistory(false);

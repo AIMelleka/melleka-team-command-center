@@ -18,20 +18,48 @@ serve(async (req) => {
       throw new Error('GHL_CLIENT_ID not configured');
     }
 
-    const redirectUri = `${supabaseUrl}/functions/v1/crm-agency-oauth-callback`;
+    // Must match the redirect URI registered in the GHL marketplace app
+    const redirectUri = 'https://nhebotmrnxixvcvtspet.supabase.co/functions/v1/crm-agency-oauth-callback';
     
     // GHL OAuth scopes needed for deck data
     const scopes = [
-      'contacts.readonly',
-      'calendars.readonly', 
-      'calendars/events.readonly',
-      'opportunities.readonly',
+      // Contacts
+      'contacts.readonly', 'contacts.write',
+      // Calendars
+      'calendars.readonly', 'calendars.write',
+      'calendars/events.readonly', 'calendars/events.write',
+      'calendars/groups.readonly', 'calendars/groups.write',
+      'calendars/resources.readonly', 'calendars/resources.write',
+      // Conversations
+      'conversations.readonly', 'conversations.write',
+      'conversations/message.readonly', 'conversations/message.write',
+      // Opportunities
+      'opportunities.readonly', 'opportunities.write',
+      // Locations
+      'locations.readonly',
+      'locations/customFields.readonly', 'locations/customFields.write',
+      'locations/customValues.readonly', 'locations/customValues.write',
+      'locations/tags.readonly', 'locations/tags.write',
+      // Users
+      'users.readonly', 'users.write',
+      // Workflows
+      'workflows.readonly',
+      // Campaigns
+      'campaigns.readonly',
+      // Forms & Surveys
       'forms.readonly',
       'surveys.readonly',
-      'conversations.readonly',
-      'conversations/message.readonly',
-      'locations.readonly',
-      'users.readonly',
+      // Invoices
+      'invoices.readonly', 'invoices.write',
+      // Products
+      'products.readonly', 'products.write',
+      'products/prices.readonly', 'products/prices.write',
+      // Social Media
+      'socialplanner/post.readonly', 'socialplanner/post.write',
+      // Media
+      'medias.readonly', 'medias.write',
+      // Businesses
+      'businesses.readonly', 'businesses.write',
     ].join(' ');
 
     const authUrl = new URL('https://marketplace.leadconnectorhq.com/oauth/chooselocation');
@@ -40,13 +68,14 @@ serve(async (req) => {
     authUrl.searchParams.set('redirect_uri', redirectUri);
     authUrl.searchParams.set('scope', scopes);
 
-    return new Response(
-      JSON.stringify({ authUrl: authUrl.toString() }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200 
-      }
-    );
+    // Redirect directly to GHL authorization page
+    return new Response(null, {
+      status: 302,
+      headers: {
+        ...corsHeaders,
+        'Location': authUrl.toString(),
+      },
+    });
 
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

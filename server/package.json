@@ -4,8 +4,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit",
     "build": "tsc && cp -r src/data dist/data",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "predeploy": "tsc --noEmit && echo '✓ Typecheck passed — safe to deploy'"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.54.0",

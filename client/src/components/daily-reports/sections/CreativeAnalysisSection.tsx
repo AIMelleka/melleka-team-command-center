@@ -49,7 +49,7 @@ export function CreativeAnalysisSection({ keyMetrics }: Props) {
               <p className="text-sm font-medium text-foreground leading-snug mb-2">"{h.headline}"</p>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">CTR:</span>
-                <span className={`text-sm font-bold ${cfg.color}`}>{(h.ctr ?? 0).toFixed(2)}%</span>
+                <span className={`text-sm font-bold ${cfg.color}`}>{Number(h.ctr || 0).toFixed(2)}%</span>
               </div>
             </div>
           );

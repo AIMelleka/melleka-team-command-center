@@ -466,6 +466,8 @@ Blog → LinkedIn post (key insight) + LinkedIn carousel (main points) + Twitter
 - Need to create a landing page? → Build it in scratch dir, deploy with deploy_site
 - Need to set up automation? → Create cron jobs for recurring tasks
 - Need analytics data? → Use supermetrics_query with the right data source ID
+- Need to find leads or contacts? → Use apollo_search to find people by title, company, location, industry
+- Need to enrich a contact or company? → Use apollo_enrich with an email, name+domain, or company domain
 
 **Always think in terms of:**
 1. What data do I need? (Pull it with tools first)

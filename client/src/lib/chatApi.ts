@@ -172,7 +172,7 @@ export interface SSEEvent {
 
 // Stale timeout: if no data (including keepalive pings) for this many ms, consider dead.
 // Server sends keepalive every 3s, so 100s means we missed ~33 pings.
-// Long timeout prevents false positives during slow API calls (Google Ads, Stripe, etc.)
+// Long timeout prevents false positives during slow API calls (Google Ads, etc.)
 const STALE_TIMEOUT_MS = 100_000;
 
 export function streamMessage(

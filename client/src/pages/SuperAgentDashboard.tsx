@@ -1,6 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { format, formatDistanceToNow } from "date-fns";
+import { safeFormatDate, safeFormatDistance } from "@/lib/dateUtils";
 import {
   Search,
   Bot,
@@ -20,6 +20,10 @@ import {
   Pause,
   Play,
   Trash2,
+  Wrench,
+  ChevronDown,
+  ChevronRight,
+  Zap,
 } from "lucide-react";
 import { fetchCronJobs, deleteCronJob, type CronJob } from "@/lib/chatApi";
 import { useToast } from "@/hooks/use-toast";
@@ -54,8 +58,10 @@ import {
 import {
   useSuperAgentTasks,
   useSuperAgentStats,
+  useToolExecutions,
   type SuperAgentTask,
   type TaskFilters,
+  type ToolExecution,
 } from "@/hooks/useSuperAgentTasks";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigate } from "react-router-dom";
@@ -207,6 +213,102 @@ function StatCard({
   );
 }
 
+function ToolExecutionLog({ taskId }: { taskId: string }) {
+  const { data: executions, isLoading } = useToolExecutions(taskId);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-4 justify-center text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <span className="text-sm">Loading tool executions...</span>
+      </div>
+    );
+  }
+
+  if (!executions || executions.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground py-2">No tool executions recorded yet.</p>
+    );
+  }
+
+  const totalMs = executions.reduce((sum, e) => sum + (e.execution_ms || 0), 0);
+  const errorCount = executions.filter(e => e.status === "error").length;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+          <Wrench className="h-4 w-4" />
+          Tool Executions ({executions.length})
+        </p>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span>{(totalMs / 1000).toFixed(1)}s total</span>
+          {errorCount > 0 && (
+            <span className="text-red-400">{errorCount} error{errorCount > 1 ? "s" : ""}</span>
+          )}
+        </div>
+      </div>
+      <div className="max-h-[300px] overflow-y-auto rounded-lg border border-border/50">
+        <div className="divide-y divide-border/50">
+          {executions.map((exec) => {
+            const isExpanded = expandedId === exec.id;
+            const isError = exec.status === "error";
+            return (
+              <div key={exec.id} className="text-sm">
+                <button
+                  onClick={() => setExpandedId(isExpanded ? null : exec.id)}
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 text-left"
+                >
+                  {isExpanded ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+                  {isError ? (
+                    <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+                  ) : (
+                    <Zap className="h-3.5 w-3.5 text-green-400 shrink-0" />
+                  )}
+                  <span className="font-mono text-xs font-medium truncate">{exec.tool_name}</span>
+                  <span className="ml-auto text-xs text-muted-foreground whitespace-nowrap">
+                    {exec.execution_ms >= 1000 ? `${(exec.execution_ms / 1000).toFixed(1)}s` : `${exec.execution_ms}ms`}
+                  </span>
+                </button>
+                {isExpanded && (
+                  <div className="px-3 pb-3 space-y-2 bg-muted/30">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Input</p>
+                      <pre className="text-xs bg-background rounded p-2 overflow-x-auto max-h-[120px] overflow-y-auto whitespace-pre-wrap break-all">
+                        {JSON.stringify(exec.tool_input, null, 2)}
+                      </pre>
+                    </div>
+                    {exec.tool_output && (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-1">Output</p>
+                        <pre className="text-xs bg-background rounded p-2 overflow-x-auto max-h-[120px] overflow-y-auto whitespace-pre-wrap break-all">
+                          {exec.tool_output}
+                        </pre>
+                      </div>
+                    )}
+                    {exec.error_message && (
+                      <div>
+                        <p className="text-xs font-medium text-red-400 mb-1">Error</p>
+                        <pre className="text-xs bg-red-500/10 rounded p-2 overflow-x-auto text-red-300 whitespace-pre-wrap break-all">
+                          {exec.error_message}
+                        </pre>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-muted-foreground">
+                      {safeFormatDate(exec.created_at, "MMM d, yyyy h:mm:ss a")}
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TaskDetailDialog({
   task,
   open,
@@ -217,9 +319,15 @@ function TaskDetailDialog({
   onClose: () => void;
 }) {
   const navigate = useNavigate();
-  if (!task) return null;
+  // Keep a stable copy so closing animation does not crash on null task
+  const [stableTask, setStableTask] = useState<SuperAgentTask | null>(null);
+  useEffect(() => {
+    if (task) setStableTask(task);
+  }, [task]);
+  const displayTask = task || stableTask;
+  if (!displayTask) return null;
 
-  const sortedNotes = [...(task.notes || [])].reverse();
+  const sortedNotes = [...(displayTask.notes || [])].reverse();
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -227,49 +335,52 @@ function TaskDetailDialog({
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-3 pr-6">
             <Bot className="h-5 w-5 text-primary shrink-0" />
-            <span className="break-words">{task.title}</span>
+            <span className="break-words">{displayTask.title}</span>
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-5 mt-2 overflow-y-auto min-h-0 flex-1 pr-1">
           {/* Status & Priority */}
           <div className="flex flex-wrap gap-2">
-            <StatusBadge status={task.status} />
-            <PriorityBadge priority={task.priority} />
-            {task.category && (
-              <Badge variant="outline">{task.category}</Badge>
+            <StatusBadge status={displayTask.status} />
+            <PriorityBadge priority={displayTask.priority} />
+            {displayTask.category && (
+              <Badge variant="outline">{displayTask.category}</Badge>
             )}
           </div>
 
           {/* Description */}
-          {task.description && (
+          {displayTask.description && (
             <div>
               <p className="text-sm font-medium text-muted-foreground mb-1">
                 Description
               </p>
-              <p className="text-sm whitespace-pre-wrap">{task.description}</p>
+              <p className="text-sm whitespace-pre-wrap">{displayTask.description}</p>
             </div>
           )}
 
           {/* Error Details */}
-          {task.error_details && (
+          {displayTask.error_details && (
             <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
               <p className="text-sm font-medium text-red-600 dark:text-red-400 mb-1 flex items-center gap-1">
                 <AlertTriangle className="h-4 w-4" />
                 Error Details
               </p>
-              <p className="text-sm whitespace-pre-wrap">{task.error_details}</p>
+              <p className="text-sm whitespace-pre-wrap">{displayTask.error_details}</p>
             </div>
           )}
 
+          {/* Tool Execution Log */}
+          <ToolExecutionLog taskId={displayTask.id} />
+
           {/* Links */}
-          {task.links && task.links.length > 0 && (
+          {displayTask.links && displayTask.links.length > 0 && (
             <div>
               <p className="text-sm font-medium text-muted-foreground mb-2">
                 Links
               </p>
               <div className="flex flex-wrap gap-2">
-                {task.links.map((link, i) => (
+                {displayTask.links.map((link, i) => (
                   <a
                     key={i}
                     href={link.url}
@@ -299,7 +410,7 @@ function TaskDetailDialog({
                       className="border-l-2 border-primary/30 pl-3"
                     >
                       <p className="text-xs text-muted-foreground">
-                        {format(new Date(note.timestamp), "MMM d, yyyy h:mm a")}
+                        {safeFormatDate(note.timestamp, "MMM d, yyyy h:mm a")}
                       </p>
                       <p className="text-sm mt-0.5 whitespace-pre-wrap break-words">{note.text}</p>
                     </div>
@@ -311,50 +422,50 @@ function TaskDetailDialog({
 
           {/* Metadata */}
           <div className="grid grid-cols-2 gap-3 text-sm border-t pt-4">
-            {task.requested_by && (
+            {displayTask.requested_by && (
               <div>
                 <span className="text-muted-foreground">Requested by: </span>
-                <span className="font-medium">{task.requested_by}</span>
+                <span className="font-medium">{displayTask.requested_by}</span>
               </div>
             )}
-            {task.client_name && (
+            {displayTask.client_name && (
               <div>
                 <span className="text-muted-foreground">Client: </span>
-                <span className="font-medium">{task.client_name}</span>
+                <span className="font-medium">{displayTask.client_name}</span>
               </div>
             )}
             <div>
               <span className="text-muted-foreground">Created: </span>
               <span>
-                {format(new Date(task.created_at), "MMM d, yyyy h:mm a")}
+                {safeFormatDate(displayTask.created_at, "MMM d, yyyy h:mm a")}
               </span>
             </div>
-            {task.started_at && (
+            {displayTask.started_at && (
               <div>
                 <span className="text-muted-foreground">Started: </span>
                 <span>
-                  {format(new Date(task.started_at), "MMM d, yyyy h:mm a")}
+                  {safeFormatDate(displayTask.started_at, "MMM d, yyyy h:mm a")}
                 </span>
               </div>
             )}
-            {task.completed_at && (
+            {displayTask.completed_at && (
               <div>
                 <span className="text-muted-foreground">Completed: </span>
                 <span>
-                  {format(new Date(task.completed_at), "MMM d, yyyy h:mm a")}
+                  {safeFormatDate(displayTask.completed_at, "MMM d, yyyy h:mm a")}
                 </span>
               </div>
             )}
           </div>
 
           {/* Conversation link */}
-          {task.conversation_id && (
+          {displayTask.conversation_id && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
                 onClose();
-                navigate(`/?conversation=${task.conversation_id}`);
+                navigate(`/?conversation=${displayTask.conversation_id}`);
               }}
               className="gap-1"
             >
@@ -560,7 +671,7 @@ export default function SuperAgentDashboard() {
                       <TableCell>
                         <span className="text-sm text-muted-foreground">
                           {job.last_run
-                            ? formatDistanceToNow(new Date(job.last_run), { addSuffix: true })
+                            ? safeFormatDistance(job.last_run, { addSuffix: true })
                             : "Never"}
                         </span>
                       </TableCell>
@@ -601,7 +712,7 @@ export default function SuperAgentDashboard() {
                     <div className="flex items-start justify-between gap-2">
                       <p className="font-medium text-sm line-clamp-2 flex-1">{task.title}</p>
                       <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                        {formatDistanceToNow(new Date(task.updated_at), { addSuffix: true })}
+                        {safeFormatDistance(task.updated_at, { addSuffix: true })}
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -682,7 +793,7 @@ export default function SuperAgentDashboard() {
                       </TableCell>
                       <TableCell className="text-right">
                         <span className="text-sm text-muted-foreground">
-                          {formatDistanceToNow(new Date(task.updated_at), {
+                          {safeFormatDistance(task.updated_at, {
                             addSuffix: true,
                           })}
                         </span>

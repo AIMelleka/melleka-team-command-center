@@ -566,18 +566,34 @@ serve(async (req) => {
     );
   }
 
+  let _jobId: string | undefined;
   try {
-    const { 
+    const body = await req.json();
+    const {
       clientName, projectDescription, selectedPackage, selectedWebsitePackage,
-      isWebsiteOnlyProposal, budgetRange, timeline, websiteUrl, branding, 
-      websiteContent, seoData, portfolioWebsites, screenshots, services
-    } = await req.json();
-    
+      isWebsiteOnlyProposal, budgetRange, timeline, websiteUrl, branding,
+      websiteContent, seoData, portfolioWebsites, screenshots, services,
+      _jobId: jobIdParam,
+    } = body;
+    _jobId = jobIdParam;
+
     // AI generation uses the shared Claude helper (ANTHROPIC_API_KEY checked inside callClaude)
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const supabase = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
+
+    // Job progress helper (only active when called from generate-proposal-async)
+    const updateJobProgress = async (progress: number, message: string) => {
+      if (!_jobId || !supabase) return;
+      try {
+        await supabase.from("proposal_generation_jobs").update({
+          progress, progress_message: message, updated_at: new Date().toISOString(),
+        }).eq("id", _jobId);
+      } catch { }
+    };
+
+    await updateJobProgress(20, "Analyzing industry benchmarks...");
 
     // Persist logo
     let persistedLogoUrl = branding?.logo || null;
@@ -651,11 +667,12 @@ Output ONLY valid JSON matching the schema in your instructions. No markdown, no
 
     // Use Claude Sonnet 4.6 for highest quality reasoning and personalization
     try {
+      await updateJobProgress(30, "Generating personalized strategy with AI...");
       console.log("Calling Claude Sonnet 4.6 for maximum quality proposal generation...");
 
       const content = await callClaude(userPrompt, {
         system: systemPrompt,
-        maxTokens: 16384,
+        maxTokens: 8192,
         temperature: 0.7,
       });
 
@@ -664,6 +681,7 @@ Output ONLY valid JSON matching the schema in your instructions. No markdown, no
       }
 
       console.log("AI response received, parsing JSON...");
+      await updateJobProgress(75, "Processing AI response...");
 
       // Robust JSON parsing with multiple fallback strategies
       let proposalContent;
@@ -781,6 +799,24 @@ Output ONLY valid JSON matching the schema in your instructions. No markdown, no
       };
 
       console.log("Proposal generated successfully with quality model");
+
+      // If called from async wrapper, update the job with the result
+      if (_jobId && supabase) {
+        try {
+          await supabase.from("proposal_generation_jobs").update({
+            status: "complete",
+            progress: 100,
+            progress_message: "Proposal generated successfully!",
+            result: { proposal: proposalContent },
+            completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }).eq("id", _jobId);
+          console.log(`Job ${_jobId} marked complete`);
+        } catch (e) {
+          console.error("Failed to update job:", e);
+        }
+      }
+
       return new Response(JSON.stringify({ proposal: proposalContent }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     } catch (fetchError) {
@@ -789,6 +825,26 @@ Output ONLY valid JSON matching the schema in your instructions. No markdown, no
 
   } catch (error) {
     console.error("Generate proposal error:", error);
+
+    // If called from async wrapper, mark the job as failed
+    if (_jobId) {
+      try {
+        const sbUrl = Deno.env.get("SUPABASE_URL");
+        const sbKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        if (sbUrl && sbKey) {
+          const sb = createClient(sbUrl, sbKey);
+          await sb.from("proposal_generation_jobs").update({
+            status: "failed",
+            error: error instanceof Error ? error.message : "Unknown error",
+            completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }).eq("id", _jobId);
+        }
+      } catch (e) {
+        console.error("Failed to mark job as failed:", e);
+      }
+    }
+
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

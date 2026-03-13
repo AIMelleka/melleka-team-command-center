@@ -17,16 +17,13 @@ import { HistoricalComparisonSection } from './sections/HistoricalComparisonSect
 import { QaValidationSection } from './sections/QaValidationSection';
 import { DeepAnalysisSection } from './sections/DeepAnalysisSection';
 import { ActionableRecommendationsSection } from './sections/ActionableRecommendationsSection';
-import { AutoOptimizeSection } from './sections/AutoOptimizeSection';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
-import type { ClientAutoOptimizeData } from '@/hooks/useAutoOptimizeData';
 
 interface Props {
   report: ClientDailyReport;
   isRangeMode?: boolean;
   deepAnalysis?: DeepAnalysis | null;
   isAnalysisLoading?: boolean;
-  autoOptimizeData?: ClientAutoOptimizeData | null;
   // Recommendation action callbacks (only used in range mode)
   recGetStatus?: (key: string) => ActionableRecommendation['approvalStatus'];
   recGetError?: (key: string) => string | undefined;
@@ -40,7 +37,6 @@ export function ClientReportCard({
   isRangeMode,
   deepAnalysis,
   isAnalysisLoading,
-  autoOptimizeData,
   recGetStatus,
   recGetError,
   recOnApprove,
@@ -131,9 +127,6 @@ export function ClientReportCard({
           {/* 8. AI Insights */}
           <InsightsSection insights={report.insights} />
 
-          {/* 8.5. Auto-Optimization Updates (if auto-optimize enabled for this client) */}
-          {autoOptimizeData && <AutoOptimizeSection data={autoOptimizeData} />}
-
           {/* 9. Recommendations (read-only for single date, actionable for range with deep analysis) */}
           {hasActionableRecs && recGetStatus && recGetError && recOnApprove && recOnReject && recOnExecute ? (
             <ActionableRecommendationsSection
@@ -168,3 +161,4 @@ export function ClientReportCard({
     </div>
   );
 }
+

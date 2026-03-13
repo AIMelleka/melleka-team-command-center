@@ -25,8 +25,18 @@ const aspectRatios = [
 
 const durations = [
   { value: "5", label: "5 seconds", description: "Quick clip" },
-  { value: "6", label: "6 seconds", description: "Standard" },
-  { value: "8", label: "8 seconds", description: "Extended" },
+  { value: "6", label: "6 seconds", description: "MiniMax" },
+  { value: "8", label: "8 seconds", description: "Standard" },
+  { value: "10", label: "10 seconds", description: "Extended" },
+  { value: "12", label: "12 seconds", description: "Sora max" },
+];
+
+const videoModels = [
+  { value: "kling-3", label: "Kling 3.0 Pro", description: "Best quality" },
+  { value: "kling-2.6", label: "Kling 2.6 Pro", description: "Fast + reliable" },
+  { value: "sora-2", label: "Sora 2", description: "OpenAI cinematic" },
+  { value: "minimax", label: "MiniMax Hailuo", description: "6s clips" },
+  { value: "seedance", label: "Seedance 1.5", description: "ByteDance" },
 ];
 
 const resolutions = [
@@ -34,24 +44,24 @@ const resolutions = [
   { value: "1080p", label: "1080p", description: "Full HD quality" },
 ];
 
-// Video style templates
+// Video style templates - specific cinematic techniques, not vague adjectives
 const VIDEO_STYLES = [
-  { id: "cinematic", name: "Cinematic", prompt: "cinematic quality, dramatic lighting, film-like color grading, depth of field" },
-  { id: "commercial", name: "Commercial", prompt: "professional advertising quality, polished, broadcast-ready, engaging" },
-  { id: "social", name: "Social Media", prompt: "eye-catching, trendy, fast-paced, vibrant colors, shareable" },
-  { id: "corporate", name: "Corporate", prompt: "professional, clean, business-appropriate, trustworthy" },
-  { id: "dynamic", name: "Dynamic/Action", prompt: "energetic, fast motion, dynamic camera movements, high impact" },
-  { id: "elegant", name: "Elegant/Luxury", prompt: "sophisticated, premium feel, smooth transitions, refined" },
+  { id: "cinematic", name: "Cinematic", prompt: "Shot on ARRI Alexa Mini with anamorphic lenses, shallow depth of field with creamy bokeh, warm color grading with lifted shadows and amber highlights, subtle film grain texture, volumetric atmospheric haze" },
+  { id: "commercial", name: "Commercial", prompt: "Broadcast-grade advertising production, crisp 4K detail, three-point lighting with soft key light, product hero lighting with focused spot and gradient background, clean color science with vibrant saturation, smooth stabilized motion" },
+  { id: "social", name: "Social Media", prompt: "High-energy social-first aesthetic, saturated punchy colors with high contrast, dynamic handheld camera feel with subtle shake, bright even lighting, clean sharp focus, trend-ready visual impact" },
+  { id: "corporate", name: "Corporate", prompt: "Professional editorial photography style, neutral balanced color palette, steady gimbal-stabilized movement, clean diffused lighting with minimal shadows, deep focus with everything sharp, muted tones conveying trust" },
+  { id: "dynamic", name: "Dynamic/Action", prompt: "High-speed capture for slow-motion, aggressive tracking shots, dramatic low-angle perspectives, fast push-in camera movements, high-contrast lighting with deep shadows, kinetic energy and momentum" },
+  { id: "elegant", name: "Elegant/Luxury", prompt: "Premium beauty campaign aesthetic, macro lens detail shots, soft directional lighting with golden warmth, slow controlled camera glides on motorized slider, rich blacks with luminous highlights, whisper-smooth motion at half speed" },
 ];
 
-// Motion styles
+// Motion styles - actual camera technique descriptions
 const MOTION_STYLES = [
-  { id: "smooth", name: "Smooth Pan", prompt: "smooth camera pan, fluid motion, steady movement" },
-  { id: "zoom", name: "Slow Zoom", prompt: "gradual zoom in, building focus, cinematic zoom" },
-  { id: "tracking", name: "Tracking Shot", prompt: "following subject, tracking camera, movement alongside" },
-  { id: "static", name: "Static/Minimal", prompt: "static camera, minimal movement, subtle motion" },
-  { id: "reveal", name: "Dramatic Reveal", prompt: "reveal shot, unveiling, building anticipation" },
-  { id: "aerial", name: "Aerial/Drone", prompt: "aerial perspective, drone-style, sweeping view" },
+  { id: "smooth", name: "Smooth Pan", prompt: "Steady horizontal pan on fluid-head tripod, constant speed left-to-right, smooth deceleration to hold, 180-degree shutter angle for natural motion blur" },
+  { id: "zoom", name: "Slow Zoom", prompt: "Gradual telephoto push-in on motorized zoom lens, imperceptible start ramping to gentle zoom, maintaining razor focus on subject throughout, building visual intimacy" },
+  { id: "tracking", name: "Tracking Shot", prompt: "Lateral dolly tracking shot on smooth rails, camera moves parallel alongside the subject, maintaining consistent distance and framing, gimbal-stabilized with zero vertical bounce" },
+  { id: "static", name: "Static/Minimal", prompt: "Locked-off camera on heavy tripod, absolutely no camera movement, all motion comes from the subject within frame, deep focus, static composition like a living photograph" },
+  { id: "reveal", name: "Dramatic Reveal", prompt: "Camera begins tight on a detail then pulls back to reveal the full scene, slow crane rising upward, building anticipation through delayed reveal, dramatic pause at the moment of full reveal" },
+  { id: "aerial", name: "Aerial/Drone", prompt: "High-altitude bird's-eye descending drone shot, sweeping overhead establishing perspective, smooth GPS-stabilized flight path, wide-angle lens capturing expansive scene, gradual altitude change" },
 ];
 
 export default function VideoGenerator() {
@@ -61,6 +71,7 @@ export default function VideoGenerator() {
   const [aspectRatio, setAspectRatio] = useState("16:9");
   const [duration, setDuration] = useState("5");
   const [resolution, setResolution] = useState("1080p");
+  const [selectedModel, setSelectedModel] = useState("kling-3");
   const [cameraFixed, setCameraFixed] = useState(false);
   const [startingImage, setStartingImage] = useState<string | null>(null);
   const [startingImagePreview, setStartingImagePreview] = useState<string | null>(null);
@@ -70,13 +81,15 @@ export default function VideoGenerator() {
 
   // Ad Content State - matching AdGenerator
   const [masterPrompt, setMasterPrompt] = useState(
-    `VIDEO POLICY & GUIDELINES:
-- Maintain professional advertising quality suitable for brands
-- Ensure smooth, natural motion without jarring cuts
-- Keep focus on the main subject throughout
-- Avoid text overlays - focus on visual storytelling
-- Ensure proper lighting and color consistency
-- Match the brand's visual identity and tone`
+    `CINEMATIC PRODUCTION STANDARDS:
+- Photorealistic rendering with film-accurate color science and natural skin tones
+- 24fps cinematic motion cadence with 180-degree shutter for natural motion blur
+- Consistent lighting temperature and direction throughout the shot
+- Subject in sharp focus with intentional depth-of-field separation from background
+- No visible text, watermarks, or UI elements in the frame
+- Smooth professional camera operation with no abrupt acceleration or jitter
+- Broadcast-legal color grade: rich midtones, controlled highlights, lifted shadows
+- Visual storytelling through composition, light, and motion rather than text overlays`
   );
   const [policyExpanded, setPolicyExpanded] = useState(false);
   const [brandName, setBrandName] = useState("");
@@ -210,6 +223,7 @@ export default function VideoGenerator() {
           resolution,
           cameraFixed,
           startingImage: mode === "image-to-video" ? startingImage : undefined,
+          model: selectedModel,
         },
       });
 
@@ -260,7 +274,7 @@ export default function VideoGenerator() {
               Video Generator
             </h1>
             <p className="text-muted-foreground mt-1">
-              Generate AI ad videos from text prompts or animate images
+              Generate premium AI videos with Kling 3.0, Sora 2, and more via Higgsfield
             </p>
           </div>
         </div>
@@ -305,13 +319,15 @@ export default function VideoGenerator() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setMasterPrompt(`VIDEO POLICY & GUIDELINES:
-- Maintain professional advertising quality suitable for brands
-- Ensure smooth, natural motion without jarring cuts
-- Keep focus on the main subject throughout
-- Avoid text overlays - focus on visual storytelling
-- Ensure proper lighting and color consistency
-- Match the brand's visual identity and tone`);
+                        setMasterPrompt(`CINEMATIC PRODUCTION STANDARDS:
+- Photorealistic rendering with film-accurate color science and natural skin tones
+- 24fps cinematic motion cadence with 180-degree shutter for natural motion blur
+- Consistent lighting temperature and direction throughout the shot
+- Subject in sharp focus with intentional depth-of-field separation from background
+- No visible text, watermarks, or UI elements in the frame
+- Smooth professional camera operation with no abrupt acceleration or jitter
+- Broadcast-legal color grade: rich midtones, controlled highlights, lifted shadows
+- Visual storytelling through composition, light, and motion rather than text overlays`);
                       }}
                       className="text-xs text-amber-600 hover:text-amber-500"
                     >
@@ -568,6 +584,25 @@ export default function VideoGenerator() {
                 <CardTitle className="text-lg">Video Settings</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>AI Model</Label>
+                  <Select value={selectedModel} onValueChange={setSelectedModel}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {videoModels.map((m) => (
+                        <SelectItem key={m.value} value={m.value}>
+                          <div className="flex justify-between items-center gap-4">
+                            <span>{m.label}</span>
+                            <span className="text-xs text-muted-foreground">{m.description}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 {mode === "text-to-video" && (
                   <div className="space-y-2">
                     <Label>Aspect Ratio</Label>
@@ -660,7 +695,7 @@ export default function VideoGenerator() {
             {isGenerating && (
               <div className="text-center text-sm text-muted-foreground">
                 <Clock className="inline h-4 w-4 mr-1" />
-                Video generation typically takes 30-90 seconds
+                Video generation typically takes 1-5 minutes depending on model
               </div>
             )}
           </div>

@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
+import { Zap } from 'lucide-react';
 import type { ClientDailyReport } from '@/types/dailyReports';
+import type { ClientAutoOptimizeData } from '@/hooks/useAutoOptimizeData';
 import { StatusDot, getReportHealth, slugify } from './shared';
 
 interface Props {
   reports: ClientDailyReport[];
+  autoOptimizeData?: Map<string, ClientAutoOptimizeData>;
 }
 
-export function ReportTableOfContents({ reports }: Props) {
+export function ReportTableOfContents({ reports, autoOptimizeData }: Props) {
   const [activeClient, setActiveClient] = useState<string | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
@@ -61,6 +64,9 @@ export function ReportTableOfContents({ reports }: Props) {
           >
             <StatusDot status={health} />
             <span className="truncate">{report.clientName}</span>
+            {autoOptimizeData?.get(report.clientName)?.enabled && (
+              <Zap className="h-3 w-3 text-amber-500 shrink-0 fill-amber-500/30" title="Auto-Optimize ON" />
+            )}
           </button>
         );
       })}

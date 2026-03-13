@@ -122,7 +122,7 @@ export const ContentStrategy = ({
   const [portfolioImages, setPortfolioImages] = useState<string[]>([]);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
-  // Load portfolio images from storage
+  // Load portfolio images from proposal-assets/portfolio (managed via Portfolio Manager)
   useEffect(() => {
     const loadPortfolioImages = async () => {
       try {
@@ -130,14 +130,14 @@ export const ContentStrategy = ({
           .from('proposal-assets')
           .list('portfolio', { limit: 50, sortBy: { column: 'created_at', order: 'desc' } });
 
-        if (error) throw error;
+        if (!error) {
+          const urls = (data || [])
+            .filter(file => file.name !== '.emptyFolderPlaceholder')
+            .map(file => supabase.storage.from('proposal-assets').getPublicUrl(`portfolio/${file.name}`).data.publicUrl);
 
-        const urls = (data || [])
-          .filter(file => file.name !== '.emptyFolderPlaceholder')
-          .map(file => supabase.storage.from('proposal-assets').getPublicUrl(`portfolio/${file.name}`).data.publicUrl);
-
-        if (urls.length > 0) {
-          setPortfolioImages(urls);
+          if (urls.length > 0) {
+            setPortfolioImages(urls);
+          }
         }
       } catch (err) {
         console.error('Failed to load portfolio images:', err);
@@ -539,24 +539,23 @@ export const ContentStrategy = ({
               {/* First row - scrolling left */}
               <div className="flex animate-scroll-left mb-4 sm:mb-6">
                 {showImages ? (
-                  // Show uploaded portfolio images with premium styling
+                  // Show portfolio images with premium styling
                   [...validImages, ...validImages, ...validImages].map((url, i) => (
-                    <div 
-                      key={`row1-img-${i}`} 
-                      className="flex-shrink-0 w-44 sm:w-56 md:w-64 lg:w-72 mx-2 sm:mx-3 relative rounded-xl sm:rounded-2xl overflow-hidden group cursor-pointer shadow-lg hover:shadow-2xl transition-all duration-500 hover:scale-[1.02]" 
-                      style={{ 
+                    <div
+                      key={`row1-img-${i}`}
+                      className="flex-shrink-0 w-44 sm:w-56 md:w-64 lg:w-72 mx-2 sm:mx-3 relative rounded-xl sm:rounded-2xl overflow-hidden group cursor-pointer shadow-lg hover:shadow-2xl transition-all duration-500 hover:scale-[1.02]"
+                      style={{
                         border: `1px solid ${borderColor}`,
                         background: `linear-gradient(145deg, ${cardBackground}, color-mix(in srgb, ${primaryColor} 5%, ${cardBackground}))`
                       }}
                     >
-                      {/* Premium frame with aspect ratio container */}
                       <div className="relative aspect-square p-2 sm:p-3">
-                        <div 
+                        <div
                           className="w-full h-full rounded-lg overflow-hidden flex items-center justify-center"
                           style={{ backgroundColor: `color-mix(in srgb, ${primaryColor} 3%, transparent)` }}
                         >
-                          <img 
-                            src={url} 
+                          <img
+                            src={url}
                             alt={`Portfolio ${(i % validImages.length) + 1}`}
                             className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg"
                             loading="lazy"
@@ -564,9 +563,8 @@ export const ContentStrategy = ({
                           />
                         </div>
                       </div>
-                      {/* Hover overlay */}
-                      <div 
-                        className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-sm" 
+                      <div
+                        className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-sm"
                         style={{ background: `linear-gradient(135deg, ${primaryColor}cc, ${secondaryColor}cc)` }}
                       >
                         <div className="text-center text-white p-4">
@@ -634,24 +632,23 @@ export const ContentStrategy = ({
               {/* Second row - scrolling right */}
               <div className="flex animate-scroll-right">
                 {showImages ? (
-                  // Show uploaded portfolio images (reversed) with premium styling
+                  // Show portfolio images (reversed) with premium styling
                   [...validImages.slice().reverse(), ...validImages.slice().reverse(), ...validImages.slice().reverse()].map((url, i) => (
-                    <div 
-                      key={`row2-img-${i}`} 
-                      className="flex-shrink-0 w-44 sm:w-56 md:w-64 lg:w-72 mx-2 sm:mx-3 relative rounded-xl sm:rounded-2xl overflow-hidden group cursor-pointer shadow-lg hover:shadow-2xl transition-all duration-500 hover:scale-[1.02]" 
-                      style={{ 
+                    <div
+                      key={`row2-img-${i}`}
+                      className="flex-shrink-0 w-44 sm:w-56 md:w-64 lg:w-72 mx-2 sm:mx-3 relative rounded-xl sm:rounded-2xl overflow-hidden group cursor-pointer shadow-lg hover:shadow-2xl transition-all duration-500 hover:scale-[1.02]"
+                      style={{
                         border: `1px solid ${borderColor}`,
                         background: `linear-gradient(145deg, ${cardBackground}, color-mix(in srgb, ${secondaryColor} 5%, ${cardBackground}))`
                       }}
                     >
-                      {/* Premium frame with aspect ratio container */}
                       <div className="relative aspect-square p-2 sm:p-3">
-                        <div 
+                        <div
                           className="w-full h-full rounded-lg overflow-hidden flex items-center justify-center"
                           style={{ backgroundColor: `color-mix(in srgb, ${secondaryColor} 3%, transparent)` }}
                         >
-                          <img 
-                            src={url} 
+                          <img
+                            src={url}
                             alt={`Portfolio ${(i % validImages.length) + 1}`}
                             className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg"
                             loading="lazy"
@@ -659,9 +656,8 @@ export const ContentStrategy = ({
                           />
                         </div>
                       </div>
-                      {/* Hover overlay */}
-                      <div 
-                        className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-sm" 
+                      <div
+                        className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-sm"
                         style={{ background: `linear-gradient(135deg, ${secondaryColor}cc, ${primaryColor}cc)` }}
                       >
                         <div className="text-center text-white p-4">

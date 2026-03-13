@@ -11,7 +11,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res) => {
     .select("id, title, created_at, updated_at, is_cron, has_unread")
     .eq("member_name", req.memberName!.toLowerCase())
     .order("updated_at", { ascending: false })
-    .limit(50);
+    .limit(200);
   res.json(data ?? []);
 });
 

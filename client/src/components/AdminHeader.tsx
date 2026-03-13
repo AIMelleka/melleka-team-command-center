@@ -1,6 +1,8 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useUserPermissions } from '@/hooks/useUserPermissions';
+import { routeToToolKey } from '@/data/toolCatalog';
 import { Button } from '@/components/ui/button';
 import {
   Home,
@@ -21,6 +23,9 @@ import {
   Timer,
   BarChart3,
   Globe,
+  ClipboardList,
+  BookOpen,
+  Video,
 } from 'lucide-react';
 import teamPitLogo from '@/assets/team-pit-logo.png';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -43,11 +48,13 @@ const navItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/deck-builder', label: 'Deck Builder', icon: Presentation },
   { path: '/seo-writer', label: 'SEO Writer', icon: Search },
   { path: '/creative-studio', label: 'Creative Studio', icon: Palette },
+  { path: '/video-generator', label: 'Great Video Gen', icon: Video },
   { path: '/social-media', label: 'Social Media', icon: Share2 },
   { path: '/qa-bot', label: 'QA Bot', icon: Bot },
   { path: '/email-writer', label: 'Email Writer', icon: Mail },
   { path: '/client-update', label: 'Client Update', icon: Users },
   { path: '/meeting-queen', label: 'Meeting Queen', icon: Crown },
+  { path: '/onboarding-bot', label: 'Onboarding Bot', icon: ClipboardList },
   { path: '/cron-jobs', label: 'Cron Jobs', icon: Timer },
   { path: '/websites', label: 'Website Builder', icon: Globe },
   { path: '/client-settings', label: 'Clients', icon: Building2 },
@@ -59,6 +66,7 @@ const AdminHeader = memo(() => {
   const navigate = useNavigate();
   const location = useLocation();
   const { signOut, user, isAdmin } = useAuth();
+  const { hasToolAccess } = useUserPermissions();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -72,7 +80,18 @@ const AdminHeader = memo(() => {
     setSheetOpen(false);
   }, [navigate]);
 
-  if (!isAdmin) return null;
+  // Filter nav items based on permissions for non-admin users
+  const visibleNavItems = useMemo(() => {
+    if (isAdmin) return navItems;
+    return navItems.filter(item => {
+      const toolKey = routeToToolKey(item.path);
+      if (!toolKey) return false; // Admin-only pages not in catalog (e.g. /admin, /super-agent-settings)
+      return hasToolAccess(toolKey);
+    });
+  }, [isAdmin, hasToolAccess]);
+
+  // Don't render if user has no visible nav items (and isn't admin)
+  if (!isAdmin && visibleNavItems.length === 0) return null;
 
   const currentPage = navItems.find(item => item.path === location.pathname);
 
@@ -81,7 +100,7 @@ const AdminHeader = memo(() => {
       <div className="flex h-12 sm:h-14 items-center px-3 sm:px-4 gap-2 sm:gap-4">
         {/* Logo */}
         <button
-          onClick={() => navigate('/')}
+          onClick={() => navigate(isAdmin ? '/' : '/user')}
           className="flex items-center gap-2 hover:opacity-80 transition-opacity shrink-0"
         >
           <img src={teamPitLogo} alt="The Team Pit" className="w-6 h-6 sm:w-7 sm:h-7" />
@@ -115,7 +134,7 @@ const AdminHeader = memo(() => {
                   </SheetTitle>
                 </SheetHeader>
                 <nav className="flex-1 overflow-y-auto p-2">
-                  {navItems.map((item) => {
+                  {visibleNavItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = location.pathname === item.path;
                     return (
@@ -159,7 +178,7 @@ const AdminHeader = memo(() => {
                     <SheetTitle>All Tools</SheetTitle>
                   </SheetHeader>
                   <nav className="overflow-y-auto p-2">
-                    {navItems.map((item) => {
+                    {visibleNavItems.map((item) => {
                       const Icon = item.icon;
                       const isActive = location.pathname === item.path;
                       return (
@@ -174,7 +193,7 @@ const AdminHeader = memo(() => {
                         >
                           <Icon className="h-4 w-4 shrink-0" />
                           {item.label}
-  
+
                         </button>
                       );
                     })}

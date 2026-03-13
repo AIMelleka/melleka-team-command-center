@@ -18,7 +18,10 @@ serve(async (req) => {
   const log: string[] = [];
   const push = (msg: string) => { console.log(msg); log.push(msg); };
 
-  push(`[AUTO-CRON] Triggered at ${new Date().toISOString()}`);
+  const { source, mode } = await req.json().catch(() => ({ source: 'unknown', mode: 'full' }));
+  const fleetMode = mode || 'full';
+
+  push(`[AUTO-CRON] Triggered at ${new Date().toISOString()} (source: ${source || 'unknown'}, mode: ${fleetMode})`);
 
   // 1. Check if a fleet run is already in progress
   const { data: activeJobs } = await supabase
@@ -60,7 +63,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${serviceKey}`,
       },
-      body: JSON.stringify({ source: 'auto-cron' }),
+      body: JSON.stringify({ source: 'auto-cron', mode: fleetMode }),
     });
 
     const body = await res.json();

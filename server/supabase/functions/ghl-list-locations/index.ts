@@ -19,19 +19,18 @@ serve(async (req) => {
       throw new Error('GHL_AGENCY_API_KEY not configured');
     }
 
-    // Fetch locations using Agency API
-    const response = await fetch(`${GHL_API_BASE}/locations/search`, {
-      method: 'POST',
+    // Fetch locations using Agency API (GET method required for agency PIT)
+    const url = new URL(`${GHL_API_BASE}/locations/search`);
+    url.searchParams.set('limit', '100');
+    url.searchParams.set('skip', '0');
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Version': '2021-07-28',
-        'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
-      body: JSON.stringify({
-        limit: 100,
-        skip: 0,
-      }),
     });
 
     if (!response.ok) {

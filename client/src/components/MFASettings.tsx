@@ -4,8 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Shield, ShieldCheck, ShieldOff, Loader2 } from 'lucide-react';
+import { Shield, ShieldCheck, ShieldOff, Loader2, Lock } from 'lucide-react';
 import { EnrollMFA } from './EnrollMFA';
+import { useAuth } from '@/hooks/useAuth';
+import { MFA_EXEMPT_EMAILS } from '@/lib/mfaConfig';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,6 +25,9 @@ export function MFASettings() {
   const [isLoading, setIsLoading] = useState(true);
   const [showEnroll, setShowEnroll] = useState(false);
   const [factorId, setFactorId] = useState<string | null>(null);
+  const { user } = useAuth();
+  const userEmail = user?.email?.toLowerCase() ?? '';
+  const isExempt = MFA_EXEMPT_EMAILS.includes(userEmail);
 
   const checkMFAStatus = async () => {
     setIsLoading(true);
@@ -93,25 +98,32 @@ export function MFASettings() {
         {isLoading ? (
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         ) : hasMFA ? (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" size="sm">
-                Disable 2FA
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Disable Two-Factor Authentication?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will remove the extra security layer from your account. You can re-enable it at any time.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleUnenroll}>Disable 2FA</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          isExempt ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm">
+                  Disable 2FA
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Disable Two-Factor Authentication?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will remove the extra security layer from your account. You can re-enable it at any time.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleUnenroll}>Disable 2FA</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : (
+            <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+              <Lock className="h-3.5 w-3.5" />
+              Required for all accounts
+            </p>
+          )
         ) : (
           <Button onClick={() => setShowEnroll(true)} size="sm">
             <Shield className="h-4 w-4 mr-2" />

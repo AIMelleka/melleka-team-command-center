@@ -12,18 +12,70 @@ interface GHLRequestOptions {
   endpoint: string;
   locationId: string;
   params?: Record<string, string | undefined>;
+  token: string;
 }
 
-async function fetchGHLData({ endpoint, locationId, params }: GHLRequestOptions) {
-  const apiKey = Deno.env.get('GHL_AGENCY_API_KEY');
-  
-  if (!apiKey) {
-    throw new Error('GHL_AGENCY_API_KEY not configured');
+// Try to get a valid OAuth token for this location, refreshing if needed
+async function getLocationToken(locationId: string, supabase: any): Promise<string | null> {
+  const { data } = await supabase
+    .from('ghl_oauth_tokens')
+    .select('access_token, refresh_token, expires_at')
+    .eq('location_id', locationId)
+    .single();
+
+  if (!data) return null;
+
+  const expiresAt = new Date(data.expires_at).getTime();
+  const now = Date.now();
+  const BUFFER = 5 * 60 * 1000; // 5 min buffer
+
+  if (expiresAt - now > BUFFER) {
+    return data.access_token;
   }
 
+  // Token expired or about to expire, try refresh
+  if (!data.refresh_token) return null;
+
+  try {
+    const clientId = Deno.env.get('GHL_CLIENT_ID')?.trim();
+    const clientSecret = Deno.env.get('GHL_CLIENT_SECRET')?.trim();
+    if (!clientId || !clientSecret) return null;
+
+    const resp = await fetch('https://services.leadconnectorhq.com/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: 'refresh_token',
+        refresh_token: data.refresh_token,
+        user_type: 'Location',
+      }),
+    });
+
+    if (!resp.ok) return null;
+
+    const tokenData = await resp.json();
+    const newExpiresAt = new Date(Date.now() + (tokenData.expires_in * 1000));
+
+    await supabase.from('ghl_oauth_tokens').update({
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      expires_at: newExpiresAt.toISOString(),
+    }).eq('location_id', locationId);
+
+    console.log(`Refreshed OAuth token for location ${locationId}`);
+    return tokenData.access_token;
+  } catch (e) {
+    console.error('Token refresh failed:', e);
+    return null;
+  }
+}
+
+async function fetchGHLData({ endpoint, locationId, params, token }: GHLRequestOptions) {
   const url = new URL(`${GHL_API_BASE}${endpoint}`);
   url.searchParams.set('locationId', locationId);
-  
+
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined) {
@@ -34,7 +86,7 @@ async function fetchGHLData({ endpoint, locationId, params }: GHLRequestOptions)
 
   const response = await fetch(url.toString(), {
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': `Bearer ${token}`,
       'Version': '2021-07-28',
       'Accept': 'application/json',
     },
@@ -61,7 +113,21 @@ serve(async (req) => {
       throw new Error('locationId is required');
     }
 
-    console.log(`Fetching GHL data for location ${locationId} from ${dateStart} to ${dateEnd}`);
+    // Resolve token: prefer OAuth location token, fall back to agency PIT
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    let token = await getLocationToken(locationId, supabase);
+    const tokenSource = token ? 'oauth' : 'agency-pit';
+    if (!token) {
+      token = Deno.env.get('GHL_AGENCY_API_KEY') || null;
+    }
+    if (!token) {
+      throw new Error('No GHL token available (neither OAuth nor agency PIT)');
+    }
+
+    console.log(`Fetching GHL data for location ${locationId} using ${tokenSource} from ${dateStart} to ${dateEnd}`);
 
     // Fetch all data in parallel
     const [
@@ -74,37 +140,41 @@ serve(async (req) => {
       fetchGHLData({
         endpoint: '/contacts/',
         locationId,
+        token,
         params: {
           startAfter: dateStart ? new Date(dateStart).toISOString() : undefined,
           startBefore: dateEnd ? new Date(dateEnd).toISOString() : undefined,
           limit: '100',
         },
       }),
-      
+
       // Opportunities (deals/pipelines)
       fetchGHLData({
         endpoint: '/opportunities/search',
         locationId,
+        token,
         params: {
           startDate: dateStart,
           endDate: dateEnd,
         },
       }),
-      
+
       // Appointments in date range
       fetchGHLData({
         endpoint: '/calendars/events',
         locationId,
+        token,
         params: {
           startTime: dateStart ? new Date(dateStart).getTime().toString() : undefined,
           endTime: dateEnd ? new Date(dateEnd).getTime().toString() : undefined,
         },
       }),
-      
+
       // Conversations (messages)
       fetchGHLData({
         endpoint: '/conversations/search',
         locationId,
+        token,
         params: {
           limit: '50',
         },

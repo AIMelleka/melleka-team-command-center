@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import React, { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,7 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./hooks/useAuth";
 import { ClientProvider } from "./contexts/ClientContext";
 import ProtectedRoute from "./components/ProtectedRoute";
-import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ErrorBoundary, PageErrorFallback } from "./components/ErrorBoundary";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { MobileBottomNav } from "./components/MobileBottomNav";
 import { Loader2 } from "lucide-react";
@@ -45,11 +45,20 @@ const CronJobs = lazy(() => import("./pages/CronJobs"));
 const DailyReports = lazy(() => import("./pages/DailyReports"));
 const WebsiteBuilder = lazy(() => import("./pages/WebsiteBuilder"));
 const WebsitesDashboard = lazy(() => import("./pages/WebsitesDashboard"));
+const SavedArticles = lazy(() => import("./pages/SavedArticles"));
+const OnboardingBot = lazy(() => import("./pages/OnboardingBot"));
+const VideoGenerator = lazy(() => import("./pages/VideoGenerator"));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
     <Loader2 className="h-8 w-8 animate-spin text-primary" />
   </div>
+);
+
+const SafePage = ({ children }: { children: React.ReactNode }) => (
+  <ErrorBoundary>
+    {children}
+  </ErrorBoundary>
 );
 
 const queryClient = new QueryClient({
@@ -75,12 +84,12 @@ const App = () => (
           <ErrorBoundary>
             <Suspense fallback={<PageLoader />}>
               <Routes>
-                <Route path="/login" element={<Login />} />
+                <Route path="/login" element={<SafePage><Login /></SafePage>} />
                 <Route
                   path="/"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <Index />
+                      <SafePage><Index /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -88,7 +97,7 @@ const App = () => (
                   path="/admin"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <AdminDashboard />
+                      <SafePage><AdminDashboard /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -96,7 +105,7 @@ const App = () => (
                   path="/proposal-builder"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <ProposalBuilder />
+                      <SafePage><ProposalBuilder /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -104,7 +113,7 @@ const App = () => (
                   path="/proposals"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <ProposalsDashboard />
+                      <SafePage><ProposalsDashboard /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -112,7 +121,7 @@ const App = () => (
                   path="/portfolio-manager"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <PortfolioManager />
+                      <SafePage><PortfolioManager /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -120,7 +129,15 @@ const App = () => (
                   path="/seo-writer"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <SeoWriter />
+                      <SafePage><SeoWriter /></SafePage>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/saved-articles"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <SafePage><SavedArticles /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -128,7 +145,7 @@ const App = () => (
                   path="/creative-studio"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <CreativeStudio />
+                      <SafePage><CreativeStudio /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -137,7 +154,7 @@ const App = () => (
                   path="/ad-review"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <AdReview />
+                      <SafePage><AdReview /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -145,7 +162,7 @@ const App = () => (
                   path="/qa-bot"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <QABot />
+                      <SafePage><QABot /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -153,16 +170,23 @@ const App = () => (
                   path="/email-writer"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <EmailWriter />
+                      <SafePage><EmailWriter /></SafePage>
                     </ProtectedRoute>
                   }
                 />
-                <Route path="/video-generator" element={<Navigate to="/creative-studio?tab=video" replace />} />
+                <Route
+                  path="/video-generator"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <SafePage><VideoGenerator /></SafePage>
+                    </ProtectedRoute>
+                  }
+                />
                 <Route
                   path="/client-update"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <ClientUpdate />
+                      <SafePage><ClientUpdate /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -170,7 +194,7 @@ const App = () => (
                   path="/client-health"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <ClientHealth />
+                      <SafePage><ClientHealth /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -178,7 +202,7 @@ const App = () => (
                   path="/decks"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <DecksDashboard />
+                      <SafePage><DecksDashboard /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -186,7 +210,7 @@ const App = () => (
                   path="/deck-builder"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <DeckBuilder />
+                      <SafePage><DeckBuilder /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -194,7 +218,7 @@ const App = () => (
                   path="/seo-bot"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <SeoBot />
+                      <SafePage><SeoBot /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -203,7 +227,7 @@ const App = () => (
                   path="/ppc-optimizer"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <PpcOptimizer />
+                      <SafePage><PpcOptimizer /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -211,7 +235,7 @@ const App = () => (
                   path="/client-dashboard"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <ClientDashboard />
+                      <SafePage><ClientDashboard /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -219,7 +243,7 @@ const App = () => (
                   path="/super-agent-settings"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <SuperAgentSettings />
+                      <SafePage><SuperAgentSettings /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -227,7 +251,7 @@ const App = () => (
                   path="/super-agent-dashboard"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <SuperAgentDashboard />
+                      <SafePage><SuperAgentDashboard /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -235,7 +259,15 @@ const App = () => (
                   path="/meeting-queen"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <MeetingQueen />
+                      <SafePage><MeetingQueen /></SafePage>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/onboarding-bot"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <SafePage><OnboardingBot /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -243,7 +275,7 @@ const App = () => (
                   path="/social-media"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <SocialMedia />
+                      <SafePage><SocialMedia /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -251,7 +283,7 @@ const App = () => (
                   path="/cron-jobs"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <CronJobs />
+                      <SafePage><CronJobs /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -259,7 +291,7 @@ const App = () => (
                   path="/daily-reports"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <DailyReports />
+                      <SafePage><DailyReports /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -267,7 +299,7 @@ const App = () => (
                   path="/client-settings"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <ClientSettings />
+                      <SafePage><ClientSettings /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -275,7 +307,7 @@ const App = () => (
                   path="/user"
                   element={
                     <ProtectedRoute>
-                      <UserDashboard />
+                      <SafePage><UserDashboard /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -283,7 +315,7 @@ const App = () => (
                   path="/websites"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <WebsitesDashboard />
+                      <SafePage><WebsitesDashboard /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -291,7 +323,7 @@ const App = () => (
                   path="/website-builder"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <WebsiteBuilder />
+                      <SafePage><WebsiteBuilder /></SafePage>
                     </ProtectedRoute>
                   }
                 />
@@ -299,14 +331,14 @@ const App = () => (
                   path="/website-builder/:slug"
                   element={
                     <ProtectedRoute requireAdmin>
-                      <WebsiteBuilder />
+                      <SafePage><WebsiteBuilder /></SafePage>
                     </ProtectedRoute>
                   }
                 />
-                <Route path="/proposal/:slug" element={<ProposalView />} />
-                <Route path="/deck/:slug/present" element={<DeckView />} />
-                <Route path="/deck/:slug" element={<DeckView />} />
-                <Route path="/deck/:slug/editor" element={<DeckEditor />} />
+                <Route path="/proposal/:slug" element={<SafePage><ProposalView /></SafePage>} />
+                <Route path="/deck/:slug/present" element={<SafePage><DeckView /></SafePage>} />
+                <Route path="/deck/:slug" element={<SafePage><DeckView /></SafePage>} />
+                <Route path="/deck/:slug/editor" element={<SafePage><DeckEditor /></SafePage>} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

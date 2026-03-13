@@ -11,6 +11,7 @@ const API_BASE = import.meta.env.PROD
 interface UseVoiceChatOptions {
   onTranscript: (text: string) => void;
   onError?: (message: string) => void;
+  voiceId?: string;
 }
 
 interface UseVoiceChatReturn {
@@ -68,7 +69,7 @@ const SpeechRecognitionClass: typeof SpeechRecognition | null =
 
 // ── Hook ───────────────────────────────────────────
 
-export function useVoiceChat({ onTranscript, onError }: UseVoiceChatOptions): UseVoiceChatReturn {
+export function useVoiceChat({ onTranscript, onError, voiceId }: UseVoiceChatOptions): UseVoiceChatReturn {
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     return localStorage.getItem("voice-chat-enabled") === "true";
   });
@@ -113,6 +114,8 @@ export function useVoiceChat({ onTranscript, onError }: UseVoiceChatOptions): Us
   onErrorRef.current = onError;
   const voiceEnabledRef = useRef(voiceEnabled);
   voiceEnabledRef.current = voiceEnabled;
+  const voiceIdRef = useRef(voiceId);
+  voiceIdRef.current = voiceId;
   const inConversationRef = useRef(inConversation);
   inConversationRef.current = inConversation;
   const startListeningRef = useRef<() => void>(() => {});
@@ -564,7 +567,7 @@ export function useVoiceChat({ onTranscript, onError }: UseVoiceChatOptions): Us
             "Content-Type": "application/json",
             Authorization: `Bearer ${session?.access_token}`,
           },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ text, voice_id: voiceIdRef.current }),
         });
 
         if (!res.ok) {

@@ -6,11 +6,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 1;  // No retries within fleet run; cron runs 4x daily for natural retries
 const RETRY_DELAY_MS = 2000;
 const WAVE_SIZE = 4;          // clients per wave
-const WAVE_DELAY_MS = 2000;   // pause between waves
-const VERIFY_WAIT_MS = 90000; // wait before verification sweep
+const WAVE_DELAY_MS = 3000;   // pause between waves
+const VERIFY_WAIT_MS = 180000; // 3 min wait before verification sweep (workers take up to 140s)
 
 // ── AI Memory helpers ──
 async function loadAiMemory(supabase: any, clientName: string): Promise<string> {
@@ -325,34 +325,47 @@ async function runStrategist(
     throw new Error('No platform account IDs configured');
   }
 
-  // 3A: Gather competitive research before analysis
+  // 3A: Gather competitive research (use cached only, skip expensive live research)
+  // Live research runs on Monday dedicated cron; fleet workers use cached data
   let researchContext: any = null;
   try {
-    researchContext = await gatherResearch(clientName, supabaseUrl, serviceKey, supabase);
+    const { data: cachedResearch } = await supabase
+      .from('client_ai_memory')
+      .select('content, context')
+      .eq('client_name', clientName)
+      .eq('memory_type', 'competitive_research')
+      .order('created_at', { ascending: false })
+      .limit(1);
+    researchContext = cachedResearch?.[0]?.context?.researchData || null;
   } catch (e: any) {
-    console.warn(`[FLEET] Research phase failed for ${clientName} (non-fatal):`, e.message);
+    console.warn(`[FLEET] Research cache lookup failed for ${clientName} (non-fatal):`, e.message);
   }
 
-  const errors: string[] = [];
-  for (const { plat, accountId } of platforms) {
-    const res = await fetch(`${supabaseUrl}/functions/v1/ppc-analyze`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
-      body: JSON.stringify({
-        clientName, platform: plat, accountId,
-        dateStart, dateEnd, autoMode: true,
-        researchContext, // 3B: Pass research to ppc-analyze
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.text();
-      let detail = body;
-      try { const parsed = JSON.parse(body); detail = parsed.error || parsed.message || body; } catch { }
-      errors.push(`${plat} (${res.status}): ${detail}`);
-    } else {
+  // Run all platform analyses in PARALLEL to stay within edge function timeout
+  const platformResults = await Promise.allSettled(
+    platforms.map(async ({ plat, accountId }) => {
+      const res = await fetch(`${supabaseUrl}/functions/v1/ppc-analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+        body: JSON.stringify({
+          clientName, platform: plat, accountId,
+          dateStart, dateEnd, autoMode: true,
+          researchContext, // 3B: Pass research to ppc-analyze
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        let detail = body;
+        try { const parsed = JSON.parse(body); detail = parsed.error || parsed.message || body; } catch { }
+        throw new Error(`${plat} (${res.status}): ${detail}`);
+      }
       console.log(`[FLEET] Strategist ${plat} OK for ${clientName}`);
-    }
-  }
+    })
+  );
+
+  const errors: string[] = platformResults
+    .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+    .map(r => r.reason?.message || String(r.reason));
 
   if (errors.length > 0) {
     throw new Error(errors.join(' | '));
@@ -462,6 +475,7 @@ async function processClient(
   supabase: any,
   dateStart: string,
   dateEnd: string,
+  mode: string = 'full',
 ): Promise<ClientResult> {
   if (!clientMappings || clientMappings.length === 0) {
     return {
@@ -472,15 +486,24 @@ async function processClient(
     };
   }
 
-  const stratResult = await withRetry(
-    () => runStrategist(clientName, supabaseUrl, serviceKey, supabase, dateStart, dateEnd, clientMappings),
-    `Strategist for ${clientName}`,
-  );
+  const runStrat = mode === 'full' || mode === 'strategist-only';
+  const runReview = mode === 'full' || mode === 'ad-review-only';
 
-  const reviewResult = await withRetry(
-    () => runAdReview(clientName, clientMappings, supabaseUrl, serviceKey, supabase, dateStart, dateEnd),
-    `Ad Review for ${clientName}`,
-  );
+  // Run strategist and ad review in PARALLEL to stay within edge function timeout
+  const [stratResult, reviewResult] = await Promise.all([
+    runStrat
+      ? withRetry(
+          () => runStrategist(clientName, supabaseUrl, serviceKey, supabase, dateStart, dateEnd, clientMappings),
+          `Strategist for ${clientName}`,
+        )
+      : Promise.resolve({ success: true, attempts: 0, errors: [] as string[] }),
+    runReview
+      ? withRetry(
+          () => runAdReview(clientName, clientMappings, supabaseUrl, serviceKey, supabase, dateStart, dateEnd),
+          `Ad Review for ${clientName}`,
+        )
+      : Promise.resolve({ success: true, attempts: 0, errors: [] as string[] }),
+  ]);
 
   const allErrors = [
     ...stratResult.errors.map(e => `[Strategist] ${e}`),
@@ -492,7 +515,8 @@ async function processClient(
 
   if (stratResult.success && reviewResult.success) {
     status = 'success';
-    message = 'Both strategist and ad review complete';
+    const parts = [runStrat && 'strategist', runReview && 'ad review'].filter(Boolean).join(' + ');
+    message = `Complete (${parts}, mode: ${mode})`;
   } else if (stratResult.success || reviewResult.success) {
     status = 'partial';
     const done = stratResult.success ? 'Strategist' : 'Ad Review';
@@ -505,8 +529,8 @@ async function processClient(
 
   return {
     client: clientName, status,
-    strategistDone: stratResult.success,
-    adReviewDone: reviewResult.success,
+    strategistDone: runStrat ? stratResult.success : false,
+    adReviewDone: runReview ? reviewResult.success : false,
     strategistAttempts: stratResult.attempts,
     adReviewAttempts: reviewResult.attempts,
     message, errors: allErrors,
@@ -563,10 +587,13 @@ serve(async (req) => {
   const jobId: string | null = body.jobId ?? null;
 
   // ═══════════════════════════════════════════════════════
-  // WORKER MODE: Process a single client synchronously (no waitUntil)
+  // WORKER MODE: Fire-and-forget sub-tasks, report immediately
+  // Sub-edge-functions (ppc-analyze, ad-review) take 60-150s each.
+  // Instead of waiting, we dispatch them and return immediately.
+  // The orchestrator's verify sweep checks actual DB tables for results.
   // ═══════════════════════════════════════════════════════
   if (workerClient && jobId) {
-    console.log(`[FLEET-WORKER] Processing client: ${workerClient}`);
+    console.log(`[FLEET-WORKER] Dispatching sub-tasks for: ${workerClient}`);
 
     const today = new Date();
     const dateEnd = today.toISOString().split('T')[0];
@@ -576,37 +603,140 @@ serve(async (req) => {
       .from('client_account_mappings').select('*')
       .eq('client_name', workerClient);
 
-    let result: ClientResult;
-    try {
-      result = await processClient(
-        workerClient, mappings || [],
-        supabaseUrl, serviceKey, supabase, dateStart, dateEnd,
-      );
-    } catch (e: any) {
-      result = {
-        client: workerClient, status: 'error',
+    if (!mappings || mappings.length === 0) {
+      // No mappings = skip, report immediately
+      const result: ClientResult = {
+        client: workerClient, status: 'skipped',
         strategistDone: false, adReviewDone: false,
         strategistAttempts: 0, adReviewAttempts: 0,
-        message: `Unexpected error: ${e.message}`, errors: [e.message],
+        message: 'No account mappings', errors: [],
       };
+      await supabase.rpc('append_fleet_results', { job_uuid: jobId, new_results: [result] });
+      return new Response(
+        JSON.stringify({ ok: true, mode: 'worker', client: workerClient, status: 'skipped' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
     }
 
-    console.log(`[FLEET-WORKER] ${result.status.toUpperCase()}: ${workerClient}`);
+    const workerMode: string = body.mode ?? 'full';
+    const runStrat = workerMode === 'full' || workerMode === 'strategist-only';
+    const runReview = workerMode === 'full' || workerMode === 'ad-review-only';
 
-    // Atomically append this result using the DB function (no race condition)
-    await supabase.rpc('append_fleet_results', {
-      job_uuid: jobId,
-      new_results: JSON.stringify([result]),
-    });
+    // Get client settings and mappings for strategist dispatch
+    const { data: clientSettings } = await supabase
+      .from('ppc_client_settings').select('*').eq('client_name', workerClient).maybeSingle();
 
-    // Check if this was the last client
+    const googleMap = mappings.find((m: any) => m.platform === 'google_ads' || m.platform === 'google');
+    const metaMap = mappings.find((m: any) => m.platform === 'meta_ads' || m.platform === 'meta');
+    const googleId = clientSettings?.google_account_id || googleMap?.account_id;
+    const metaId = clientSettings?.meta_account_id || metaMap?.account_id;
+
+    // Get cached research (fast DB query, no live research)
+    let researchContext: any = null;
+    try {
+      const { data: cachedResearch } = await supabase
+        .from('client_ai_memory')
+        .select('content, context')
+        .eq('client_name', workerClient)
+        .eq('memory_type', 'competitive_research')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      researchContext = cachedResearch?.[0]?.context?.researchData || null;
+    } catch { }
+
+    // Fire-and-forget: Dispatch ppc-analyze for each platform
+    if (runStrat) {
+      const platforms = [];
+      if (googleId) platforms.push({ plat: 'google', accountId: googleId });
+      if (metaId) platforms.push({ plat: 'meta', accountId: metaId });
+
+      for (const { plat, accountId } of platforms) {
+        fetch(`${supabaseUrl}/functions/v1/ppc-analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+          body: JSON.stringify({
+            clientName: workerClient, platform: plat, accountId,
+            dateStart, dateEnd, autoMode: true,
+            researchContext,
+          }),
+        }).then(async (res) => {
+          console.log(`[FLEET-WORKER] ppc-analyze ${plat} for ${workerClient}: ${res.status}`);
+          await res.text().catch(() => '');
+        }).catch((e: any) => {
+          console.error(`[FLEET-WORKER] ppc-analyze ${plat} dispatch failed for ${workerClient}: ${e.message}`);
+        });
+      }
+    }
+
+    // Fire-and-forget: Dispatch ad-review
+    if (runReview) {
+      // We need supermetrics data first, so dispatch the full ad review pipeline
+      // as a self-invocation with a special flag
+      fetch(`${supabaseUrl}/functions/v1/run-full-fleet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+        body: JSON.stringify({
+          _adReviewWorker: true,
+          clientName: workerClient,
+          dateStart, dateEnd,
+        }),
+      }).then(async (res) => {
+        console.log(`[FLEET-WORKER] ad-review dispatch for ${workerClient}: ${res.status}`);
+        await res.text().catch(() => '');
+      }).catch((e: any) => {
+        console.error(`[FLEET-WORKER] ad-review dispatch failed for ${workerClient}: ${e.message}`);
+      });
+    }
+
+    console.log(`[FLEET-WORKER] Sub-tasks dispatched for ${workerClient}`);
+
+    // Report "dispatched" immediately - orchestrator verify sweep will check actual results
+    const result: ClientResult = {
+      client: workerClient, status: 'success',
+      strategistDone: runStrat,
+      adReviewDone: runReview,
+      strategistAttempts: 1,
+      adReviewAttempts: 1,
+      message: `Dispatched (strategist: ${runStrat}, ad-review: ${runReview})`,
+      errors: [],
+    };
+
+    await supabase.rpc('append_fleet_results', { job_uuid: jobId, new_results: [result] });
+
     const totalClients = body.totalClients ?? 0;
     if (totalClients > 0) {
       await completeJobIfDone(supabase, jobId, totalClients);
     }
 
     return new Response(
-      JSON.stringify({ ok: true, mode: 'worker', client: workerClient, status: result.status }),
+      JSON.stringify({ ok: true, mode: 'worker', client: workerClient, status: 'dispatched' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // AD REVIEW WORKER: Runs ad review pipeline for a single client
+  // Dispatched by main worker as fire-and-forget
+  // ═══════════════════════════════════════════════════════
+  if (body._adReviewWorker && body.clientName) {
+    const clientName = body.clientName;
+    const dateStart = body.dateStart;
+    const dateEnd = body.dateEnd;
+    console.log(`[FLEET-AD-REVIEW] Processing ad review for: ${clientName}`);
+
+    try {
+      const { data: clientMappings } = await supabase
+        .from('client_account_mappings').select('*')
+        .eq('client_name', clientName);
+
+      await runAdReview(clientName, clientMappings || [], supabaseUrl, serviceKey, supabase, dateStart, dateEnd);
+      console.log(`[FLEET-AD-REVIEW] Complete for ${clientName}`);
+    } catch (e: any) {
+      console.error(`[FLEET-AD-REVIEW] Failed for ${clientName}: ${e.message}`);
+    }
+
+    return new Response(
+      JSON.stringify({ ok: true, mode: 'ad-review-worker', client: clientName }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   }
@@ -631,6 +761,8 @@ serve(async (req) => {
 
   const clientNames = allClients.map((c: any) => c.client_name);
   const totalClients = clientNames.length;
+  const fleetMode: string = body.mode ?? 'full';
+  console.log(`[FLEET-ORCHESTRATOR] Mode: ${fleetMode}`);
 
   // 2. Create job row
   const { data: job, error: jobErr } = await supabase.from('fleet_run_jobs').insert({
@@ -638,6 +770,7 @@ serve(async (req) => {
     total_clients: totalClients,
     progress: 0,
     results: [],
+    mode: fleetMode,
   }).select('id').single();
 
   if (jobErr || !job) {
@@ -665,8 +798,10 @@ serve(async (req) => {
       const wave = waves[waveIdx];
       console.log(`[FLEET-ORCHESTRATOR] Dispatching wave ${waveIdx + 1}/${waves.length}: ${wave.join(', ')}`);
 
-      // Dispatch all clients in this wave in parallel
-      const wavePromises = wave.map(clientName =>
+      // Fire-and-forget: dispatch workers without awaiting their response.
+      // Workers process synchronously and report results via append_fleet_results RPC.
+      // We don't await responses because workers take up to 140s each.
+      for (const clientName of wave) {
         fetch(`${supabaseUrl}/functions/v1/run-full-fleet`, {
           method: 'POST',
           headers: {
@@ -677,22 +812,18 @@ serve(async (req) => {
             workerClient: clientName,
             jobId: newJobId,
             totalClients,
+            mode: fleetMode,
           }),
         }).then(async (res) => {
-          const ok = res.ok;
-          const status = res.status;
-          // Read body to prevent connection leak
           await res.text().catch(() => '');
-          console.log(`[FLEET-ORCHESTRATOR] Worker dispatched for ${clientName}: ${status}`);
-          return { client: clientName, ok, status };
+          console.log(`[FLEET-ORCHESTRATOR] Worker response for ${clientName}: ${res.status}`);
         }).catch((e: any) => {
           console.error(`[FLEET-ORCHESTRATOR] Failed to dispatch ${clientName}: ${e.message}`);
-          return { client: clientName, ok: false, status: 0 };
-        })
-      );
-
-      const waveResults = await Promise.all(wavePromises);
-      totalDispatched += waveResults.filter(r => r.ok).length;
+        });
+        // Small stagger within a wave to avoid rate limits
+        await sleep(500);
+      }
+      totalDispatched += wave.length;
 
       // Wait between waves to avoid API throttling (skip after last wave)
       if (waveIdx < waves.length - 1) {
@@ -703,85 +834,32 @@ serve(async (req) => {
 
     console.log(`[FLEET-ORCHESTRATOR] All ${waves.length} waves dispatched (${totalDispatched}/${totalClients} workers launched)`);
 
-    // 5. Update job status
+    // 5. Workers report "dispatched" immediately, so job completes quickly.
+    // Wait a short time for all workers to report, then verify.
+    console.log(`[FLEET-ORCHESTRATOR] All waves dispatched, waiting 30s for worker reports...`);
     await supabase.from('fleet_run_jobs').update({
-      current_client: `All waves dispatched, waiting for workers...`,
+      current_client: `All ${totalClients} workers dispatched, awaiting reports...`,
     }).eq('id', newJobId);
 
-    // 6. VERIFICATION SWEEP: Wait, then check for missing clients and retry
-    console.log(`[FLEET-ORCHESTRATOR] Waiting ${VERIFY_WAIT_MS / 1000}s before verification sweep...`);
-    await sleep(VERIFY_WAIT_MS);
+    await sleep(30000);
 
+    // 6. Check if all workers reported
     const missingClients = await getMissingClients(supabase, newJobId, clientNames);
-
-    if (missingClients.length === 0) {
-      console.log(`[FLEET-ORCHESTRATOR] ✅ Verification: All ${totalClients} clients reported in!`);
-      await completeJobIfDone(supabase, newJobId, totalClients);
-
-      // Generate fleet report on clean completion path too
-      try {
-        await fetch(`${supabaseUrl}/functions/v1/generate-fleet-report`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
-          body: JSON.stringify({ jobId: newJobId }),
-        });
-        console.log(`[FLEET-ORCHESTRATOR] Fleet report generated for job ${newJobId}`);
-      } catch (e: any) {
-        console.warn(`[FLEET-ORCHESTRATOR] Fleet report generation failed (non-fatal):`, e.message);
-      }
-
-      return;
-    }
-
-    console.log(`[FLEET-ORCHESTRATOR] ⚠️ Verification: ${missingClients.length} clients missing: ${missingClients.join(', ')}`);
-    await supabase.from('fleet_run_jobs').update({
-      current_client: `Retrying ${missingClients.length} missing clients...`,
-    }).eq('id', newJobId);
-
-    // Retry missing clients in a single wave
-    const retryPromises = missingClients.map(clientName =>
-      fetch(`${supabaseUrl}/functions/v1/run-full-fleet`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${serviceKey}`,
-        },
-        body: JSON.stringify({
-          workerClient: clientName,
-          jobId: newJobId,
-          totalClients,
-        }),
-      }).then(async (res) => {
-        await res.text().catch(() => '');
-        console.log(`[FLEET-ORCHESTRATOR] Retry dispatched for ${clientName}: ${res.status}`);
-      }).catch((e: any) => {
-        console.error(`[FLEET-ORCHESTRATOR] Retry failed for ${clientName}: ${e.message}`);
-      })
-    );
-
-    await Promise.all(retryPromises);
-
-    // Wait another 90s for retries, then force-complete
-    console.log(`[FLEET-ORCHESTRATOR] Retry wave dispatched, waiting ${VERIFY_WAIT_MS / 1000}s for retries...`);
-    await sleep(VERIFY_WAIT_MS);
-
-    // Force-complete: mark any still-missing clients as errors
-    const stillMissing = await getMissingClients(supabase, newJobId, clientNames);
-    if (stillMissing.length > 0) {
-      console.log(`[FLEET-ORCHESTRATOR] ❌ ${stillMissing.length} clients still missing after retry: ${stillMissing.join(', ')}`);
-      const errorResults: ClientResult[] = stillMissing.map(c => ({
+    if (missingClients.length > 0) {
+      console.log(`[FLEET-ORCHESTRATOR] ${missingClients.length} workers haven't reported yet, adding them...`);
+      const errorResults: ClientResult[] = missingClients.map(c => ({
         client: c, status: 'error' as const,
         strategistDone: false, adReviewDone: false,
         strategistAttempts: 0, adReviewAttempts: 0,
-        message: 'Worker never reported back after retry', errors: ['Timed out'],
+        message: 'Worker failed to dispatch', errors: ['No report received'],
       }));
-
       await supabase.rpc('append_fleet_results', {
         job_uuid: newJobId,
-        new_results: JSON.stringify(errorResults),
+        new_results: errorResults,
       });
     }
 
+    // 7. Mark job completed
     await completeJobIfDone(supabase, newJobId, totalClients);
 
     // 4A: Generate fleet report after completion

@@ -130,7 +130,7 @@ async function fetchGoogleAdsEntities(customerId: string, accessToken: string): 
     const kwRes = await fetch(`${GOOGLE_ADS_API_BASE}/customers/${customerId}/googleAds:search`, {
       method: 'POST', headers,
       body: JSON.stringify({
-        query: `SELECT ad_group_criterion.criterion_id, ad_group_criterion.keyword.text, ad_group_criterion.resource_name, ad_group_criterion.status, ad_group.name, campaign.name FROM ad_group_criterion WHERE ad_group_criterion.type = 'KEYWORD' AND ad_group_criterion.status != 'REMOVED' LIMIT 5000`,
+        query: `SELECT ad_group_criterion.criterion_id, ad_group_criterion.keyword.text, ad_group_criterion.resource_name, ad_group_criterion.status, ad_group.name, campaign.name FROM ad_group_criterion WHERE ad_group_criterion.type = 'KEYWORD' AND ad_group_criterion.status != 'REMOVED' AND campaign.status != 'REMOVED' AND ad_group.status != 'REMOVED' LIMIT 5000`,
       }),
     });
     if (kwRes.ok) {
@@ -185,16 +185,20 @@ function resolveEntityId(change: any, entityMap: EntityMap, customerId: string):
   const entityName = change.entity_name || '';
   const entityType = change.entity_type || '';
   const changeType = change.change_type || '';
+  const entityNameLower = entityName.toLowerCase();
 
+  // If AI already provided a valid resource name, use it
   if (change.entity_id && change.entity_id.startsWith('customers/')) {
     return change.entity_id;
   }
+
+  // --- Type-specific lookups first ---
 
   if (entityType === 'campaign' || changeType.includes('campaign')) {
     const match = entityMap.campaigns[entityName];
     if (match) return match;
     for (const [name, rn] of Object.entries(entityMap.campaigns)) {
-      if (name.toLowerCase().includes(entityName.toLowerCase()) || entityName.toLowerCase().includes(name.toLowerCase())) {
+      if (name.toLowerCase().includes(entityNameLower) || entityNameLower.includes(name.toLowerCase())) {
         return rn;
       }
     }
@@ -209,13 +213,49 @@ function resolveEntityId(change: any, entityMap: EntityMap, customerId: string):
     if (entityMap.keywords[entityName]) return entityMap.keywords[entityName];
     for (const [key, rn] of Object.entries(entityMap.keywords)) {
       const kwPart = key.split('::')[0];
-      if (kwPart.toLowerCase() === entityName.toLowerCase()) return rn;
+      if (kwPart.toLowerCase() === entityNameLower) return rn;
     }
   }
 
   if (entityType === 'ad_group') {
     const match = entityMap.adGroups[entityName];
     if (match) return match;
+    for (const [name, rn] of Object.entries(entityMap.adGroups)) {
+      if (name.toLowerCase().includes(entityNameLower) || entityNameLower.includes(name.toLowerCase())) {
+        return rn;
+      }
+    }
+  }
+
+  // --- Fallback: try ALL entity maps regardless of entity_type ---
+  // This catches cases where AI sets wrong entity_type (e.g. entity_type:"keyword" but entity_name is a campaign)
+
+  // Try campaigns
+  if (entityMap.campaigns[entityName]) return entityMap.campaigns[entityName];
+  for (const [name, rn] of Object.entries(entityMap.campaigns)) {
+    if (name.toLowerCase() === entityNameLower || name.toLowerCase().includes(entityNameLower) || entityNameLower.includes(name.toLowerCase())) {
+      console.log(`[ENTITY FALLBACK] Matched "${entityName}" to campaign "${name}" (entity_type was "${entityType}")`);
+      return rn;
+    }
+  }
+
+  // Try keywords
+  if (entityMap.keywords[entityName]) return entityMap.keywords[entityName];
+  for (const [key, rn] of Object.entries(entityMap.keywords)) {
+    const kwPart = key.split('::')[0];
+    if (kwPart.toLowerCase() === entityNameLower) {
+      console.log(`[ENTITY FALLBACK] Matched "${entityName}" to keyword "${kwPart}" (entity_type was "${entityType}")`);
+      return rn;
+    }
+  }
+
+  // Try ad groups
+  if (entityMap.adGroups[entityName]) return entityMap.adGroups[entityName];
+  for (const [name, rn] of Object.entries(entityMap.adGroups)) {
+    if (name.toLowerCase() === entityNameLower || name.toLowerCase().includes(entityNameLower) || entityNameLower.includes(name.toLowerCase())) {
+      console.log(`[ENTITY FALLBACK] Matched "${entityName}" to ad group "${name}" (entity_type was "${entityType}")`);
+      return rn;
+    }
   }
 
   return null;
@@ -274,22 +314,186 @@ function resolveMetaEntityId(change: any, metaMap: MetaEntityMap): string | null
   if (change.entity_id) return change.entity_id;
   const entityName = change.entity_name || '';
   const entityType = change.entity_type || '';
+  const entityNameLower = entityName.toLowerCase();
 
+  // Type-specific lookups first
   if (entityType === 'campaign' || change.change_type?.includes('campaign')) {
     if (metaMap.campaigns[entityName]) return metaMap.campaigns[entityName];
     for (const [name, id] of Object.entries(metaMap.campaigns)) {
-      if (name.toLowerCase().includes(entityName.toLowerCase()) || entityName.toLowerCase().includes(name.toLowerCase())) return id;
+      if (name.toLowerCase().includes(entityNameLower) || entityNameLower.includes(name.toLowerCase())) return id;
     }
   }
 
   if (entityType === 'ad_set' || change.change_type?.includes('ad_set')) {
     if (metaMap.adSets[entityName]) return metaMap.adSets[entityName];
     for (const [name, id] of Object.entries(metaMap.adSets)) {
-      if (name.toLowerCase().includes(entityName.toLowerCase()) || entityName.toLowerCase().includes(name.toLowerCase())) return id;
+      if (name.toLowerCase().includes(entityNameLower) || entityNameLower.includes(name.toLowerCase())) return id;
+    }
+  }
+
+  // Fallback: try all maps regardless of entity_type
+  for (const [name, id] of Object.entries(metaMap.campaigns)) {
+    if (name.toLowerCase() === entityNameLower || name.toLowerCase().includes(entityNameLower) || entityNameLower.includes(name.toLowerCase())) {
+      console.log(`[META ENTITY FALLBACK] Matched "${entityName}" to campaign "${name}" (entity_type was "${entityType}")`);
+      return id;
+    }
+  }
+  for (const [name, id] of Object.entries(metaMap.adSets)) {
+    if (name.toLowerCase() === entityNameLower || name.toLowerCase().includes(entityNameLower) || entityNameLower.includes(name.toLowerCase())) {
+      console.log(`[META ENTITY FALLBACK] Matched "${entityName}" to ad set "${name}" (entity_type was "${entityType}")`);
+      return id;
     }
   }
 
   return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DIRECT API DATA FETCHING — Google Ads API & Meta API as primary data sources
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function fetchGoogleAdsPerformance(
+  customerId: string, accessToken: string, dateStart: string, dateEnd: string
+): Promise<{ campaigns: any[]; keywords: any[] }> {
+  const loginCustomerId = Deno.env.get('GOOGLE_ADS_LOGIN_CUSTOMER_ID');
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${accessToken}`,
+    'developer-token': Deno.env.get('GOOGLE_ADS_DEVELOPER_TOKEN')!,
+    'Content-Type': 'application/json',
+  };
+  if (loginCustomerId) headers['login-customer-id'] = loginCustomerId.replace(/\D/g, '');
+
+  const campaigns: any[] = [];
+  const keywords: any[] = [];
+
+  // Fetch campaign performance
+  try {
+    const res = await fetch(`${GOOGLE_ADS_API_BASE}/customers/${customerId}/googleAds:search`, {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        query: `SELECT campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.all_conversions, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion, metrics.conversions_from_interactions_rate FROM campaign WHERE segments.date BETWEEN '${dateStart}' AND '${dateEnd}' AND campaign.status != 'REMOVED'`,
+      }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      for (const row of (json.results || [])) {
+        const m = row.metrics || {};
+        const cost = parseInt(m.costMicros || '0') / 1_000_000;
+        const clicks = parseInt(m.clicks || '0');
+        const impressions = parseInt(m.impressions || '0');
+        const conversions = parseFloat(m.conversions || '0');
+        campaigns.push({
+          name: row.campaign?.name || '',
+          impressions, clicks, cost, conversions,
+          days: 1,
+          ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+          cpc: clicks > 0 ? cost / clicks : 0,
+          cpa: conversions > 0 ? cost / conversions : Infinity,
+          roas: cost > 0 ? conversions / cost : 0,
+        });
+      }
+      campaigns.sort((a, b) => b.cost - a.cost);
+      console.log(`[GOOGLE ADS API] Fetched ${campaigns.length} campaigns for ${customerId}`);
+    } else {
+      console.warn(`[GOOGLE ADS API] Campaign query failed: ${res.status} ${await res.text()}`);
+    }
+  } catch (e) {
+    console.warn('[GOOGLE ADS API] Campaign fetch error:', e);
+  }
+
+  // Fetch keyword performance
+  try {
+    const res = await fetch(`${GOOGLE_ADS_API_BASE}/customers/${customerId}/googleAds:search`, {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        query: `SELECT ad_group_criterion.keyword.text, campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion FROM keyword_view WHERE segments.date BETWEEN '${dateStart}' AND '${dateEnd}' AND campaign.status != 'REMOVED' LIMIT 2000`,
+      }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      const kwMap: Record<string, any> = {};
+      for (const row of (json.results || [])) {
+        const kw = row.adGroupCriterion?.keyword?.text || '';
+        if (!kw) continue;
+        const m = row.metrics || {};
+        const cost = parseInt(m.costMicros || '0') / 1_000_000;
+        if (!kwMap[kw]) kwMap[kw] = { keyword: kw, campaign: row.campaign?.name || '', impressions: 0, clicks: 0, cost: 0, conversions: 0 };
+        kwMap[kw].impressions += parseInt(m.impressions || '0');
+        kwMap[kw].clicks += parseInt(m.clicks || '0');
+        kwMap[kw].cost += cost;
+        kwMap[kw].conversions += parseFloat(m.conversions || '0');
+      }
+      for (const k of Object.values(kwMap)) {
+        keywords.push({
+          ...k,
+          cpc: k.clicks > 0 ? k.cost / k.clicks : 0,
+          cpa: k.conversions > 0 ? k.cost / k.conversions : null,
+          ctr: k.impressions > 0 ? (k.clicks / k.impressions) * 100 : 0,
+        });
+      }
+      keywords.sort((a, b) => b.cost - a.cost);
+      console.log(`[GOOGLE ADS API] Fetched ${keywords.length} keywords for ${customerId}`);
+    } else {
+      console.warn(`[GOOGLE ADS API] Keyword query failed: ${res.status}`);
+      await res.text();
+    }
+  } catch (e) {
+    console.warn('[GOOGLE ADS API] Keyword fetch error:', e);
+  }
+
+  return { campaigns, keywords };
+}
+
+async function fetchMetaAdsPerformance(
+  accountId: string, dateStart: string, dateEnd: string
+): Promise<{ campaigns: any[] }> {
+  const token = Deno.env.get('META_ACCESS_TOKEN');
+  if (!token) return { campaigns: [] };
+
+  const cleanAccountId = accountId.replace('act_', '');
+  const campaigns: any[] = [];
+
+  try {
+    const timeRange = JSON.stringify({ since: dateStart, until: dateEnd });
+    const fields = 'campaign_name,impressions,clicks,spend,actions,cost_per_action_type,cpc,ctr,cpm,reach,frequency';
+    const res = await fetch(
+      `https://graph.facebook.com/v19.0/act_${cleanAccountId}/insights?fields=${fields}&time_range=${encodeURIComponent(timeRange)}&level=campaign&limit=500&access_token=${token}`
+    );
+    if (res.ok) {
+      const json = await res.json();
+      for (const row of (json.data || [])) {
+        const impressions = parseInt(row.impressions || '0');
+        const clicks = parseInt(row.clicks || '0');
+        const cost = parseFloat(row.spend || '0');
+        // Extract conversions from actions array
+        let conversions = 0, leads = 0, purchases = 0;
+        for (const action of (row.actions || [])) {
+          const t = action.action_type || '';
+          const v = parseFloat(action.value || '0');
+          if (t === 'offsite_conversion.fb_pixel_lead' || t === 'onsite_conversion.lead_grouped') { leads += v; conversions += v; }
+          else if (t === 'offsite_conversion.fb_pixel_purchase') { purchases += v; conversions += v; }
+          else if (t === 'offsite_conversion') { conversions += v; }
+        }
+        campaigns.push({
+          name: row.campaign_name || '',
+          impressions, clicks, cost, conversions, leads, purchases,
+          days: 1,
+          ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+          cpc: clicks > 0 ? cost / clicks : 0,
+          cpa: conversions > 0 ? cost / conversions : Infinity,
+          roas: cost > 0 ? conversions / cost : 0,
+        });
+      }
+      campaigns.sort((a, b) => b.cost - a.cost);
+      console.log(`[META ADS API] Fetched ${campaigns.length} campaigns for act_${cleanAccountId}`);
+    } else {
+      console.warn(`[META ADS API] Insights query failed: ${res.status} ${await res.text()}`);
+    }
+  } catch (e) {
+    console.warn('[META ADS API] Fetch error:', e);
+  }
+
+  return { campaigns };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -316,9 +520,7 @@ serve(async (req) => {
   try {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const SUPERMETRICS_API_KEY = Deno.env.get('SUPERMETRICS_API_KEY')!;
-
-    if (!SUPERMETRICS_API_KEY) throw new Error('SUPERMETRICS_API_KEY is not configured');
+    const SUPERMETRICS_API_KEY = Deno.env.get('SUPERMETRICS_API_KEY') || '';
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -361,80 +563,58 @@ serve(async (req) => {
       }
     }
 
-    // --- Pull Supermetrics data ---
+    // --- Pull performance data + entity maps in PARALLEL ---
     const dsId = platform === 'google' ? 'AW' : 'FA';
     let campaignData: any[] = [];
     let keywordData: any[] = [];
     let rawRows: any[] = [];
+    let dataSource = 'none';
+    let googleEntityMap: EntityMap | null = null;
+    let metaEntityMap: MetaEntityMap | null = null;
+    let googleCustomerId: string | null = null;
 
     if (accountId) {
-      const campaignFields = dsId === 'AW'
-        ? 'Date,CampaignName,Impressions,Clicks,Cost,Conversions,CostPerConversion,Ctr,CPC,ConversionRate,AllConversions'
-        : 'Date,adcampaign_name,impressions,Clicks,cost,offsite_conversion,offsite_conversions_fb_pixel_lead,offsite_conversions_fb_pixel_purchase,onsite_conversion.lead_grouped,CPC,CTR,CPM,reach,Frequency';
-
-      const campRes = await fetch(`${SUPERMETRICS_API_URL}/query/data/json`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${SUPERMETRICS_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ds_id: dsId,
-          ds_accounts: accountId,
-          start_date: dateStart,
-          end_date: dateEnd,
-          fields: campaignFields,
-          max_rows: 5000,
-          settings: { no_headers: false },
-        }),
-      });
-
-      if (campRes.ok) {
-        const campJson = await campRes.json();
-        if (campJson.data && campJson.data.length > 1) {
-          const rows = campJson.data.slice(1) as (string | number)[][];
-          rawRows = rows;
-
-          const campMap: Record<string, any> = {};
-          for (const row of rows) {
-            const campName = String(row[1] || '');
-            if (!campName) continue;
-            if (!campMap[campName]) {
-              campMap[campName] = { name: campName, impressions: 0, clicks: 0, cost: 0, conversions: 0, days: 0 };
-            }
-            campMap[campName].impressions += parseFloat(String(row[2] || '0')) || 0;
-            campMap[campName].clicks += parseFloat(String(row[3] || '0')) || 0;
-            campMap[campName].cost += parseFloat(String(row[4] || '0')) || 0;
-
-            if (dsId === 'FA') {
-              // Meta: sum ALL conversion types (offsite, leads, purchases, onsite leads)
-              const offsite = parseFloat(String(row[5] || '0')) || 0;
-              const leads = parseFloat(String(row[6] || '0')) || 0;
-              const purchases = parseFloat(String(row[7] || '0')) || 0;
-              const onsiteLeads = parseFloat(String(row[8] || '0')) || 0;
-              campMap[campName].conversions += offsite + leads + purchases + onsiteLeads;
-              campMap[campName].leads = (campMap[campName].leads || 0) + leads + onsiteLeads;
-              campMap[campName].purchases = (campMap[campName].purchases || 0) + purchases;
-            } else {
-              // Google: column 5 is conversions
-              campMap[campName].conversions += parseFloat(String(row[5] || '0')) || 0;
-            }
-            campMap[campName].days++;
+      if (platform === 'google') {
+        googleCustomerId = accountId.replace(/-/g, '');
+        try {
+          const accessToken = await getGoogleAccessToken();
+          // Run performance data + entity resolution in PARALLEL (both use same token)
+          const [directData, entityMap] = await Promise.all([
+            fetchGoogleAdsPerformance(googleCustomerId, accessToken, dateStart, dateEnd),
+            fetchGoogleAdsEntities(googleCustomerId, accessToken),
+          ]);
+          googleEntityMap = entityMap;
+          if (directData.campaigns.length > 0) {
+            campaignData = directData.campaigns;
+            keywordData = directData.keywords;
+            dataSource = 'google_ads_api';
+            console.log(`[DATA SOURCE] Using Google Ads API: ${campaignData.length} campaigns, ${keywordData.length} keywords`);
           }
-
-          campaignData = Object.values(campMap).map((c: any) => ({
-            ...c,
-            ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
-            cpc: c.clicks > 0 ? c.cost / c.clicks : 0,
-            cpa: c.conversions > 0 ? c.cost / c.conversions : Infinity,
-            roas: c.cost > 0 ? c.conversions / c.cost : 0,
-          })).sort((a: any, b: any) => b.cost - a.cost);
+        } catch (e) {
+          console.warn('[DATA SOURCE] Google Ads API failed, will try Supermetrics fallback:', e);
+        }
+      } else if (platform === 'meta') {
+        // Run performance data + entity resolution in PARALLEL
+        const [directResult, entityResult] = await Promise.allSettled([
+          fetchMetaAdsPerformance(accountId, dateStart, dateEnd),
+          fetchMetaEntities(accountId),
+        ]);
+        if (entityResult.status === 'fulfilled') metaEntityMap = entityResult.value;
+        if (directResult.status === 'fulfilled' && directResult.value.campaigns.length > 0) {
+          campaignData = directResult.value.campaigns;
+          dataSource = 'meta_ads_api';
+          console.log(`[DATA SOURCE] Using Meta Ads API: ${campaignData.length} campaigns`);
         }
       }
 
-      // Fetch keyword data for Google
-      if (dsId === 'AW') {
-        const kwRes = await fetch(`${SUPERMETRICS_API_URL}/query/data/json`, {
+      // ══════════ FALLBACK: Supermetrics (only if direct API returned no data) ══════════
+      if (campaignData.length === 0 && SUPERMETRICS_API_KEY) {
+        console.log(`[DATA SOURCE] Direct API returned no data, falling back to Supermetrics for ${clientName}/${platform}`);
+        const campaignFields = dsId === 'AW'
+          ? 'Date,CampaignName,Impressions,Clicks,Cost,Conversions,CostPerConversion,Ctr,CPC,ConversionRate,AllConversions'
+          : 'Date,adcampaign_name,impressions,Clicks,cost,offsite_conversion,offsite_conversions_fb_pixel_lead,offsite_conversions_fb_pixel_purchase,onsite_conversion.lead_grouped,CPC,CTR,CPM,reach,Frequency';
+
+        const campRes = await fetch(`${SUPERMETRICS_API_URL}/query/data/json`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${SUPERMETRICS_API_KEY}`,
@@ -445,57 +625,98 @@ serve(async (req) => {
             ds_accounts: accountId,
             start_date: dateStart,
             end_date: dateEnd,
-            fields: 'Keyword,CampaignName,Impressions,Clicks,Cost,Conversions,Ctr,CPC,CostPerConversion',
-            max_rows: 2000,
+            fields: campaignFields,
+            max_rows: 5000,
             settings: { no_headers: false },
           }),
         });
 
-        if (kwRes.ok) {
-          const kwJson = await kwRes.json();
-          if (kwJson.data && kwJson.data.length > 1) {
-            const rows = kwJson.data.slice(1) as (string | number)[][];
-            const kwMap: Record<string, any> = {};
+        if (campRes.ok) {
+          const campJson = await campRes.json();
+          if (campJson.data && campJson.data.length > 1) {
+            const rows = campJson.data.slice(1) as (string | number)[][];
+            rawRows = rows;
+
+            const campMap: Record<string, any> = {};
             for (const row of rows) {
-              const kw = String(row[0] || '');
-              if (!kw) continue;
-              if (!kwMap[kw]) kwMap[kw] = { keyword: kw, campaign: String(row[1] || ''), impressions: 0, clicks: 0, cost: 0, conversions: 0 };
-              kwMap[kw].impressions += parseFloat(String(row[2] || '0')) || 0;
-              kwMap[kw].clicks += parseFloat(String(row[3] || '0')) || 0;
-              kwMap[kw].cost += parseFloat(String(row[4] || '0')) || 0;
-              kwMap[kw].conversions += parseFloat(String(row[5] || '0')) || 0;
+              const campName = String(row[1] || '');
+              if (!campName) continue;
+              if (!campMap[campName]) {
+                campMap[campName] = { name: campName, impressions: 0, clicks: 0, cost: 0, conversions: 0, days: 0 };
+              }
+              campMap[campName].impressions += parseFloat(String(row[2] || '0')) || 0;
+              campMap[campName].clicks += parseFloat(String(row[3] || '0')) || 0;
+              campMap[campName].cost += parseFloat(String(row[4] || '0')) || 0;
+
+              if (dsId === 'FA') {
+                const offsite = parseFloat(String(row[5] || '0')) || 0;
+                const leads = parseFloat(String(row[6] || '0')) || 0;
+                const purchases = parseFloat(String(row[7] || '0')) || 0;
+                const onsiteLeads = parseFloat(String(row[8] || '0')) || 0;
+                campMap[campName].conversions += offsite + leads + purchases + onsiteLeads;
+                campMap[campName].leads = (campMap[campName].leads || 0) + leads + onsiteLeads;
+                campMap[campName].purchases = (campMap[campName].purchases || 0) + purchases;
+              } else {
+                campMap[campName].conversions += parseFloat(String(row[5] || '0')) || 0;
+              }
+              campMap[campName].days++;
             }
-            keywordData = Object.values(kwMap).map((k: any) => ({
-              ...k,
-              cpc: k.clicks > 0 ? k.cost / k.clicks : 0,
-              cpa: k.conversions > 0 ? k.cost / k.conversions : null,
-              ctr: k.impressions > 0 ? (k.clicks / k.impressions) * 100 : 0,
+
+            campaignData = Object.values(campMap).map((c: any) => ({
+              ...c,
+              ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
+              cpc: c.clicks > 0 ? c.cost / c.clicks : 0,
+              cpa: c.conversions > 0 ? c.cost / c.conversions : Infinity,
+              roas: c.cost > 0 ? c.conversions / c.cost : 0,
             })).sort((a: any, b: any) => b.cost - a.cost);
+
+            dataSource = 'supermetrics';
+            console.log(`[DATA SOURCE] Supermetrics fallback: ${campaignData.length} campaigns`);
           }
         }
-      }
-    }
 
-    // --- Resolve Google Ads / Meta entity IDs ---
-    let googleEntityMap: EntityMap | null = null;
-    let metaEntityMap: MetaEntityMap | null = null;
-    let googleCustomerId: string | null = null;
+        // Fetch keyword data for Google via Supermetrics fallback
+        if (dsId === 'AW' && keywordData.length === 0) {
+          const kwRes = await fetch(`${SUPERMETRICS_API_URL}/query/data/json`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${SUPERMETRICS_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              ds_id: dsId,
+              ds_accounts: accountId,
+              start_date: dateStart,
+              end_date: dateEnd,
+              fields: 'Keyword,CampaignName,Impressions,Clicks,Cost,Conversions,Ctr,CPC,CostPerConversion',
+              max_rows: 2000,
+              settings: { no_headers: false },
+            }),
+          });
 
-    if (platform === 'google' && accountId) {
-      googleCustomerId = accountId.replace(/-/g, '');
-      try {
-        const accessToken = await getGoogleAccessToken();
-        googleEntityMap = await fetchGoogleAdsEntities(googleCustomerId, accessToken);
-      } catch (e) {
-        console.warn('[ENTITY RESOLUTION] Google Ads entity fetch failed (non-fatal):', e);
-      }
-    }
-
-    if (platform === 'meta' && accountId) {
-      try {
-        metaEntityMap = await fetchMetaEntities(accountId);
-      } catch (e) {
-        console.warn('[ENTITY RESOLUTION] Meta entity fetch failed (non-fatal):', e);
+          if (kwRes.ok) {
+            const kwJson = await kwRes.json();
+            if (kwJson.data && kwJson.data.length > 1) {
+              const rows = kwJson.data.slice(1) as (string | number)[][];
+              const kwMap: Record<string, any> = {};
+              for (const row of rows) {
+                const kw = String(row[0] || '');
+                if (!kw) continue;
+                if (!kwMap[kw]) kwMap[kw] = { keyword: kw, campaign: String(row[1] || ''), impressions: 0, clicks: 0, cost: 0, conversions: 0 };
+                kwMap[kw].impressions += parseFloat(String(row[2] || '0')) || 0;
+                kwMap[kw].clicks += parseFloat(String(row[3] || '0')) || 0;
+                kwMap[kw].cost += parseFloat(String(row[4] || '0')) || 0;
+                kwMap[kw].conversions += parseFloat(String(row[5] || '0')) || 0;
+              }
+              keywordData = Object.values(kwMap).map((k: any) => ({
+                ...k,
+                cpc: k.clicks > 0 ? k.cost / k.clicks : 0,
+                cpa: k.conversions > 0 ? k.cost / k.conversions : null,
+                ctr: k.impressions > 0 ? (k.clicks / k.impressions) * 100 : 0,
+              })).sort((a: any, b: any) => b.cost - a.cost);
+            }
+          }
+        }
       }
     }
 
@@ -867,11 +1088,12 @@ ABSOLUTE RULES — VIOLATION OF THESE IS UNACCEPTABLE
 
 🚫 FORBIDDEN ACTIONS (you must NEVER propose any of these):
 - NEVER change, adjust, increase, decrease, reallocate, or touch budgets in any way
+- NEVER INCREASE total ad spend or individual campaign budgets under ANY circumstances. You can only optimize WITHIN the existing budget (bid adjustments, negative keywords, match types, creative)
 - NEVER propose "reallocate_budget" or "budget_adjustment" — these types DO NOT EXIST
 - NEVER pause campaigns, ad sets, or ads — pausing removes volume and is never the answer
 - NEVER propose "pause_campaign", "pause_ad", "pause_ad_set", "pause_keyword", or "status_change"
 - NEVER include "daily_budget", "budget", "lifetime_budget" in any after_value object
-- If a campaign is underperforming, the answer is ALWAYS bid adjustments, negative keywords, match type changes, or creative improvements — NOT pausing or budget changes
+- If a campaign is underperforming, the answer is ALWAYS bid adjustments, negative keywords, match type changes, or creative improvements — NOT pausing, budget changes, or spending more money
 
 ✅ ALLOWED CHANGE TYPES (use ONLY these):
 1. "adjust_bid" — Modify CPC bid on a specific keyword or ad group to optimize CPA/ROAS
@@ -962,10 +1184,12 @@ LEARNING PROTOCOL
 ═══════════════════════════════════════════════════════════════
 
 1. Review your Memory Bank before making recommendations. Do NOT repeat strategies that previously failed on the same entities.
-2. Reference specific trend data from the Performance Trends section when justifying changes.
-3. For each recommendation, cite which historical outcome or trend informed your decision.
-4. If competitive intelligence is available, reference it when suggesting keyword additions, negative keywords, or ad copy angles.
-5. End your analysis with a "learnings" array in the JSON output (see format below).
+2. If you see [change_outcome] entries marked "worsened", AVOID repeating those strategies. If marked "improved", consider doubling down on similar approaches.
+3. If you see [strategist_learning] entries, treat them as direct lessons from past AI assessments. Apply them.
+4. Reference specific trend data from the Performance Trends section when justifying changes.
+5. For each recommendation, cite which historical outcome or trend informed your decision.
+6. If competitive intelligence is available, reference it when suggesting keyword additions, negative keywords, or ad copy angles.
+7. End your analysis with a "learnings" array in the JSON output (see format below).
 
 ADDITIONAL OUTPUT FIELDS (add these to your JSON response):
 - "learnings": ["string1", "string2", ...] — 1-3 NEW insights you discovered THIS session that should be remembered for future runs. Be specific and actionable.
@@ -1201,7 +1425,7 @@ Include "learnings" and "confidence_summary" in your JSON response as specified 
         account_id: accountId || null,
         date_range_start: dateStart,
         date_range_end: dateEnd,
-        supermetrics_data: { campaigns: campaignData, keywords: keywordData, totalSpend, totalConversions, modelUsed, confidenceSummary: analysisResult.confidence_summary || null },
+        supermetrics_data: { campaigns: campaignData, keywords: keywordData, totalSpend, totalConversions, modelUsed, dataSource, confidenceSummary: analysisResult.confidence_summary || null },
         ai_reasoning: analysisResult.reasoning || '',
         ai_summary: analysisResult.summary || '',
         status: autoMode ? 'auto_executing' : 'pending_review',
@@ -1258,47 +1482,285 @@ Include "learnings" and "confidence_summary" in your JSON response as specified 
       console.log(`[ENTITY STATS] ${resolved} resolved, ${unresolved} unresolved out of ${allChanges.length} total changes`);
       console.log(`[SAFETY STATS] ${blockedCount} blocked, ${allChanges.length} stored out of ${rawChanges.length} AI-proposed`);
 
-      // --- Auto Mode: immediately execute auto-approved changes ---
+      // --- Auto Mode: QA validation then execute ---
       if (autoMode && insertedChanges && insertedChanges.length > 0) {
-        const autoApprovedIds = insertedChanges
-          .filter((c: any) => c.approval_status === 'auto_approved')
-          .map((c: any) => c.id);
+        const autoApprovedChanges = insertedChanges
+          .filter((c: any) => c.approval_status === 'auto_approved');
 
-        if (autoApprovedIds.length > 0) {
-          console.log(`[AUTO MODE] Auto-executing ${autoApprovedIds.length} changes (high+medium confidence) for ${clientName}`);
+        if (autoApprovedChanges.length > 0) {
+          console.log(`[AUTO MODE] ${autoApprovedChanges.length} changes pre-approved for ${clientName}. Running QA...`);
 
-          const executeRes = await fetch(`${SUPABASE_URL}/functions/v1/ppc-execute`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-            },
-            body: JSON.stringify({
-              changeIds: autoApprovedIds,
-              sessionId: session.id,
+          // ══════════════════════════════════════════════════
+          // QA STEP 1: DATA VALIDATION
+          // Verify each entity is still active in the ad platform
+          // ══════════════════════════════════════════════════
+          let qaPassedChanges = autoApprovedChanges;
+          if (platform === 'google' && cachedGoogleAccessToken) {
+            const qaStep1Start = Date.now();
+            const activeEntityIds = new Set<string>();
+            try {
+              // Fetch all active keyword + ad group resource names in one query
+              const qaRes = await fetch(`${GOOGLE_ADS_API_BASE}/customers/${googleCustomerId}/googleAds:search`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${cachedGoogleAccessToken}`,
+                  'developer-token': Deno.env.get('GOOGLE_ADS_DEVELOPER_TOKEN')!,
+                  'login-customer-id': Deno.env.get('GOOGLE_ADS_MCC_ID')?.replace(/-/g, '') || '',
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  query: `SELECT ad_group_criterion.resource_name FROM ad_group_criterion WHERE ad_group_criterion.type = 'KEYWORD' AND ad_group_criterion.status != 'REMOVED' AND ad_group.status != 'REMOVED' AND campaign.status != 'REMOVED' LIMIT 10000`,
+                }),
+              });
+              if (qaRes.ok) {
+                const qaJson = await qaRes.json();
+                for (const row of (qaJson.results || [])) {
+                  if (row.adGroupCriterion?.resourceName) activeEntityIds.add(row.adGroupCriterion.resourceName);
+                }
+              }
+              // Also fetch active ad groups
+              const qaRes2 = await fetch(`${GOOGLE_ADS_API_BASE}/customers/${googleCustomerId}/googleAds:search`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${cachedGoogleAccessToken}`,
+                  'developer-token': Deno.env.get('GOOGLE_ADS_DEVELOPER_TOKEN')!,
+                  'login-customer-id': Deno.env.get('GOOGLE_ADS_MCC_ID')?.replace(/-/g, '') || '',
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  query: `SELECT ad_group.resource_name FROM ad_group WHERE ad_group.status != 'REMOVED' AND campaign.status != 'REMOVED' LIMIT 5000`,
+                }),
+              });
+              if (qaRes2.ok) {
+                const qaJson2 = await qaRes2.json();
+                for (const row of (qaJson2.results || [])) {
+                  if (row.adGroup?.resourceName) activeEntityIds.add(row.adGroup.resourceName);
+                }
+              }
+            } catch (e: any) {
+              console.warn(`[QA STEP 1] Entity validation query failed: ${e.message}. Proceeding with all changes.`);
+            }
+
+            if (activeEntityIds.size > 0) {
+              const beforeCount = qaPassedChanges.length;
+              qaPassedChanges = qaPassedChanges.filter((c: any) => {
+                if (!c.entity_id) return false;
+                if (activeEntityIds.has(c.entity_id)) return true;
+                // For negative keywords targeting campaigns, check campaign resource
+                if (c.change_type === 'add_negative_keyword') return true; // campaigns checked separately
+                console.log(`[QA STEP 1] REJECTED: "${c.entity_name}" (${c.change_type}) — entity ${c.entity_id} not found in active entities`);
+                return false;
+              });
+              const rejected1 = beforeCount - qaPassedChanges.length;
+              console.log(`[QA STEP 1] ${qaPassedChanges.length} passed, ${rejected1} rejected (entity not active) in ${Date.now() - qaStep1Start}ms`);
+
+              // Mark rejected changes
+              if (rejected1 > 0) {
+                const rejectedIds = autoApprovedChanges
+                  .filter((c: any) => !qaPassedChanges.includes(c))
+                  .map((c: any) => c.id);
+                if (rejectedIds.length > 0) {
+                  await supabase.from('ppc_proposed_changes')
+                    .update({ approval_status: 'qa_rejected', execution_error: 'QA Step 1: Entity not active in ad platform' })
+                    .in('id', rejectedIds);
+                }
+              }
+            }
+          }
+
+          // ══════════════════════════════════════════════════
+          // QA STEP 2: AI SECOND OPINION + WEBSITE VERIFICATION
+          // Fetch client website, then send changes + website context
+          // to Claude for independent review. Only execute what passes.
+          // ══════════════════════════════════════════════════
+          if (qaPassedChanges.length > 0) {
+            const qaStep2Start = Date.now();
+            try {
+              const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
+              if (ANTHROPIC_API_KEY) {
+                // Fetch client website for context verification
+                let websiteContext = '';
+                try {
+                  const { data: clientInfo } = await supabase
+                    .from('managed_clients')
+                    .select('domain, industry, primary_conversion_goal')
+                    .eq('client_name', clientName)
+                    .single();
+
+                  if (clientInfo?.domain) {
+                    const siteUrl = clientInfo.domain.startsWith('http') ? clientInfo.domain : `https://${clientInfo.domain}`;
+                    const siteRes = await fetch(siteUrl, {
+                      headers: { 'User-Agent': 'MellekaBot/1.0 (PPC QA Verification)' },
+                      signal: AbortSignal.timeout(8000),
+                    });
+                    if (siteRes.ok) {
+                      const html = await siteRes.text();
+                      // Extract text content: title, meta description, headings, and body text
+                      const title = html.match(/<title[^>]*>(.*?)<\/title>/is)?.[1]?.trim() || '';
+                      const metaDesc = html.match(/<meta[^>]*name=["']description["'][^>]*content=["'](.*?)["']/is)?.[1]?.trim() || '';
+                      const headings = [...html.matchAll(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/gis)].map(m => m[1].replace(/<[^>]*>/g, '').trim()).filter(Boolean).slice(0, 20);
+                      // Strip HTML tags for body text sample
+                      const bodyText = html
+                        .replace(/<script[\s\S]*?<\/script>/gi, '')
+                        .replace(/<style[\s\S]*?<\/style>/gi, '')
+                        .replace(/<[^>]*>/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                        .substring(0, 2000);
+
+                      websiteContext = `\n\nWEBSITE VERIFICATION (${siteUrl}):
+- Title: ${title}
+- Meta Description: ${metaDesc}
+- Key Headings: ${headings.join(' | ')}
+- Industry: ${clientInfo.industry || 'unknown'}
+- Conversion Goal: ${clientInfo.primary_conversion_goal || 'unknown'}
+- Page Content Sample: ${bodyText.substring(0, 1000)}`;
+                      console.log(`[QA STEP 2] Fetched website context from ${siteUrl} (${bodyText.length} chars)`);
+                    }
+                  }
+                } catch (siteErr: any) {
+                  console.warn(`[QA STEP 2] Website fetch failed: ${siteErr.message}. Proceeding without website context.`);
+                }
+
+                const changesSummary = qaPassedChanges.map((c: any) =>
+                  `- ${c.change_type} on ${c.entity_type} "${c.entity_name}": ${JSON.stringify(c.before_value)} → ${JSON.stringify(c.after_value)} | Rationale: ${c.ai_rationale || 'none'} | Confidence: ${c.confidence}`
+                ).join('\n');
+
+                const qaPrompt = `You are a PPC Quality Assurance reviewer. You must independently verify that the following proposed changes to a ${platform} ads account for "${clientName}" are safe and sensible.
+
+CRITICAL RULES:
+- NEVER approve any change that increases total ad budget or campaign budget
+- NEVER approve pausing campaigns/ads/keywords
+- Changes should only optimize WITHIN existing budget (bids, negatives, match types, creative flags)
+- Bid adjustments should be reasonable (not more than 2-3x current bid)
+- Negative keywords must be CLEARLY irrelevant to the business. Cross-reference with the website content below. If a negative keyword matches a service/product the business actually offers, REJECT it immediately.
+- Reject anything that seems risky, unclear, or could harm performance
+- Verify that keyword changes align with what the business actually does (check website content)
+
+PROPOSED CHANGES (${qaPassedChanges.length} total):
+${changesSummary}
+
+ACCOUNT CONTEXT:
+- Total Spend: $${totalSpend?.toFixed(2) || '?'}
+- Total Conversions: ${totalConversions || '?'}
+- Platform: ${platform}${websiteContext}
+
+Respond with ONLY valid JSON (no markdown, no code fences):
+{
+  "approved_indices": [0, 1, 2],
+  "rejected_indices": [3],
+  "rejection_reasons": { "3": "Reason why change 3 was rejected" },
+  "overall_confidence": "high|medium|low",
+  "qa_notes": "Brief overall assessment"
+}
+
+Approve indices of changes you are confident are safe. Reject any you are unsure about. When in doubt, REJECT.`;
+
+                const qaRes = await fetch('https://api.anthropic.com/v1/messages', {
+                  method: 'POST',
+                  headers: {
+                    'x-api-key': ANTHROPIC_API_KEY,
+                    'anthropic-version': '2023-06-01',
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    model: 'claude-haiku-4-5-20251001',
+                    max_tokens: 2048,
+                    temperature: 0.1,
+                    messages: [{ role: 'user', content: qaPrompt }],
+                  }),
+                });
+
+                if (qaRes.ok) {
+                  const qaJson = await qaRes.json();
+                  const qaText = qaJson.content?.[0]?.text || '';
+                  try {
+                    const qaResult = JSON.parse(qaText.replace(/```json?\n?/g, '').replace(/```/g, '').trim());
+                    const approvedIndices = new Set(qaResult.approved_indices || []);
+
+                    const beforeCount2 = qaPassedChanges.length;
+                    const qaRejected: any[] = [];
+                    const qaApproved: any[] = [];
+
+                    qaPassedChanges.forEach((c: any, i: number) => {
+                      if (approvedIndices.has(i)) {
+                        qaApproved.push(c);
+                      } else {
+                        const reason = qaResult.rejection_reasons?.[String(i)] || 'QA reviewer not confident';
+                        qaRejected.push({ ...c, qaReason: reason });
+                      }
+                    });
+
+                    // Mark QA-rejected changes
+                    if (qaRejected.length > 0) {
+                      for (const rej of qaRejected) {
+                        await supabase.from('ppc_proposed_changes')
+                          .update({ approval_status: 'qa_rejected', execution_error: `QA Step 2: ${rej.qaReason}` })
+                          .eq('id', rej.id);
+                      }
+                    }
+
+                    qaPassedChanges = qaApproved;
+                    console.log(`[QA STEP 2] AI review: ${qaApproved.length} approved, ${qaRejected.length} rejected. Confidence: ${qaResult.overall_confidence || '?'}. Notes: ${qaResult.qa_notes || 'none'} (${Date.now() - qaStep2Start}ms)`);
+                  } catch (parseErr) {
+                    console.warn(`[QA STEP 2] Failed to parse QA response, proceeding with all changes: ${qaText.substring(0, 200)}`);
+                  }
+                } else {
+                  console.warn(`[QA STEP 2] QA API call failed (${qaRes.status}), proceeding with all changes`);
+                }
+              }
+            } catch (e: any) {
+              console.warn(`[QA STEP 2] Error: ${e.message}. Proceeding with all changes.`);
+            }
+          }
+
+          // ══════════════════════════════════════════════════
+          // EXECUTE: Only QA-passed changes
+          // ══════════════════════════════════════════════════
+          const qaPassedIds = qaPassedChanges.map((c: any) => c.id);
+
+          if (qaPassedIds.length > 0) {
+            console.log(`[AUTO MODE] Executing ${qaPassedIds.length}/${autoApprovedChanges.length} changes after QA for ${clientName}`);
+
+            const executeRes = await fetch(`${SUPABASE_URL}/functions/v1/ppc-execute`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+              },
+              body: JSON.stringify({
+                changeIds: qaPassedIds,
+                sessionId: session.id,
+                autoMode: true,
+              }),
+            });
+
+            const executeResult = await executeRes.json();
+            console.log('[AUTO MODE] Execution result:', JSON.stringify(executeResult));
+
+            await supabase
+              .from('ppc_optimization_sessions')
+              .update({ status: 'auto_executed' })
+              .eq('id', session.id);
+
+            return new Response(JSON.stringify({
+              success: true,
+              session,
+              changesCount: allChanges.length,
+              blockedCount,
+              autoExecuted: qaPassedIds.length,
+              qaRejected: autoApprovedChanges.length - qaPassedIds.length,
+              executionResult: executeResult,
               autoMode: true,
-            }),
-          });
-
-          const executeResult = await executeRes.json();
-          console.log('[AUTO MODE] Execution result:', JSON.stringify(executeResult));
-
-          await supabase
-            .from('ppc_optimization_sessions')
-            .update({ status: 'auto_executed' })
-            .eq('id', session.id);
-
-          return new Response(JSON.stringify({
-            success: true,
-            session,
-            changesCount: allChanges.length,
-            blockedCount,
-            autoExecuted: autoApprovedIds.length,
-            executionResult: executeResult,
-            autoMode: true,
-          }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          });
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            });
+          } else {
+            console.log(`[AUTO MODE] All ${autoApprovedChanges.length} changes rejected by QA for ${clientName}`);
+            await supabase.from('ppc_optimization_sessions')
+              .update({ status: 'qa_rejected' })
+              .eq('id', session.id);
+          }
         }
 
         await supabase

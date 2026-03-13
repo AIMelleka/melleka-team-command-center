@@ -568,26 +568,88 @@ serve(async (req) => {
 
     let freshGHL: Record<string, unknown> | null = null;
 
-    if (ghlApiKey) {
-      // Find GHL location for this client via oauth tokens table
-      const { data: tokens } = await supabase
-        .from("ghl_oauth_tokens")
-        .select("location_id, location_name")
-        .ilike("location_name", `%${clientName}%`)
+    {
+      // Strategy 1: Check client_account_mappings for GHL location
+      const { data: mappings } = await supabase
+        .from("client_account_mappings")
+        .select("account_id, account_name")
+        .eq("client_name", clientName)
+        .eq("platform", "ghl")
         .limit(1);
 
-      // Fallback: check inputParams for locationId
-      const locationId =
-        (tokens?.[0]?.location_id as string) ||
-        (inputParams.ghlLocationId as string) ||
-        null;
+      // Strategy 2: Fall back to ghl_oauth_tokens by name
+      let locationId = mappings?.[0]?.account_id || null;
+      if (!locationId) {
+        const { data: tokens } = await supabase
+          .from("ghl_oauth_tokens")
+          .select("location_id, location_name")
+          .ilike("location_name", `%${clientName}%`)
+          .limit(1);
+        locationId = tokens?.[0]?.location_id || null;
+      }
+
+      // Strategy 3: inputParams fallback
+      if (!locationId) {
+        locationId = (inputParams.ghlLocationId as string) || null;
+      }
 
       if (locationId) {
-        try {
-          freshGHL = await fetchGHLForLocation(locationId, dateStart, dateEnd, ghlApiKey);
-          console.log(`[refresh-deck-data] GHL refresh OK — ${(freshGHL.contacts as any)?.total} contacts`);
-        } catch (e) {
-          console.warn("[refresh-deck-data] GHL refresh failed:", e);
+        // Try OAuth token first, fall back to agency PIT
+        let token: string | null = null;
+        const { data: oauthRow } = await supabase
+          .from("ghl_oauth_tokens")
+          .select("access_token, refresh_token, expires_at")
+          .eq("location_id", locationId)
+          .single();
+
+        if (oauthRow) {
+          const expiresAt = new Date(oauthRow.expires_at).getTime();
+          const BUFFER = 5 * 60 * 1000;
+          if (expiresAt - Date.now() > BUFFER) {
+            token = oauthRow.access_token;
+          } else if (oauthRow.refresh_token) {
+            // Try refresh
+            const clientId = Deno.env.get("GHL_CLIENT_ID")?.trim();
+            const clientSecret = Deno.env.get("GHL_CLIENT_SECRET")?.trim();
+            if (clientId && clientSecret) {
+              try {
+                const resp = await fetch("https://services.leadconnectorhq.com/oauth/token", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Accept: "application/json" },
+                  body: JSON.stringify({
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                    grant_type: "refresh_token",
+                    refresh_token: oauthRow.refresh_token,
+                    user_type: "Location",
+                  }),
+                });
+                if (resp.ok) {
+                  const td = await resp.json();
+                  token = td.access_token;
+                  await supabase.from("ghl_oauth_tokens").update({
+                    access_token: td.access_token,
+                    refresh_token: td.refresh_token,
+                    expires_at: new Date(Date.now() + td.expires_in * 1000).toISOString(),
+                  }).eq("location_id", locationId);
+                }
+              } catch (e) {
+                console.warn("[refresh-deck-data] OAuth token refresh failed:", e);
+              }
+            }
+          }
+        }
+
+        // Fall back to agency PIT
+        if (!token) token = ghlApiKey || null;
+
+        if (token) {
+          try {
+            freshGHL = await fetchGHLForLocation(locationId, dateStart, dateEnd, token);
+            console.log(`[refresh-deck-data] GHL refresh OK (${oauthRow && token !== ghlApiKey ? "oauth" : "pit"}) — ${(freshGHL.contacts as any)?.total} contacts`);
+          } catch (e) {
+            console.warn("[refresh-deck-data] GHL refresh failed:", e);
+          }
         }
       } else {
         console.log("[refresh-deck-data] No GHL location found for this client — skipping GHL refresh");

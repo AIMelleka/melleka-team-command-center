@@ -18,10 +18,19 @@ export interface AutoOptimizeChange {
   createdAt: string;
 }
 
+export interface AutoOptimizeDelta {
+  spendChange: number;
+  conversionChange: number;
+  cpaChange: number | null;
+  cpaChangePercent: number | null;
+}
+
 export interface AutoOptimizeResult {
   changeId: string;
   outcome: 'improved' | 'declined' | 'no_change' | string;
   aiAssessment: string | null;
+  delta: AutoOptimizeDelta | null;
+  assessedAt: string | null;
 }
 
 export interface ClientAutoOptimizeData {
@@ -75,7 +84,7 @@ export function useAutoOptimizeData(startDate: string | null, endDate: string | 
       if (changeIds.length > 0) {
         const { data: resultsData } = await supabase
           .from('ppc_change_results')
-          .select('change_id, outcome, ai_assessment')
+          .select('change_id, outcome, ai_assessment, delta')
           .in('change_id', changeIds);
         results = resultsData || [];
       }
@@ -87,6 +96,8 @@ export function useAutoOptimizeData(startDate: string | null, endDate: string | 
           changeId: r.change_id,
           outcome: r.outcome,
           aiAssessment: r.ai_assessment,
+          delta: r.delta as AutoOptimizeDelta | null,
+          assessedAt: null,
         });
       }
 

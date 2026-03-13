@@ -1,8 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import AdminHeader from '@/components/AdminHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { useVoicePreference } from '@/hooks/useVoicePreference';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import {
   Bot, FileCode, Rocket, Brain, Globe, Mail, Clock, BarChart3,
   Database, MessageSquare, Table2, Search, Eye, Palette, Wrench,
@@ -11,7 +16,25 @@ import {
   HeartHandshake, DollarSign, Code2, ShoppingCart, BookOpen,
   FileSpreadsheet, Presentation, Image, Video, Lightbulb,
   Monitor, FolderOpen, Lock, Users, Plug, Workflow, Mic,
+  Volume2, Loader2,
 } from 'lucide-react';
+
+const API_BASE = import.meta.env.PROD
+  ? "https://server-production-0486.up.railway.app/api"
+  : "/api";
+
+const VOICES = [
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah",     gender: "Female", accent: "American",   description: "Warm and professional (default)" },
+  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel",    gender: "Female", accent: "American",   description: "Clear, calm, and articulate" },
+  { id: "29vD33N1CtxCmqQRPOHJ", name: "Drew",      gender: "Male",   accent: "American",   description: "Confident and well-paced" },
+  { id: "2EiwWnXFnvU5JabPnv8n", name: "Clyde",     gender: "Male",   accent: "American",   description: "Deep and authoritative" },
+  { id: "D38z5RcWu1voky8WS1ja", name: "Fin",       gender: "Male",   accent: "Irish",      description: "Friendly and approachable" },
+  { id: "IKne3meq5aSn9XLyUdCD", name: "Charlie",   gender: "Male",   accent: "Australian", description: "Casual and relatable" },
+  { id: "XB0fDUnXU5powFXDhCwa", name: "Charlotte",  gender: "Female", accent: "Swedish",    description: "Confident and energetic" },
+  { id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily",      gender: "Female", accent: "British",    description: "Warm British narrator" },
+  { id: "nPczCjzI2devNBz1zQrb", name: "Brian",     gender: "Male",   accent: "American",   description: "Deep, narration style" },
+  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel",    gender: "Male",   accent: "British",    description: "Authoritative British" },
+] as const;
 
 // ─── Marketing Skills (from marketing-skills.md) ────────────────────────────
 
@@ -580,7 +603,7 @@ const COMMUNITY_SKILLS: CommunityCategory[] = [
       { name: 'Social Media', description: 'Instagram, LinkedIn, Reddit, TikTok, Twitter, YouTube' },
       { name: 'Marketing & Email', description: 'ActiveCampaign, Brevo, ConvertKit, Klaviyo, Mailchimp' },
       { name: 'Support & Helpdesk', description: 'Freshdesk, Freshservice, Help Scout, Zendesk' },
-      { name: 'E-commerce & Payments', description: 'Shopify, Square, Stripe' },
+      { name: 'E-commerce & Payments', description: 'Shopify, Square' },
       { name: 'Design & Collaboration', description: 'Canva, Confluence, DocuSign, Figma, Miro, Webflow' },
       { name: 'Analytics & Data', description: 'Amplitude, Google Analytics, Mixpanel, PostHog, Segment' },
       { name: 'HR & Meetings', description: 'BambooHR, Zoom, Make' },
@@ -593,6 +616,56 @@ const totalCommunitySkills = COMMUNITY_SKILLS.reduce((sum, cat) => sum + cat.ski
 const totalTools = TOOL_CATEGORIES.reduce((sum, cat) => sum + cat.tools.length, 0);
 
 export default function SuperAgentSettings() {
+  const { voiceId, setVoiceId, isLoading: voiceLoading } = useVoicePreference();
+  const [previewing, setPreviewing] = useState(false);
+  const previewSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  const previewVoice = async (id: string) => {
+    // Stop any currently playing preview
+    if (previewSourceRef.current) {
+      try { previewSourceRef.current.stop(); } catch { /* noop */ }
+      previewSourceRef.current = null;
+    }
+
+    setPreviewing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${API_BASE}/tts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          text: "Hi there! This is how I sound. How do you like my voice?",
+          voice_id: id,
+        }),
+      });
+
+      if (!res.ok) {
+        toast.error("Preview failed. Check your ElevenLabs API key.");
+        setPreviewing(false);
+        return;
+      }
+
+      const buf = await res.arrayBuffer();
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const audioBuffer = await ctx.decodeAudioData(buf);
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      previewSourceRef.current = source;
+      source.onended = () => {
+        previewSourceRef.current = null;
+        setPreviewing(false);
+      };
+      source.start();
+    } catch {
+      toast.error("Preview failed. Check your connection.");
+      setPreviewing(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <AdminHeader />
@@ -607,6 +680,68 @@ export default function SuperAgentSettings() {
             {MARKETING_SKILLS.length} marketing skills, {totalTools} API tools, and {totalCommunitySkills} community skills powering the Super Agent.
           </p>
         </div>
+
+        {/* Voice Settings */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <span className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-violet-600/10 text-violet-700 dark:text-violet-300">
+                <Mic className="h-4 w-4" />
+              </span>
+              Voice Settings
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Choose the voice used for text-to-speech responses when voice mode is active.
+            </p>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="flex items-center gap-3">
+              <Select
+                value={voiceId}
+                onValueChange={(id) => {
+                  setVoiceId(id);
+                  toast.success(`Voice changed to ${VOICES.find(v => v.id === id)?.name || "Unknown"}`);
+                }}
+                disabled={voiceLoading}
+              >
+                <SelectTrigger className="w-[340px]">
+                  <SelectValue placeholder="Select a voice..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {VOICES.map((v) => (
+                    <SelectItem key={v.id} value={v.id}>
+                      <span className="flex items-center gap-2">
+                        <span className="font-medium">{v.name}</span>
+                        <span className="text-muted-foreground">
+                          {v.gender} · {v.accent}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={previewing || voiceLoading}
+                onClick={() => previewVoice(voiceId)}
+                className="gap-1.5"
+              >
+                {previewing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Volume2 className="h-4 w-4" />
+                )}
+                {previewing ? "Playing..." : "Preview"}
+              </Button>
+            </div>
+            {!voiceLoading && (
+              <p className="text-xs text-muted-foreground mt-2">
+                {VOICES.find(v => v.id === voiceId)?.description || ""}
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
         <Tabs defaultValue="skills">
           <TabsList>

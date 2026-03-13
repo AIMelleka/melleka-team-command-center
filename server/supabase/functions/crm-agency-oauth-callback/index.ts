@@ -39,31 +39,30 @@ serve(async (req) => {
       throw new Error('GHL credentials not configured');
     }
 
-    const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/crm-agency-oauth-callback`;
+    // Must match the redirect URI registered in the GHL marketplace app
+    const redirectUri = 'https://nhebotmrnxixvcvtspet.supabase.co/functions/v1/crm-agency-oauth-callback';
 
-    // Exchange code for tokens (HighLevel expects JSON body + user_type)
-    // Ref: HighLevel OAuth docs show JSON payload and include user_type.
+    // Exchange code for tokens (GHL requires x-www-form-urlencoded despite docs saying JSON)
     const tokenResponse = await fetch('https://services.leadconnectorhq.com/oauth/token', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
         'Accept': 'application/json',
       },
-      body: JSON.stringify({
+      body: new URLSearchParams({
         client_id: clientId,
         client_secret: clientSecret,
         grant_type: 'authorization_code',
         code,
         redirect_uri: redirectUri,
-        // This app installs at the Location level (chooselocation flow)
         user_type: 'Location',
-      }),
+      }).toString(),
     });
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
-      console.error('Token exchange failed:', errorText);
-      throw new Error(`Token exchange failed: ${tokenResponse.status}`);
+      console.error('Token exchange failed:', tokenResponse.status, errorText);
+      throw new Error(`Token exchange failed (${tokenResponse.status}): ${errorText}`);
     }
 
     const tokenData = await tokenResponse.json();
@@ -110,19 +109,50 @@ serve(async (req) => {
 
     if (dbError) {
       console.error('Database error:', dbError);
-      throw new Error('Failed to store tokens');
+      throw new Error(`Failed to store tokens: ${dbError.message || JSON.stringify(dbError)}`);
     }
 
-    // Redirect back to the app
-    const appUrl = Deno.env.get('SUPABASE_URL')?.includes('localhost') 
+    // Auto-create client_account_mapping if a matching managed_client exists
+    try {
+      const { data: clients } = await supabase
+        .from('managed_clients')
+        .select('client_name')
+        .eq('is_active', true);
+      if (clients && clients.length > 0) {
+        const locLower = locationName.toLowerCase();
+        const match = clients.find((c: any) => {
+          const cn = c.client_name.toLowerCase();
+          return cn === locLower || locLower.includes(cn) || cn.includes(locLower);
+        });
+        if (match) {
+          await supabase
+            .from('client_account_mappings')
+            .upsert({
+              client_name: match.client_name,
+              platform: 'ghl',
+              account_id: tokenData.locationId,
+              account_name: locationName,
+            }, { onConflict: 'client_name,platform,account_id' })
+            .then(({ error: mapErr }) => {
+              if (mapErr) console.error('Auto-mapping error:', mapErr);
+              else console.log(`Auto-mapped GHL location "${locationName}" to client "${match.client_name}"`);
+            });
+        }
+      }
+    } catch (e) {
+      console.error('Auto-mapping lookup failed:', e);
+    }
+
+    // Redirect back to Client Settings
+    const appUrl = Deno.env.get('SUPABASE_URL')?.includes('localhost')
       ? 'http://localhost:5173'
-      : 'https://melleka-genie-hub.lovable.app';
+      : 'https://team.melleka.com';
 
     return new Response(null, {
       status: 302,
       headers: {
         ...corsHeaders,
-        'Location': `${appUrl}/deck-builder?ghl_connected=true&location=${encodeURIComponent(locationName)}`,
+        'Location': `${appUrl}/settings/clients?ghl_connected=true&location=${encodeURIComponent(locationName)}`,
       },
     });
 

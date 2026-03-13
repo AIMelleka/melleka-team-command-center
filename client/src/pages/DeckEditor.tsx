@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { format } from 'date-fns';
+import { safeFormatDate } from '@/lib/dateUtils';
 import { Slide, DeckPresentation, contentToSlides } from '@/types/deck';
 import { ScaledSlide } from '@/components/deck-editor/ScaledSlide';
 import { SlideRenderer } from '@/components/deck-editor/SlideRenderer';
@@ -62,7 +62,8 @@ const DeckEditor = () => {
         setBrandPrimary(brandColors.primary || '#6366f1');
         setBrandSecondary(brandColors.secondary || '#8b5cf6');
         setClientLogo(brandColors.logo);
-        setDateRange(`${format(new Date(data.date_range_start), 'MMMM d')} - ${format(new Date(data.date_range_end), 'MMMM d, yyyy')}`);
+        setDateRange(`${safeFormatDate(data.date_range_start, 'MMMM d')} - ${safeFormatDate(data.date_range_end, 'MMMM d, yyyy')}`);
+        setOriginalContent(content);
 
         // Check if slides already exist in content
         if (content.slides && Array.isArray(content.slides)) {
@@ -71,7 +72,7 @@ const DeckEditor = () => {
           // Convert legacy content to slides
           const newSlides = contentToSlides(content, {
             clientName: data.client_name,
-            dateRange: `${format(new Date(data.date_range_start), 'MMMM d')} - ${format(new Date(data.date_range_end), 'MMMM d, yyyy')}`,
+            dateRange: `${safeFormatDate(data.date_range_start, 'MMMM d')} - ${safeFormatDate(data.date_range_end, 'MMMM d, yyyy')}`,
             brandPrimary: brandColors.primary || '#6366f1',
             brandSecondary: brandColors.secondary || '#8b5cf6',
             clientLogo: brandColors.logo,
@@ -90,14 +91,17 @@ const DeckEditor = () => {
     fetchDeck();
   }, [slug, navigate, toast]);
 
-  // Save slides to database
+  // Save slides to database (preserve original content, merge slides in)
+  const [originalContent, setOriginalContent] = useState<Record<string, any>>({});
+
   const handleSave = async () => {
     setSaving(true);
     try {
+      const mergedContent = { ...originalContent, slides };
       const { error } = await supabase
         .from('decks')
         .update({
-          content: { slides } as any,
+          content: mergedContent as any,
           updated_at: new Date().toISOString(),
         })
         .eq('id', deckId);
@@ -229,7 +233,7 @@ const DeckEditor = () => {
       {/* Top toolbar */}
       <header className="h-14 border-b border-border/40 bg-card/80 backdrop-blur-xl flex items-center justify-between px-4 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/deck-builder')}>
+          <Button variant="ghost" size="icon" onClick={() => navigate(slug ? `/deck/${slug}` : '/decks')}>
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div className="flex items-center gap-2">

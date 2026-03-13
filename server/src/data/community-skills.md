@@ -243,7 +243,7 @@ The Composio integration connects to 1000+ SaaS apps including:
 - Social: Twitter, LinkedIn, Reddit
 - Marketing: ActiveCampaign, Mailchimp, Klaviyo, ConvertKit
 - Support: Zendesk, Freshdesk, Help Scout
-- E-commerce: Shopify, Stripe, Square
+- E-commerce: Shopify, Square
 - Design: Canva, Figma, Miro, Webflow
 - Analytics: Amplitude, Mixpanel, PostHog, Segment
 
@@ -351,7 +351,6 @@ Social Media:
 
 E-commerce & Payments:
 - Shopify: Create orders, manage products, update inventory
-- Stripe: Create charges, manage subscriptions, send invoices
 - Square: Process payments, manage catalog
 - WooCommerce: Create orders, manage products
 - PayPal: Send payments, create invoices

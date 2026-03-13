@@ -68,7 +68,7 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { safeFormatDate } from "@/lib/dateUtils";
 import { ProposalCardSkeleton, ProposalRowSkeleton } from "@/components/LoadingSkeletons";
 import { ErrorBoundary, InlineErrorFallback } from "@/components/ErrorBoundary";
 
@@ -830,7 +830,7 @@ const ProposalsDashboard = () => {
                           {renderQABadge(proposal.id)}
                         </div>
                         <span className="text-xs text-muted-foreground">
-                          {format(new Date(proposal.created_at), "MMM d, yyyy")}
+                          {safeFormatDate(proposal.created_at, "MMM d, yyyy")}
                         </span>
                       </div>
                     </div>
@@ -863,7 +863,7 @@ const ProposalsDashboard = () => {
                           {renderQABadge(proposal.id)}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {format(new Date(proposal.created_at), "MMM d, yyyy")}
+                          {safeFormatDate(proposal.created_at, "MMM d, yyyy")}
                         </TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>

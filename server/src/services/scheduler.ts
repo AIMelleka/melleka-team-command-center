@@ -107,18 +107,17 @@ async function alertSlack(jobName: string, errorMsg: string): Promise<void> {
 
     if (!secret?.value) return;
 
-    // Post to #general or first available channel
+    // Post to #cron-alerts or first available non-general channel
     const channelsResp = await fetch("https://slack.com/api/conversations.list?types=public_channel&limit=50", {
       headers: { Authorization: `Bearer ${secret.value}` },
     });
     const channelsData = await channelsResp.json() as { ok: boolean; channels?: { id: string; name: string; is_member: boolean }[] };
     if (!channelsData.ok || !channelsData.channels) return;
 
-    // Prefer #cron-alerts or #general, fall back to first channel the bot is in
+    // Prefer #cron-alerts, fall back to first non-general channel the bot is in (NEVER post to #general)
     const target =
       channelsData.channels.find((c) => c.name === "cron-alerts" && c.is_member) ??
-      channelsData.channels.find((c) => c.name === "general" && c.is_member) ??
-      channelsData.channels.find((c) => c.is_member);
+      channelsData.channels.find((c) => c.is_member && c.name !== "general");
 
     if (!target) return;
 
@@ -212,7 +211,7 @@ async function runJob(job: CronJob, isRetry: boolean): Promise<void> {
     });
 
     // Run Claude with history
-    const response = await runChatBackground(job.member_name, messages);
+    const response = await runChatBackground(job.member_name, messages, convId);
 
     // Cap response size before saving
     const savedResponse = response.length > MAX_RESPONSE_LENGTH

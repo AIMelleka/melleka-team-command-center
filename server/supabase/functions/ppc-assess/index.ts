@@ -168,10 +168,17 @@ Write a 2-3 paragraph assessment: what worked, what didn't, what to do next. Be 
 
     await supabase.from('ppc_change_results').insert(resultInserts);
 
+    // Mark all executed changes as assessed
+    const changeIds = changes.map((c: any) => c.id);
+    await supabase
+      .from('ppc_proposed_changes')
+      .update({ assessed_at: new Date().toISOString() })
+      .in('id', changeIds);
+
     // Update session status
     await supabase
       .from('ppc_optimization_sessions')
-      .update({ status: 'executed' })
+      .update({ status: 'assessed' })
       .eq('id', sessionId);
 
     return new Response(JSON.stringify({

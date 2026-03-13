@@ -3,14 +3,17 @@ import { Loader2, BarChart3, ArrowLeft, RefreshCw, Brain, Zap } from 'lucide-rea
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AdminHeader from '@/components/AdminHeader';
 import { useDailyReports } from '@/hooks/useDailyReports';
 import { useDeepAnalysis } from '@/hooks/useDeepAnalysis';
 import { useRecommendationActions } from '@/hooks/useRecommendationActions';
 import { useAutoOptimizeData } from '@/hooks/useAutoOptimizeData';
+import { useAutoOptimizeMemory } from '@/hooks/useAutoOptimizeMemory';
 import { ClientReportCard } from '@/components/daily-reports/ClientReportCard';
 import { ReportTableOfContents } from '@/components/daily-reports/ReportTableOfContents';
 import { ReportDatePicker } from '@/components/daily-reports/ReportDatePicker';
+import { AutoUpdatesDashboard } from '@/components/daily-reports/AutoUpdatesDashboard';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -153,10 +156,14 @@ export default function DailyReports() {
     execute,
   } = useRecommendationActions();
 
-  const { autoOptimizeData } = useAutoOptimizeData(
+  const [activeView, setActiveView] = useState<'reports' | 'auto-updates'>('reports');
+
+  const { autoOptimizeData, isLoadingAutoOptimize } = useAutoOptimizeData(
     dateSelection.startDate || dateSelection.singleDate,
     dateSelection.endDate || dateSelection.singleDate
   );
+
+  const { memories } = useAutoOptimizeMemory();
 
   const handleRunDeepAnalysis = () => {
     if (!dateSelection.startDate || !dateSelection.endDate) return;
@@ -168,6 +175,7 @@ export default function DailyReports() {
       <AdminHeader />
 
       <main className="flex-1 w-full">
+        <Tabs value={activeView} onValueChange={(v) => setActiveView(v as 'reports' | 'auto-updates')}>
         {/* Page header */}
         <div className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-20">
           <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -194,8 +202,25 @@ export default function DailyReports() {
               </div>
 
               <div className="flex items-center gap-2">
+                {/* View toggle */}
+                <TabsList className="h-8">
+                  <TabsTrigger value="reports" className="text-xs gap-1.5 px-3 h-7">
+                    <BarChart3 className="h-3.5 w-3.5" />
+                    Daily Reports
+                  </TabsTrigger>
+                  <TabsTrigger value="auto-updates" className="text-xs gap-1.5 px-3 h-7">
+                    <Zap className="h-3.5 w-3.5" />
+                    Auto Updates
+                    {autoOptimizeData.size > 0 && (
+                      <Badge variant="secondary" className="text-[9px] px-1 py-0 ml-1 h-4 min-w-4 flex items-center justify-center">
+                        {autoOptimizeData.size}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                </TabsList>
+
                 {/* Deep analysis button (range mode only) */}
-                {isRangeMode && !isLoading && reports.length > 0 && (
+                {activeView === 'reports' && isRangeMode && !isLoading && reports.length > 0 && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -217,13 +242,13 @@ export default function DailyReports() {
                 )}
 
                 {/* Range mode indicator badge */}
-                {isRangeMode && (
+                {activeView === 'reports' && isRangeMode && (
                   <Badge variant="outline" className="text-xs bg-primary/5 border-primary/20 text-primary hidden sm:flex">
                     Range Mode
                   </Badge>
                 )}
 
-                {isRegenerating ? (
+                {activeView === 'reports' && (isRegenerating ? (
                   <Button
                     variant="outline"
                     size="sm"
@@ -247,7 +272,7 @@ export default function DailyReports() {
                     <Zap className="h-3.5 w-3.5" />
                     Regenerate Reports
                   </Button>
-                )}
+                ))}
 
                 <Button variant="ghost" size="icon" onClick={reload} disabled={isLoading}>
                   <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -270,69 +295,79 @@ export default function DailyReports() {
 
         {/* Content */}
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center py-32">
-              <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
-              <p className="text-muted-foreground">Loading reports...</p>
-            </div>
-          ) : reports.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-32 text-center">
-              <BarChart3 className="h-16 w-16 text-muted-foreground/30 mb-4" />
-              <p className="text-lg font-medium text-foreground mb-2">No ad reviews found</p>
-              <p className="text-sm text-muted-foreground max-w-md mb-6">
-                {dateSelection.singleDate
-                  ? `No reviews were generated for ${dateSelection.singleDate}. Try selecting a different date or run ad reviews from Client Health.`
-                  : isRangeMode && dateSelection.startDate
-                    ? `No reviews found between ${dateSelection.startDate} and ${dateSelection.endDate}. Try a different range.`
-                    : 'No ad reviews have been generated yet. Run ad reviews from the Client Health page.'}
-              </p>
-              <div className="flex items-center gap-3">
-                <Button variant="outline" onClick={() => navigate('/client-health')}>
-                  Go to Client Health
-                </Button>
-                {isRegenerating ? (
-                  <Button variant="outline" className="gap-2 border-amber-500/30 text-amber-400" onClick={stopPolling}>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {regenProgress.total > 0 ? `${regenProgress.done}/${regenProgress.total} — ${regenProgress.current}` : 'Starting...'} (stop)
-                  </Button>
-                ) : (
-                  <Button onClick={handleRegenerate} className="gap-2">
-                    <Zap className="h-4 w-4" />
-                    Regenerate Reports
-                  </Button>
-                )}
+          <TabsContent value="reports" className="mt-0">
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center py-32">
+                <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
+                <p className="text-muted-foreground">Loading reports...</p>
               </div>
-            </div>
-          ) : (
-            <div className="flex gap-6">
-              {/* Sticky TOC sidebar */}
-              <div className="hidden lg:block w-56 shrink-0">
-                <div className="sticky top-[85px]">
-                  <ReportTableOfContents reports={reports} />
+            ) : reports.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-32 text-center">
+                <BarChart3 className="h-16 w-16 text-muted-foreground/30 mb-4" />
+                <p className="text-lg font-medium text-foreground mb-2">No ad reviews found</p>
+                <p className="text-sm text-muted-foreground max-w-md mb-6">
+                  {dateSelection.singleDate
+                    ? `No reviews were generated for ${dateSelection.singleDate}. Try selecting a different date or run ad reviews from Client Health.`
+                    : isRangeMode && dateSelection.startDate
+                      ? `No reviews found between ${dateSelection.startDate} and ${dateSelection.endDate}. Try a different range.`
+                      : 'No ad reviews have been generated yet. Run ad reviews from the Client Health page.'}
+                </p>
+                <div className="flex items-center gap-3">
+                  <Button variant="outline" onClick={() => navigate('/client-health')}>
+                    Go to Client Health
+                  </Button>
+                  {isRegenerating ? (
+                    <Button variant="outline" className="gap-2 border-amber-500/30 text-amber-400" onClick={stopPolling}>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {regenProgress.total > 0 ? `${regenProgress.done}/${regenProgress.total} — ${regenProgress.current}` : 'Starting...'} (stop)
+                    </Button>
+                  ) : (
+                    <Button onClick={handleRegenerate} className="gap-2">
+                      <Zap className="h-4 w-4" />
+                      Regenerate Reports
+                    </Button>
+                  )}
                 </div>
               </div>
+            ) : (
+              <div className="flex gap-6">
+                {/* Sticky TOC sidebar */}
+                <div className="hidden lg:block w-56 shrink-0">
+                  <div className="sticky top-[85px]">
+                    <ReportTableOfContents reports={reports} autoOptimizeData={autoOptimizeData} />
+                  </div>
+                </div>
 
-              {/* Report cards */}
-              <div className="flex-1 min-w-0 space-y-10">
-                {reports.map((report) => (
-                  <ClientReportCard
-                    key={report.id}
-                    report={report}
-                    isRangeMode={isRangeMode}
-                    deepAnalysis={analyses.get(report.clientName) || null}
-                    isAnalysisLoading={loadingClients.has(report.clientName)}
-                    autoOptimizeData={autoOptimizeData.get(report.clientName) || null}
-                    recGetStatus={getStatus}
-                    recGetError={getError}
-                    recOnApprove={approve}
-                    recOnReject={reject}
-                    recOnExecute={execute}
-                  />
-                ))}
+                {/* Report cards */}
+                <div className="flex-1 min-w-0 space-y-10">
+                  {reports.map((report) => (
+                    <ClientReportCard
+                      key={report.id}
+                      report={report}
+                      isRangeMode={isRangeMode}
+                      deepAnalysis={analyses.get(report.clientName) || null}
+                      isAnalysisLoading={loadingClients.has(report.clientName)}
+                      recGetStatus={getStatus}
+                      recGetError={getError}
+                      recOnApprove={approve}
+                      recOnReject={reject}
+                      recOnExecute={execute}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </TabsContent>
+
+          <TabsContent value="auto-updates" className="mt-0">
+            <AutoUpdatesDashboard
+              autoOptimizeData={autoOptimizeData}
+              memories={memories}
+              isLoading={isLoadingAutoOptimize}
+            />
+          </TabsContent>
         </div>
+        </Tabs>
       </main>
     </div>
   );

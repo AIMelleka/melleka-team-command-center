@@ -19,7 +19,7 @@ import {
   Presentation, ArrowLeft, Loader2, Files,
 } from "lucide-react";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { safeFormatDate } from "@/lib/dateUtils";
 import { nanoid } from "nanoid";
 
 interface Deck {
@@ -220,7 +220,7 @@ export default function DecksDashboard() {
                       <div>
                         <p className="font-medium">{deck.client_name}</p>
                         <p className="text-xs text-muted-foreground">
-                          {format(new Date(deck.date_range_start + 'T00:00:00'), "MMM d")} – {format(new Date(deck.date_range_end + 'T00:00:00'), "MMM d, yyyy")}
+                          {safeFormatDate(deck.date_range_start + 'T00:00:00', "MMM d")} – {safeFormatDate(deck.date_range_end + 'T00:00:00', "MMM d, yyyy")}
                         </p>
                       </div>
                       <DropdownMenu>
@@ -261,7 +261,7 @@ export default function DecksDashboard() {
                     <div className="flex items-center justify-between">
                       {getStatusBadge(deck.status)}
                       <span className="text-xs text-muted-foreground">
-                        Updated {format(new Date(deck.updated_at), "MMM d, yyyy")}
+                        Updated {safeFormatDate(deck.updated_at, "MMM d, yyyy")}
                       </span>
                     </div>
                   </div>
@@ -284,11 +284,11 @@ export default function DecksDashboard() {
                     <TableRow key={deck.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/deck/${deck.slug}`)}>
                       <TableCell className="font-medium">{deck.client_name}</TableCell>
                       <TableCell className="text-muted-foreground text-sm">
-                        {format(new Date(deck.date_range_start + 'T00:00:00'), "MMM d")} – {format(new Date(deck.date_range_end + 'T00:00:00'), "MMM d, yyyy")}
+                        {safeFormatDate(deck.date_range_start + 'T00:00:00', "MMM d")} – {safeFormatDate(deck.date_range_end + 'T00:00:00', "MMM d, yyyy")}
                       </TableCell>
                       <TableCell>{getStatusBadge(deck.status)}</TableCell>
                       <TableCell className="text-muted-foreground text-sm">
-                        {format(new Date(deck.updated_at), "MMM d, yyyy")}
+                        {safeFormatDate(deck.updated_at, "MMM d, yyyy")}
                       </TableCell>
                       <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                         <DropdownMenu>
@@ -307,6 +307,16 @@ export default function DecksDashboard() {
                             <DropdownMenuItem onClick={() => window.open(`/deck/${deck.slug}`, "_blank")}>
                               <ExternalLink className="h-4 w-4 mr-2" /> Open in New Tab
                             </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleDuplicate(deck)}
+                              disabled={duplicatingId === deck.id}
+                            >
+                              {duplicatingId === deck.id
+                                ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                : <Files className="h-4 w-4 mr-2" />}
+                              Duplicate as Draft
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive"
                               onClick={() => { setDeckToDelete(deck); setDeleteDialogOpen(true); }}

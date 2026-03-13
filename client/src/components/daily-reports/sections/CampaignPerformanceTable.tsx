@@ -99,10 +99,10 @@ export function CampaignPerformanceTable({ platforms }: Props) {
                   <TableCell className="text-sm font-medium max-w-[250px] truncate">{c.name}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{c.platform}</TableCell>
                   <TableCell className="text-sm font-medium">{fmtCurrency(c.spend)}</TableCell>
-                  <TableCell className="text-sm">{c.clicks.toLocaleString()}</TableCell>
-                  <TableCell className="text-sm font-medium">{c.conversions}</TableCell>
-                  <TableCell className="text-sm">{c.cpa > 0 ? fmtCurrency(c.cpa) : '—'}</TableCell>
-                  <TableCell className="text-sm">{c.ctr && c.ctr > 0 ? `${c.ctr.toFixed(2)}%` : '—'}</TableCell>
+                  <TableCell className="text-sm">{Number(c.clicks || 0).toLocaleString()}</TableCell>
+                  <TableCell className="text-sm font-medium">{Number(c.conversions || 0)}</TableCell>
+                  <TableCell className="text-sm">{Number(c.cpa || 0) > 0 ? fmtCurrency(c.cpa) : '—'}</TableCell>
+                  <TableCell className="text-sm">{Number(c.ctr || 0) > 0 ? `${Number(c.ctr).toFixed(2)}%` : '—'}</TableCell>
                 </TableRow>
               );
             })}

@@ -6,6 +6,7 @@ import { routeToToolKey, TOOL_CATALOG } from '@/data/toolCatalog';
 import { Loader2, RefreshCw, LogIn, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { EnrollMFA } from '@/components/EnrollMFA';
+import { MFA_EXEMPT_EMAILS } from '@/lib/mfaConfig';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -65,16 +66,15 @@ const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRouteProps)
     return <Navigate to="/login" replace />;
   }
 
-  // Force MFA enrollment for admins who haven't set it up (exempt service accounts)
-  const mfaExemptEmails = ['ai@mellekamarketing.com', 'anthony@mellekamarketing.com'];
+  // Force MFA enrollment for all users who haven't set it up (exempt service accounts)
   const userEmail = user?.email?.toLowerCase() ?? '';
-  if (isAdmin && !mfaEnrolled && !mfaExemptEmails.includes(userEmail)) {
+  if (!mfaEnrolled && !MFA_EXEMPT_EMAILS.includes(userEmail)) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
         <div className="w-full max-w-md mb-6 text-center">
           <h1 className="text-xl font-bold text-foreground mb-2">Two-Factor Authentication Required</h1>
           <p className="text-sm text-muted-foreground">
-            As an admin, you must enable two-factor authentication before continuing.
+            You must enable two-factor authentication to continue.
           </p>
         </div>
         <EnrollMFA

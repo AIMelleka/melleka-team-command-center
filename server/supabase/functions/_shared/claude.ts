@@ -5,7 +5,7 @@
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 1; // No retries - edge functions have ~150s total, retries on long calls always exceed this
 
 export interface ClaudeOptions {
   system?: string;

@@ -33,7 +33,11 @@ import {
   ShieldCheck,
   ShieldAlert,
   RefreshCw,
-  LogOut
+  LogOut,
+  Save,
+  Files,
+  MessageSquare,
+  Pencil
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -256,7 +260,7 @@ const SeoWriter = () => {
   const [isWritingTopic, setIsWritingTopic] = useState(false);
   const [topicWriterStage, setTopicWriterStage] = useState(0);
   const [topicResult, setTopicResult] = useState<TopicWriterResult | null>(null);
-  const [activeMode, setActiveMode] = useState<'domain' | 'topic'>('domain');
+  const [activeMode, setActiveMode] = useState<'domain' | 'topic' | 'prompt' | 'editor'>('domain');
   
   // Keyword preview state (confirmation step before generation)
   const [showKeywordPreview, setShowKeywordPreview] = useState(false);
@@ -272,6 +276,31 @@ const SeoWriter = () => {
   const [brandName, setBrandName] = useState('');
   const [brandProduct, setBrandProduct] = useState('');
   const [backlinksUrls, setBacklinksUrls] = useState('');
+
+  // Prompt mode states
+  const [promptInput, setPromptInput] = useState('');
+  const [promptNotes, setPromptNotes] = useState('');
+  const [promptKeywords, setPromptKeywords] = useState('');
+  const [promptCtaText, setPromptCtaText] = useState('');
+  const [promptCtaUrl, setPromptCtaUrl] = useState('');
+  const [promptCtaPlacement, setPromptCtaPlacement] = useState<'end' | 'inline' | 'both'>('end');
+  const [showCtaSettings, setShowCtaSettings] = useState(false);
+
+  // Editor mode states
+  const [editorArticle, setEditorArticle] = useState('');
+  const [editorInstructions, setEditorInstructions] = useState('');
+  const [editorKeywords, setEditorKeywords] = useState('');
+
+  // Post-generation edit states
+  const [editInstruction, setEditInstruction] = useState('');
+  const [isApplyingEdit, setIsApplyingEdit] = useState(false);
+  const [previousContent, setPreviousContent] = useState<string | null>(null);
+
+  // Save states
+  const [savedArticleId, setSavedArticleId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveTitle, setSaveTitle] = useState('');
 
   // Async job tracking (Realtime + polling fallback)
   const [jobProgress, setJobProgress] = useState(0);
@@ -969,6 +998,192 @@ const SeoWriter = () => {
     }
   };
 
+  // Prompt mode: generate article from a detailed brief
+  const handlePromptGenerate = async () => {
+    if (!promptInput.trim()) return;
+    setIsWritingTopic(true);
+    setTopicResult(null);
+    setSavedArticleId(null);
+    setPreviousContent(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('seo-writer', {
+        body: {
+          type: 'prompt-write',
+          prompt: promptInput,
+          notes: promptNotes,
+          keywords: promptKeywords,
+          targetWordCount,
+          writingPerson,
+          tones: Array.from(tonesOfVoice),
+          ctaText: promptCtaText || undefined,
+          ctaUrl: promptCtaUrl || undefined,
+          ctaPlacement: promptCtaPlacement,
+        }
+      });
+
+      if (error) throw error;
+
+      if ((data as any)?.job_id) {
+        const jobResult = await startSeoJobSync((data as any).job_id);
+        if (jobResult?.result) {
+          setTopicResult(jobResult.result as TopicWriterResult);
+          toast.success('Article generated successfully!');
+        }
+      } else if ((data as any)?.result) {
+        setTopicResult((data as any).result as TopicWriterResult);
+        toast.success('Article generated successfully!');
+      }
+    } catch (err: any) {
+      console.error('Prompt write error:', err);
+      toast.error(err.message || 'Failed to generate article');
+    } finally {
+      cleanupSeoJobSync();
+      setTimeout(() => { setIsWritingTopic(false); setTopicWriterStage(0); }, 1000);
+    }
+  };
+
+  // Editor mode: rewrite an existing article with instructions
+  const handleEditorRewrite = async () => {
+    if (!editorArticle.trim() || !editorInstructions.trim()) return;
+    setIsWritingTopic(true);
+    setTopicResult(null);
+    setSavedArticleId(null);
+    setPreviousContent(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('seo-writer', {
+        body: {
+          type: 'editor',
+          originalArticle: editorArticle,
+          editInstructions: editorInstructions,
+          keywords: editorKeywords,
+          writingPerson,
+          tones: Array.from(tonesOfVoice),
+        }
+      });
+
+      if (error) throw error;
+
+      if ((data as any)?.job_id) {
+        const jobResult = await startSeoJobSync((data as any).job_id);
+        if (jobResult?.result) {
+          const r = jobResult.result as any;
+          setTopicResult({
+            topic: 'Edited Article',
+            primaryKeyword: editorKeywords.split(',')[0]?.trim() || '',
+            secondaryKeywords: [],
+            searchIntent: 'Informational',
+            competitorAnalysis: { avgWordCount: 0, avgHeadings: 0, commonTopics: [], contentGaps: [] },
+            serpFeatures: [],
+            outline: [],
+            fullContent: r.fullContent,
+            wordCount: r.wordCount,
+            contentScore: r.contentScore,
+            metaTitle: '',
+            metaDescription: '',
+            internalLinkingSuggestions: [],
+            faqSchema: [],
+          });
+          toast.success('Article rewritten successfully!');
+        }
+      }
+    } catch (err: any) {
+      console.error('Editor error:', err);
+      toast.error(err.message || 'Failed to rewrite article');
+    } finally {
+      cleanupSeoJobSync();
+      setTimeout(() => { setIsWritingTopic(false); setTopicWriterStage(0); }, 1000);
+    }
+  };
+
+  // Post-generation: apply an edit instruction to the current article
+  const handleApplyEdit = async () => {
+    if (!editInstruction.trim() || !topicResult?.fullContent) return;
+    setIsApplyingEdit(true);
+    setPreviousContent(topicResult.fullContent);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('seo-writer', {
+        body: {
+          type: 'editor',
+          originalArticle: topicResult.fullContent,
+          editInstructions: editInstruction,
+          writingPerson,
+          tones: Array.from(tonesOfVoice),
+        }
+      });
+
+      if (error) throw error;
+
+      if ((data as any)?.job_id) {
+        const jobResult = await startSeoJobSync((data as any).job_id);
+        if (jobResult?.result) {
+          const r = jobResult.result as any;
+          setTopicResult(prev => prev ? { ...prev, fullContent: r.fullContent, wordCount: r.wordCount, contentScore: r.contentScore } : prev);
+          toast.success('Edit applied successfully!');
+        }
+      }
+      setEditInstruction('');
+    } catch (err: any) {
+      console.error('Edit error:', err);
+      toast.error(err.message || 'Failed to apply edit');
+    } finally {
+      cleanupSeoJobSync();
+      setIsApplyingEdit(false);
+    }
+  };
+
+  // Revert to previous content after an edit
+  const handleRevert = () => {
+    if (previousContent && topicResult) {
+      setTopicResult(prev => prev ? { ...prev, fullContent: previousContent, wordCount: previousContent.split(/\s+/).length } : prev);
+      setPreviousContent(null);
+    }
+  };
+
+  // Save article to seo_articles table
+  const handleSaveArticle = async () => {
+    if (!topicResult || !saveTitle.trim()) return;
+    setIsSaving(true);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const slug = saveTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36);
+
+      const articleData = {
+        user_id: user?.id,
+        title: saveTitle.trim(),
+        slug,
+        primary_keyword: topicResult.primaryKeyword,
+        article_type: activeMode,
+        content: topicResult.fullContent,
+        meta_title: topicResult.metaTitle,
+        meta_description: topicResult.metaDescription,
+        word_count: topicResult.wordCount,
+        settings: { writingPerson, tones: Array.from(tonesOfVoice), targetWordCount },
+        scores: topicResult.contentScore,
+        status: 'draft',
+      };
+
+      if (savedArticleId) {
+        const { error } = await supabase.from('seo_articles').update({ ...articleData, updated_at: new Date().toISOString() }).eq('id', savedArticleId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.from('seo_articles').insert(articleData).select('id').single();
+        if (error) throw error;
+        if (data) setSavedArticleId(data.id);
+      }
+
+      toast.success(savedArticleId ? 'Article updated' : 'Article saved');
+      setShowSaveDialog(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const downloadTopicContent = () => {
     if (!topicResult) return;
     
@@ -1129,6 +1344,9 @@ const SeoWriter = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => navigate('/saved-articles')} className="gap-1">
+              <Files className="h-4 w-4" /> Saved Articles
+            </Button>
             <Badge variant="outline" className="hidden md:flex gap-1">
               <Zap className="h-3 w-3" />
               Powered by Semrush
@@ -1237,13 +1455,35 @@ const SeoWriter = () => {
             <button
               onClick={() => setActiveMode('topic')}
               className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
-                activeMode === 'topic' 
-                  ? 'bg-background shadow-sm text-foreground' 
+                activeMode === 'topic'
+                  ? 'bg-background shadow-sm text-foreground'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               <PenTool className="h-4 w-4 inline mr-2" />
               Write About Topic
+            </button>
+            <button
+              onClick={() => setActiveMode('prompt')}
+              className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
+                activeMode === 'prompt'
+                  ? 'bg-background shadow-sm text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <MessageSquare className="h-4 w-4 inline mr-2" />
+              Prompt
+            </button>
+            <button
+              onClick={() => setActiveMode('editor')}
+              className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
+                activeMode === 'editor'
+                  ? 'bg-background shadow-sm text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Pencil className="h-4 w-4 inline mr-2" />
+              Editor
             </button>
           </div>
         </div>
@@ -1627,8 +1867,337 @@ const SeoWriter = () => {
           </Card>
         )}
 
+        {/* Prompt Mode Section */}
+        {activeMode === 'prompt' && (
+          <Card className="glass-card mb-8 border-genie-gold/30">
+            <CardHeader className="text-center pb-4">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <Badge className="bg-gradient-to-r from-genie-purple to-genie-gold text-white border-0">
+                  <Sparkles className="h-3 w-3 mr-1" />
+                  AI-Powered
+                </Badge>
+              </div>
+              <CardTitle className="text-2xl flex items-center justify-center gap-3">
+                <MessageSquare className="h-7 w-7 text-genie-gold" />
+                Write from Prompt
+              </CardTitle>
+              <CardDescription className="text-base max-w-2xl mx-auto">
+                Give the AI a detailed brief and it will write a complete, human-sounding article.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="max-w-2xl mx-auto space-y-4">
+                {/* Main prompt */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Article Brief</label>
+                  <textarea
+                    rows={6}
+                    placeholder="Describe what the article should be about... Include the main topic, angle, and any specific points to cover."
+                    value={promptInput}
+                    onChange={(e) => setPromptInput(e.target.value)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    disabled={isWritingTopic}
+                  />
+                </div>
+
+                {/* Notes */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Additional Notes / Context (Optional)</label>
+                  <textarea
+                    rows={4}
+                    placeholder="Additional knowledge, facts, data, or context to include..."
+                    value={promptNotes}
+                    onChange={(e) => setPromptNotes(e.target.value)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    disabled={isWritingTopic}
+                  />
+                </div>
+
+                {/* Keywords */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Target Keywords (Optional)</label>
+                  <Input
+                    placeholder="keyword 1, keyword 2, keyword 3"
+                    value={promptKeywords}
+                    onChange={(e) => setPromptKeywords(e.target.value)}
+                    disabled={isWritingTopic}
+                  />
+                </div>
+
+                {/* Word Count + Writing Perspective */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Target Word Count</label>
+                    <select
+                      value={targetWordCount}
+                      onChange={(e) => setTargetWordCount(Number(e.target.value))}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      disabled={isWritingTopic}
+                    >
+                      <option value={500}>500 words</option>
+                      <option value={1000}>1,000 words</option>
+                      <option value={1500}>1,500 words</option>
+                      <option value={2000}>2,000 words</option>
+                      <option value={2500}>2,500 words</option>
+                      <option value={3000}>3,000 words</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Writing Perspective</label>
+                    <select
+                      value={writingPerson}
+                      onChange={(e) => setWritingPerson(e.target.value as 'first' | 'third')}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      disabled={isWritingTopic}
+                    >
+                      <option value="third">Third Person</option>
+                      <option value="first">First Person</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Tone of Voice */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Tone of Voice</label>
+                  <div className="flex flex-wrap gap-2">
+                    {['professional', 'conversational', 'authoritative', 'friendly', 'witty', 'formal', 'casual', 'educational'].map(tone => (
+                      <button
+                        key={tone}
+                        onClick={() => {
+                          const next = new Set(tonesOfVoice);
+                          if (next.has(tone)) next.delete(tone);
+                          else next.add(tone);
+                          setTonesOfVoice(next);
+                        }}
+                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                          tonesOfVoice.has(tone)
+                            ? 'bg-genie-purple/20 border-genie-purple/50 text-genie-purple'
+                            : 'border-border text-muted-foreground hover:border-foreground/30'
+                        }`}
+                        disabled={isWritingTopic}
+                      >
+                        {tone}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Collapsible CTA Settings */}
+                <div className="border-t border-border pt-4">
+                  <button
+                    onClick={() => setShowCtaSettings(!showCtaSettings)}
+                    className="text-sm font-medium flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Zap className="h-3 w-3" />
+                    Call to Action (Optional)
+                    <span className="text-xs">{showCtaSettings ? '▲' : '▼'}</span>
+                  </button>
+                  {showCtaSettings && (
+                    <div className="mt-3 space-y-3">
+                      <Input
+                        placeholder="CTA text (e.g. Get a free consultation today)"
+                        value={promptCtaText}
+                        onChange={(e) => setPromptCtaText(e.target.value)}
+                        disabled={isWritingTopic}
+                      />
+                      <Input
+                        placeholder="CTA URL (e.g. https://example.com/contact)"
+                        value={promptCtaUrl}
+                        onChange={(e) => setPromptCtaUrl(e.target.value)}
+                        disabled={isWritingTopic}
+                      />
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">CTA Placement</label>
+                        <select
+                          value={promptCtaPlacement}
+                          onChange={(e) => setPromptCtaPlacement(e.target.value as 'end' | 'inline' | 'both')}
+                          className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                          disabled={isWritingTopic}
+                        >
+                          <option value="end">End of article</option>
+                          <option value="inline">Inline within content</option>
+                          <option value="both">Both inline and end</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Generate Button */}
+                <div className="pt-2">
+                  <Button
+                    onClick={handlePromptGenerate}
+                    disabled={!promptInput.trim() || isWritingTopic}
+                    className="w-full h-14 text-lg bg-gradient-to-r from-genie-purple to-genie-gold hover:opacity-90"
+                  >
+                    {isWritingTopic ? (
+                      <>
+                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                        Generating Article...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-5 w-5 mr-2" />
+                        Generate Article
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Progress Section */}
+                {isWritingTopic && jobProgress > 0 && (
+                  <div className="space-y-3 pt-4">
+                    <Progress value={jobProgress} className="h-3" />
+                    <div className="flex items-center justify-center gap-2 text-sm">
+                      <Loader2 className="h-4 w-4 animate-spin text-genie-gold" />
+                      <span className="text-muted-foreground animate-pulse">
+                        {jobProgressMessage || 'Processing...'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Editor Mode Section */}
+        {activeMode === 'editor' && (
+          <Card className="glass-card mb-8 border-genie-gold/30">
+            <CardHeader className="text-center pb-4">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <Badge className="bg-gradient-to-r from-genie-purple to-genie-gold text-white border-0">
+                  <Sparkles className="h-3 w-3 mr-1" />
+                  AI-Powered
+                </Badge>
+              </div>
+              <CardTitle className="text-2xl flex items-center justify-center gap-3">
+                <Pencil className="h-7 w-7 text-genie-gold" />
+                Article Editor
+              </CardTitle>
+              <CardDescription className="text-base max-w-2xl mx-auto">
+                Paste an existing article and provide edit instructions. The AI will rewrite it based on your directions.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="max-w-2xl mx-auto space-y-4">
+                {/* Original Article */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Original Article</label>
+                  <textarea
+                    rows={12}
+                    placeholder="Paste your article here..."
+                    value={editorArticle}
+                    onChange={(e) => setEditorArticle(e.target.value)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    disabled={isWritingTopic}
+                  />
+                </div>
+
+                {/* Edit Instructions */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Edit Instructions</label>
+                  <textarea
+                    rows={4}
+                    placeholder="Describe what to change, add, remove, or improve..."
+                    value={editorInstructions}
+                    onChange={(e) => setEditorInstructions(e.target.value)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    disabled={isWritingTopic}
+                  />
+                </div>
+
+                {/* Keywords */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Keywords to Weave In (Optional)</label>
+                  <Input
+                    placeholder="Keywords to weave in naturally (comma-separated)"
+                    value={editorKeywords}
+                    onChange={(e) => setEditorKeywords(e.target.value)}
+                    disabled={isWritingTopic}
+                  />
+                </div>
+
+                {/* Writing Perspective + Tone */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Writing Perspective</label>
+                    <select
+                      value={writingPerson}
+                      onChange={(e) => setWritingPerson(e.target.value as 'first' | 'third')}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      disabled={isWritingTopic}
+                    >
+                      <option value="third">Third Person</option>
+                      <option value="first">First Person</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Tone of Voice</label>
+                    <div className="flex flex-wrap gap-2">
+                      {['professional', 'conversational', 'authoritative', 'friendly', 'witty', 'formal', 'casual', 'educational'].map(tone => (
+                        <button
+                          key={tone}
+                          onClick={() => {
+                            const next = new Set(tonesOfVoice);
+                            if (next.has(tone)) next.delete(tone);
+                            else next.add(tone);
+                            setTonesOfVoice(next);
+                          }}
+                          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                            tonesOfVoice.has(tone)
+                              ? 'bg-genie-purple/20 border-genie-purple/50 text-genie-purple'
+                              : 'border-border text-muted-foreground hover:border-foreground/30'
+                          }`}
+                          disabled={isWritingTopic}
+                        >
+                          {tone}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Rewrite Button */}
+                <div className="pt-2">
+                  <Button
+                    onClick={handleEditorRewrite}
+                    disabled={!editorArticle.trim() || !editorInstructions.trim() || isWritingTopic}
+                    className="w-full h-14 text-lg bg-gradient-to-r from-genie-purple to-genie-gold hover:opacity-90"
+                  >
+                    {isWritingTopic ? (
+                      <>
+                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                        Rewriting Article...
+                      </>
+                    ) : (
+                      <>
+                        <Pencil className="h-5 w-5 mr-2" />
+                        Rewrite Article
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Progress Section */}
+                {isWritingTopic && jobProgress > 0 && (
+                  <div className="space-y-3 pt-4">
+                    <Progress value={jobProgress} className="h-3" />
+                    <div className="flex items-center justify-center gap-2 text-sm">
+                      <Loader2 className="h-4 w-4 animate-spin text-genie-gold" />
+                      <span className="text-muted-foreground animate-pulse">
+                        {jobProgressMessage || 'Processing...'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Topic Writer Result */}
-        {topicResult && activeMode === 'topic' && (
+        {topicResult && (activeMode === 'topic' || activeMode === 'prompt' || activeMode === 'editor') && (
           <div className="space-y-6 mb-8">
             {/* Result Header */}
             <Card className="glass-card border-genie-gold/30">
@@ -1661,10 +2230,15 @@ const SeoWriter = () => {
                       {topicResult.contentScore.overall}/100
                     </div>
                     <span className="text-sm text-muted-foreground">Content Score</span>
-                    <Button onClick={downloadTopicContent} variant="outline" size="sm">
-                      <Download className="h-4 w-4 mr-2" />
-                      Download
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button onClick={downloadTopicContent} variant="outline" size="sm">
+                        <Download className="h-4 w-4 mr-2" />
+                        Download
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => { setSaveTitle(topicResult?.metaTitle || topicResult?.primaryKeyword || ''); setShowSaveDialog(true); }}>
+                        <Save className="h-4 w-4 mr-1" /> {savedArticleId ? 'Update' : 'Save'}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -1894,6 +2468,29 @@ const SeoWriter = () => {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Post-Generation Edit Bar */}
+            {topicResult?.fullContent && (
+              <div className="mt-4 p-4 rounded-lg border border-border bg-muted/30">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Ask AI to edit this article... (e.g., 'Make the intro more engaging')"
+                    value={editInstruction}
+                    onChange={(e) => setEditInstruction(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleApplyEdit()}
+                    className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    disabled={isApplyingEdit}
+                  />
+                  <Button size="sm" onClick={handleApplyEdit} disabled={!editInstruction.trim() || isApplyingEdit}>
+                    {isApplyingEdit ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply Edit'}
+                  </Button>
+                  {previousContent && (
+                    <Button size="sm" variant="outline" onClick={handleRevert}>Revert</Button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* FAQ Schema */}
             {topicResult.faqSchema.length > 0 && (
@@ -3186,6 +3783,31 @@ const SeoWriter = () => {
           </div>
         )}
       </main>
+
+      {/* Save Article Dialog */}
+      {showSaveDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowSaveDialog(false)}>
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-4">Save Article</h3>
+            <input
+              type="text"
+              placeholder="Article title..."
+              value={saveTitle}
+              onChange={(e) => setSaveTitle(e.target.value)}
+              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm mb-4"
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && handleSaveArticle()}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowSaveDialog(false)}>Cancel</Button>
+              <Button onClick={handleSaveArticle} disabled={!saveTitle.trim() || isSaving}>
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                {savedArticleId ? 'Update' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

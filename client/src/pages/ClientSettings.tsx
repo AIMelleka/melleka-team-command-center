@@ -683,10 +683,6 @@ export default function ClientSettings() {
           onClose={() => setMappingClient(null)}
           onSaved={() => {
             loadAccountCounts();
-            toast({
-              title: 'Account mappings updated',
-              description: 'Go to Daily Reports and click "Regenerate Reports" to refresh reports with the new accounts.',
-            });
           }}
         />
       )}

@@ -25,9 +25,9 @@ export interface SuperAgentTask {
   category: string | null;
   client_name: string | null;
   conversation_id: string | null;
-  links: { label: string; url: string }[];
+  links: { label: string; url: string }[] | null;
   error_details: string | null;
-  notes: { timestamp: string; text: string }[];
+  notes: { timestamp: string; text: string }[] | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -116,5 +116,33 @@ export function useSuperAgentTask(id: string | null) {
     queryKey: ["super-agent-task", id],
     queryFn: () => fetchTask(id!),
     enabled: !!id,
+  });
+}
+
+export interface ToolExecution {
+  id: string;
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  tool_output: string | null;
+  execution_ms: number;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+}
+
+async function fetchToolExecutions(taskId: string): Promise<ToolExecution[]> {
+  const resp = await fetch(`${API_BASE}/super-agent-tasks/${taskId}/tool-executions`, {
+    headers: await authHeaders(),
+  });
+  if (!resp.ok) throw new Error("Failed to fetch tool executions");
+  return resp.json();
+}
+
+export function useToolExecutions(taskId: string | null) {
+  return useQuery({
+    queryKey: ["tool-executions", taskId],
+    queryFn: () => fetchToolExecutions(taskId!),
+    enabled: !!taskId,
+    staleTime: 10_000,
   });
 }

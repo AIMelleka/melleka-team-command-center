@@ -20,10 +20,11 @@ const execAsync = promisify(exec);
 // Env vars stripped from child processes to prevent secret leakage
 const SENSITIVE_ENV_KEYS = [
   "ANTHROPIC_API_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_AUTH_KEY",
-  "JWT_SECRET", "TEAM_PASSWORD", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
+  "JWT_SECRET", "TEAM_PASSWORD",
   "GOOGLE_CLIENT_SECRET", "GOOGLE_SA_PRIVATE_KEY", "META_ACCESS_TOKEN",
   "CANVA_CLIENT_SECRET", "ELEVENLABS_API_KEY", "RESEND_API_KEY",
   "VERCEL_TOKEN", "NOTION_API_KEY", "SLACK_BOT_TOKEN",
+  "GHL_AGENCY_API_KEY",
 ];
 function safeEnv(extra?: Record<string, string>): Record<string, string | undefined> {
   const env = { ...process.env, ...extra };
@@ -57,6 +58,224 @@ async function getServisToken(clientName: string, clientId: string, clientSecret
   // Cache for 50 minutes (tokens expire in 1 hour)
   servisTokenCache.set(clientName, { token, expiresAt: Date.now() + 50 * 60 * 1000 });
   return token;
+}
+
+// ── GoHighLevel (GHL) API helpers ──
+const GHL_API_BASE = "https://services.leadconnectorhq.com";
+const GHL_API_VERSION = "2021-07-28";
+
+interface GhlRequestOptions {
+  method?: string;
+  endpoint: string;
+  locationId?: string;
+  params?: Record<string, unknown>;
+  body?: Record<string, unknown>;
+  accessToken?: string; // Override: use this token instead of agency PIT
+}
+
+async function ghlRequest(options: GhlRequestOptions): Promise<any> {
+  // Use provided OAuth token, fall back to agency PIT
+  const token = options.accessToken
+    || process.env.GHL_AGENCY_API_KEY
+    || await getSecret("GHL_AGENCY_API_KEY");
+  if (!token) throw new Error("No GHL token available. Connect a GHL location via OAuth or set GHL_AGENCY_API_KEY.");
+
+  const method = (options.method || "GET").toUpperCase();
+  const headers: Record<string, string> = {
+    "Authorization": `Bearer ${token}`,
+    "Version": GHL_API_VERSION,
+    "Accept": "application/json",
+  };
+
+  let url = `${GHL_API_BASE}${options.endpoint}`;
+  let fetchBody: string | undefined;
+
+  if (method === "GET" || method === "DELETE") {
+    const qs = new URLSearchParams();
+    if (options.locationId) qs.set("locationId", options.locationId);
+    if (options.params) {
+      for (const [k, v] of Object.entries(options.params)) {
+        if (v !== undefined && v !== null) qs.set(k, String(v));
+      }
+    }
+    const qsStr = qs.toString();
+    if (qsStr) url += (url.includes("?") ? "&" : "?") + qsStr;
+  } else {
+    headers["Content-Type"] = "application/json";
+    const bodyObj: Record<string, unknown> = { ...options.body };
+    if (options.locationId && !bodyObj.locationId) bodyObj.locationId = options.locationId;
+    fetchBody = JSON.stringify(bodyObj);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const resp = await fetch(url, { method, headers, body: fetchBody, signal: controller.signal });
+    if (resp.status === 429) {
+      throw new Error("GHL rate limit exceeded (100 req/10s). Wait a moment and retry.");
+    }
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      throw new Error(`GHL API error (${resp.status}): ${errText.slice(0, 1500)}`);
+    }
+    const ct = resp.headers.get("content-type") || "";
+    return ct.includes("application/json") ? await resp.json() : await resp.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Refresh a GHL OAuth location token and update the DB */
+async function refreshGhlLocationToken(locationId: string, refreshToken: string): Promise<string> {
+  const clientId = process.env.GHL_CLIENT_ID || await getSecret("GHL_CLIENT_ID");
+  const clientSecret = process.env.GHL_CLIENT_SECRET || await getSecret("GHL_CLIENT_SECRET");
+  if (!clientId || !clientSecret) throw new Error("GHL_CLIENT_ID and GHL_CLIENT_SECRET required for token refresh.");
+
+  const resp = await fetch("https://services.leadconnectorhq.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    }),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => "");
+    throw new Error(`GHL token refresh failed (${resp.status}): ${errText.slice(0, 500)}`);
+  }
+  const data = await resp.json();
+  const newExpiresAt = new Date(Date.now() + (data.expires_in * 1000));
+
+  // Update DB with new tokens
+  const client = await getSupabaseClient();
+  await client.from("ghl_oauth_tokens").update({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    expires_at: newExpiresAt.toISOString(),
+  }).eq("location_id", locationId);
+
+  console.log(`[ghl] Refreshed OAuth token for location ${locationId}`);
+  return data.access_token;
+}
+
+/** Get a valid GHL OAuth token for a location (refreshing if expired) */
+async function getGhlLocationToken(locationId: string): Promise<string | null> {
+  const client = await getSupabaseClient();
+  const { data: row } = await client
+    .from("ghl_oauth_tokens")
+    .select("access_token, refresh_token, expires_at")
+    .eq("location_id", locationId)
+    .maybeSingle();
+
+  if (!row) return null;
+
+  // Check if expired (5-min buffer)
+  const expiresAt = new Date(row.expires_at);
+  if (expiresAt.getTime() - 5 * 60 * 1000 < Date.now()) {
+    if (row.refresh_token) {
+      try {
+        return await refreshGhlLocationToken(locationId, row.refresh_token);
+      } catch (err: any) {
+        console.error(`[ghl] Token refresh failed for ${locationId}:`, err.message);
+        return null;
+      }
+    }
+    return null; // Expired, no refresh token
+  }
+
+  return row.access_token;
+}
+
+interface GhlLocationResult {
+  locationId: string;
+  locationName: string;
+  accessToken: string | null; // OAuth location token (null = use agency PIT)
+}
+
+async function resolveGhlLocation(clientName: string): Promise<GhlLocationResult | string> {
+  const client = await getSupabaseClient();
+  const search = clientName.toLowerCase().trim();
+  let locationId: string | null = null;
+  let locationName: string = clientName;
+
+  // Strategy 1: exact ilike match in client_account_mappings
+  const { data: mapping } = await client
+    .from("client_account_mappings")
+    .select("account_id, account_name, client_name")
+    .ilike("client_name", clientName)
+    .eq("platform", "ghl")
+    .limit(1)
+    .maybeSingle();
+  if (mapping?.account_id) {
+    locationId = mapping.account_id;
+    locationName = mapping.account_name || mapping.client_name;
+  }
+
+  // Strategy 2: fuzzy match (contains / reverse contains)
+  let allMappings: any[] | null = null;
+  if (!locationId) {
+    const { data } = await client
+      .from("client_account_mappings")
+      .select("client_name, account_id, account_name")
+      .eq("platform", "ghl");
+    allMappings = data;
+    if (allMappings && allMappings.length > 0) {
+      const fuzzy = allMappings.find(m => m.client_name.toLowerCase().includes(search) || search.includes(m.client_name.toLowerCase()));
+      if (fuzzy) { locationId = fuzzy.account_id; locationName = fuzzy.account_name || fuzzy.client_name; }
+      if (!locationId) {
+        const searchWords = search.split(/\s+/);
+        const wordMatch = allMappings.find(m => {
+          const nameWords = m.client_name.toLowerCase().split(/\s+/);
+          return searchWords.some((sw: string) => nameWords.some((nw: string) => nw === sw && sw.length > 2));
+        });
+        if (wordMatch) { locationId = wordMatch.account_id; locationName = wordMatch.account_name || wordMatch.client_name; }
+      }
+    }
+  }
+
+  // Strategy 3: ghl_oauth_tokens table (find by location name)
+  if (!locationId) {
+    const { data: oauthToken } = await client
+      .from("ghl_oauth_tokens")
+      .select("location_id, location_name")
+      .ilike("location_name", `%${clientName}%`)
+      .limit(1)
+      .maybeSingle();
+    if (oauthToken) { locationId = oauthToken.location_id; locationName = oauthToken.location_name; }
+  }
+
+  if (!locationId) {
+    const names = allMappings?.map(m => m.client_name).join(", ") || "(none linked)";
+    // Also list OAuth-connected locations
+    const { data: oauthLocs } = await client.from("ghl_oauth_tokens").select("location_name");
+    const oauthNames = oauthLocs?.map(l => l.location_name).join(", ") || "(none)";
+    return `Error: No GHL location found for "${clientName}". Linked clients: ${names}. OAuth-connected locations: ${oauthNames}. Connect a location via OAuth or add to client_account_mappings (platform='ghl').`;
+  }
+
+  // Get OAuth location token (for sub-account level API access)
+  const accessToken = await getGhlLocationToken(locationId);
+  return { locationId, locationName, accessToken };
+}
+
+/** Format GHL result with truncation */
+function ghlResult(data: unknown, maxLen = 8000): string {
+  const out = JSON.stringify(data, null, 2);
+  return out.length > maxLen ? out.slice(0, maxLen) + "\n[...truncated]" : out;
+}
+
+/** Make a GHL API request scoped to a location, using OAuth token with agency PIT fallback */
+async function ghlLocationRequest(accessToken: string | null, options: Omit<GhlRequestOptions, "accessToken">): Promise<any> {
+  if (!accessToken) {
+    throw new Error(
+      "No OAuth token for this GHL location. The agency API key cannot access sub-account data (contacts, conversations, etc.).\n" +
+      "To connect this location, open this URL in your browser and authorize:\n" +
+      "https://nhebotmrnxixvcvtspet.supabase.co/functions/v1/ghl-oauth-start\n" +
+      "Then try again."
+    );
+  }
+  return ghlRequest({ ...options, accessToken });
 }
 
 /** Format an ISO timestamp to a human-readable string in the team's timezone */
@@ -461,7 +680,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "http_request",
     description:
-      "Make an HTTP request to any URL (REST APIs, Google Ads, Slack, Stripe, etc.). Returns status + response body.",
+      "Make an HTTP request to any URL (REST APIs, Google Ads, Slack, etc.). Returns status + response body.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -737,7 +956,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "slack_post",
     description:
-      "Post a message to a Slack channel. Requires SLACK_BOT_TOKEN in team_secrets.",
+      "Post a message to a Slack channel. NEVER post to #general — use a specific channel instead. Requires SLACK_BOT_TOKEN in team_secrets.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -900,24 +1119,47 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "generate_video",
     description:
-      "Generate a short AI video (up to 8 seconds) from a text description using Google Veo 3. Good for social media clips, ad creatives, demos. Returns a public URL to the generated video.",
+      "Generate a premium AI video from a text description using Higgsfield AI. Access to Kling 3.0, Sora 2, MiniMax, and Seedance models. Returns a public URL to the generated video.",
     input_schema: {
       type: "object" as const,
       properties: {
         prompt: {
           type: "string",
-          description: "Detailed description of the video to generate. Include scene, camera movements, style, mood, and any dialogue.",
+          description: "Detailed video description. Write like a cinematographer: specify shot type (wide/medium/close-up), camera movement (dolly, tracking, crane, pan), lighting (direction, quality, color temperature), and mood. Example: 'Medium shot, slow dolly forward: premium headphones on dark surface, soft key light from left, warm rim light from behind, shallow depth of field, aspirational luxury mood, smooth motion.' Avoid vague terms like 'cinematic quality' or 'good lighting' -- be SPECIFIC about camera and light.",
         },
         aspect_ratio: {
           type: "string",
-          description: "Aspect ratio: '16:9' (landscape, default), '9:16' (portrait/stories/reels).",
+          description: "Aspect ratio: '16:9' (landscape, default), '9:16' (portrait/stories/reels), '1:1' (square).",
         },
         duration: {
           type: "string",
-          description: "Duration in seconds: '4', '6', or '8' (default '8').",
+          description: "Duration in seconds. Kling: '5' or '10' (default '5'). Sora: '4', '8', or '12'. MiniMax: '6'.",
+        },
+        model: {
+          type: "string",
+          description: "Video model: 'kling-3' (default, best quality), 'kling-2.6', 'sora-2', 'minimax', 'seedance'. Default: 'kling-3'.",
         },
       },
       required: ["prompt"],
+    },
+  },
+  {
+    name: "upload_to_storage",
+    description:
+      "Upload a local file (video, image, document) to permanent Supabase storage and get a public URL. Use this after creating files with run_command (e.g. ffmpeg output, stitched videos, processed images). The returned URL is permanent and shareable.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        file_path: {
+          type: "string",
+          description: "Absolute path to the local file to upload (e.g. /tmp/output.mp4, /tmp/final-video.mp4).",
+        },
+        content_type: {
+          type: "string",
+          description: "MIME type: 'video/mp4', 'image/png', 'image/jpeg', 'application/pdf', etc. Default: auto-detect from extension.",
+        },
+      },
+      required: ["file_path"],
     },
   },
   {
@@ -973,6 +1215,92 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         export_columns: { type: "string", description: "Comma-separated columns to include. Varies by report type. Example for domain_organic: 'Ph,Po,Nq,Cp,Ur,Tr'." },
       },
       required: ["type"],
+    },
+  },
+  {
+    name: "apollo_search",
+    description:
+      "Search Apollo.io for people or companies. Use this to find leads, contacts, and company data for prospecting and outreach. Supports searching by job title, company, location, industry, and more.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        search_type: {
+          type: "string",
+          description: "Type of search: 'people' (find contacts/leads) or 'organizations' (find companies). Default: 'people'.",
+        },
+        person_titles: {
+          type: "array",
+          items: { type: "string" },
+          description: "Job titles to search for (people search). Example: ['CEO', 'Marketing Director'].",
+        },
+        person_locations: {
+          type: "array",
+          items: { type: "string" },
+          description: "Locations to filter by. Example: ['California, US', 'New York, US'].",
+        },
+        q_organization_name: {
+          type: "string",
+          description: "Company name to search within (people search) or company to find (org search).",
+        },
+        organization_locations: {
+          type: "array",
+          items: { type: "string" },
+          description: "Organization HQ locations. Example: ['United States'].",
+        },
+        organization_num_employees_ranges: {
+          type: "array",
+          items: { type: "string" },
+          description: "Employee count ranges. Example: ['1,10', '11,50', '51,200', '201,500', '501,1000', '1001,5000', '5001,10000'].",
+        },
+        q_keywords: {
+          type: "string",
+          description: "Keywords to search for in person or org profiles.",
+        },
+        per_page: {
+          type: "number",
+          description: "Results per page. Default 10, max 100.",
+        },
+        page: {
+          type: "number",
+          description: "Page number for pagination. Default 1.",
+        },
+      },
+      required: ["search_type"],
+    },
+  },
+  {
+    name: "apollo_enrich",
+    description:
+      "Enrich a person or company with Apollo.io data. Provide an email, domain, or name to get full profile data including contact info, company details, social links, and more.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        enrich_type: {
+          type: "string",
+          description: "Type of enrichment: 'person' or 'organization'. Default: 'person'.",
+        },
+        email: {
+          type: "string",
+          description: "Email address to enrich (person enrichment).",
+        },
+        first_name: {
+          type: "string",
+          description: "First name (person enrichment, use with last_name and domain).",
+        },
+        last_name: {
+          type: "string",
+          description: "Last name (person enrichment, use with first_name and domain).",
+        },
+        domain: {
+          type: "string",
+          description: "Company domain for enrichment. Example: 'apollo.io'. Used for both person and org enrichment.",
+        },
+        organization_name: {
+          type: "string",
+          description: "Company name (org enrichment). Example: 'Apollo'.",
+        },
+      },
+      required: ["enrich_type"],
     },
   },
   {
@@ -1069,9 +1397,9 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       "Returns all account mappings (Google Ads, Meta Ads, TikTok, Bing, LinkedIn, Facebook Page, Instagram Account, Ayrshare Profile) plus client profile info. " +
       "The response includes 'accounts' (grouped by platform), 'linked_platforms' (array), and 'total_linked_accounts' (count). " +
       "If 'accounts' is empty {}, the client has no linked accounts. If it has platform keys, those accounts ARE linked and ready to use. " +
-      "Platform keys: 'google_ads' = Google Ads customer ID, 'meta_ads' = Meta ad account ID (act_xxx), 'facebook_page' = Facebook Page ID (use with Meta Graph API for published_posts and page insights), 'instagram_account' = IG business account ID, 'ayrshare_profile' = Ayrshare profile key for per-client social media management. " +
+      "Platform keys: 'google_ads' = Google Ads customer ID, 'meta_ads' = Meta ad account ID (act_xxx), 'facebook_page' = Facebook Page ID (use with Meta Graph API for published_posts and page insights), 'instagram_account' = IG business account ID, 'ayrshare_profile' = Ayrshare profile key for per-client social media management, 'ghl' = GoHighLevel location ID (sub-account) for CRM operations. " +
       "If client_name is omitted, returns ALL active clients with their linked accounts. " +
-      "ALWAYS call this FIRST before any Google Ads, Meta Ads, social media, Supermetrics, or GA4 operation. Uses smart fuzzy matching on client names.",
+      "ALWAYS call this FIRST before any Google Ads, Meta Ads, social media, Supermetrics, GA4, or GoHighLevel operation. Uses smart fuzzy matching on client names.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -1664,6 +1992,261 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ["action"],
     },
   },
+
+  // ── GoHighLevel (GHL) Tools ──
+
+  {
+    name: "ghl_contacts",
+    description:
+      "Manage contacts in GoHighLevel CRM for a client. Requires client_name to resolve the GHL location.\n\n" +
+      "ACTIONS:\n" +
+      "- search_contacts: Search contacts by query, email, phone. Params: query, email, phone, limit, startAfter (cursor)\n" +
+      "- get_contact: Get contact by ID. Params: contact_id\n" +
+      "- create_contact: Create a new contact. Params: fields (firstName, lastName, email, phone, tags[], source, companyName, address1, city, state, postalCode, country, website, timezone, etc.)\n" +
+      "- update_contact: Update a contact. Params: contact_id, fields\n" +
+      "- delete_contact: Delete a contact. Params: contact_id\n" +
+      "- upsert_contact: Create or update by email/phone dedup. Params: fields\n" +
+      "- add_tags: Add tags to a contact. Params: contact_id, tags (string array)\n" +
+      "- remove_tags: Remove tags from a contact. Params: contact_id, tags (string array)\n" +
+      "- list_tasks: List tasks for a contact. Params: contact_id\n" +
+      "- create_task: Create a task on a contact. Params: contact_id, title, dueDate, description\n" +
+      "- list_notes: List notes for a contact. Params: contact_id\n" +
+      "- create_note: Add a note to a contact. Params: contact_id, body\n" +
+      "- list_tags: List all tags in the location\n" +
+      "- create_tag: Create a new tag. Params: name\n" +
+      "- delete_tag: Delete a tag. Params: tag_id\n" +
+      "- get_custom_fields: List custom fields. Params: model (default 'contact')\n" +
+      "- bulk_update: Update multiple contacts. Params: contact_ids (array, max 25), fields\n\n" +
+      "ALWAYS use get_client_accounts first to verify the client has a GHL location linked (platform='ghl').",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        client_name: { type: "string", description: "Client name (REQUIRED). Resolves to GHL locationId via client_account_mappings." },
+        action: { type: "string", description: "Action to perform (see list above)." },
+        contact_id: { type: "string", description: "Contact ID (for get, update, delete, add_tags, remove_tags, tasks, notes)." },
+        fields: { type: "object", description: "Contact fields for create/update/upsert: firstName, lastName, email, phone, tags[], source, companyName, address1, city, state, postalCode, country, website, timezone, customFields[]." },
+        query: { type: "string", description: "Search query string." },
+        email: { type: "string", description: "Filter by email." },
+        phone: { type: "string", description: "Filter by phone." },
+        tags: { type: "array", items: { type: "string" }, description: "Tag names for add_tags/remove_tags." },
+        contact_ids: { type: "array", items: { type: "string" }, description: "Contact IDs for bulk_update (max 25)." },
+        title: { type: "string", description: "Task title." },
+        body: { type: "string", description: "Note body." },
+        name: { type: "string", description: "Tag name for create_tag." },
+        tag_id: { type: "string", description: "Tag ID for delete_tag." },
+        dueDate: { type: "string", description: "ISO date for task due date." },
+        description: { type: "string", description: "Task description." },
+        model: { type: "string", description: "Model type for get_custom_fields (default 'contact')." },
+        limit: { type: "number", description: "Max results (default 20, max 100)." },
+        startAfter: { type: "string", description: "Pagination cursor from previous response." },
+      },
+      required: ["client_name", "action"],
+    },
+  },
+
+  {
+    name: "ghl_conversations",
+    description:
+      "Manage conversations and send messages (SMS, email, WhatsApp) in GoHighLevel for a client.\n\n" +
+      "ACTIONS:\n" +
+      "- list_conversations: List recent conversations. Params: limit, status (all/read/unread/starred)\n" +
+      "- get_conversation: Get a conversation by ID. Params: conversation_id\n" +
+      "- search_conversations: Search conversations. Params: query, contact_id\n" +
+      "- get_messages: Get messages in a conversation. Params: conversation_id, limit\n" +
+      "- send_message: Send a message (SMS, Email, WhatsApp, etc.). Params: contact_id, type (SMS/Email/WhatsApp/GMB/IG/FB/Live_Chat/Custom), message, subject (for email), html (for email HTML body), emailFrom\n" +
+      "- update_conversation: Update conversation status. Params: conversation_id, status (read/unread/starred/unstarred)\n" +
+      "- create_conversation: Create a new conversation. Params: contact_id\n\n" +
+      "For SMS: set type='SMS', message='your text'\n" +
+      "For Email: set type='Email', subject='Subject', html='<p>HTML body</p>' or message='plain text'\n" +
+      "For WhatsApp: set type='WhatsApp', message='your text'",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        client_name: { type: "string", description: "Client name (REQUIRED)." },
+        action: { type: "string", description: "Action to perform." },
+        conversation_id: { type: "string", description: "Conversation ID." },
+        contact_id: { type: "string", description: "Contact ID (for sending messages or creating conversations)." },
+        type: { type: "string", description: "Message type: SMS, Email, WhatsApp, GMB, IG, FB, Live_Chat, Custom." },
+        message: { type: "string", description: "Message text." },
+        subject: { type: "string", description: "Email subject." },
+        html: { type: "string", description: "Email HTML body." },
+        emailFrom: { type: "string", description: "From email address (optional)." },
+        query: { type: "string", description: "Search query." },
+        status: { type: "string", description: "Conversation status filter or update value." },
+        limit: { type: "number", description: "Max results." },
+      },
+      required: ["client_name", "action"],
+    },
+  },
+
+  {
+    name: "ghl_calendar",
+    description:
+      "Manage calendars and appointments in GoHighLevel for a client.\n\n" +
+      "ACTIONS:\n" +
+      "- list_calendars: List all calendars in the location\n" +
+      "- get_calendar: Get calendar details. Params: calendar_id\n" +
+      "- create_calendar: Create a calendar. Params: name, description, calendarType (round_robin/event/class_booking/collective/service_menu)\n" +
+      "- update_calendar: Update a calendar. Params: calendar_id, fields\n" +
+      "- delete_calendar: Delete a calendar. Params: calendar_id\n" +
+      "- get_free_slots: Get available booking slots. Params: calendar_id, start_date, end_date, timezone\n" +
+      "- list_events: List calendar events/appointments. Params: start_date, end_date, calendar_id, contact_id\n" +
+      "- get_event: Get event details. Params: event_id\n" +
+      "- create_event: Book an appointment. Params: calendar_id, contact_id, start_time, end_time, title, notes, status\n" +
+      "- update_event: Update an event. Params: event_id, fields (status: confirmed/cancelled/showed/noshow/invalid)\n" +
+      "- delete_event: Cancel/delete an event. Params: event_id\n" +
+      "- list_calendar_groups: List calendar groups\n\n" +
+      "Dates: ISO 8601 format (e.g. 2026-03-15T10:00:00-05:00). Timezone defaults to location timezone.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        client_name: { type: "string", description: "Client name (REQUIRED)." },
+        action: { type: "string", description: "Action to perform." },
+        calendar_id: { type: "string", description: "Calendar ID." },
+        event_id: { type: "string", description: "Event/appointment ID." },
+        contact_id: { type: "string", description: "Contact ID." },
+        name: { type: "string", description: "Calendar name." },
+        title: { type: "string", description: "Event title." },
+        notes: { type: "string", description: "Event notes." },
+        start_date: { type: "string", description: "Start date (YYYY-MM-DD or ISO)." },
+        end_date: { type: "string", description: "End date (YYYY-MM-DD or ISO)." },
+        start_time: { type: "string", description: "Event start time (ISO)." },
+        end_time: { type: "string", description: "Event end time (ISO)." },
+        timezone: { type: "string", description: "Timezone (e.g. America/New_York)." },
+        status: { type: "string", description: "Event status." },
+        fields: { type: "object", description: "Fields for update operations." },
+        calendarType: { type: "string", description: "Calendar type for creation." },
+        description: { type: "string", description: "Calendar description." },
+      },
+      required: ["client_name", "action"],
+    },
+  },
+
+  {
+    name: "ghl_pipeline",
+    description:
+      "Manage opportunities and sales pipelines in GoHighLevel for a client.\n\n" +
+      "ACTIONS:\n" +
+      "- list_pipelines: List all pipelines in the location\n" +
+      "- list_stages: List stages in a pipeline. Params: pipeline_id\n" +
+      "- search_opportunities: Search opportunities. Params: pipeline_id, stage_id, status (open/won/lost/abandoned/all), query, contact_id, limit\n" +
+      "- get_opportunity: Get opportunity details. Params: opportunity_id\n" +
+      "- create_opportunity: Create an opportunity. Params: pipeline_id, stage_id, contact_id, name, monetaryValue, status\n" +
+      "- update_opportunity: Update an opportunity. Params: opportunity_id, fields (name, stageId, status, monetaryValue, assignedTo)\n" +
+      "- delete_opportunity: Delete an opportunity. Params: opportunity_id\n" +
+      "- upsert_opportunity: Create or update by pipeline + contact. Params: pipeline_id, contact_id, fields\n\n" +
+      "Monetary values in dollars (not cents). Status: open, won, lost, abandoned.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        client_name: { type: "string", description: "Client name (REQUIRED)." },
+        action: { type: "string", description: "Action to perform." },
+        pipeline_id: { type: "string", description: "Pipeline ID." },
+        stage_id: { type: "string", description: "Stage ID." },
+        opportunity_id: { type: "string", description: "Opportunity ID." },
+        contact_id: { type: "string", description: "Contact ID." },
+        name: { type: "string", description: "Opportunity name." },
+        monetaryValue: { type: "number", description: "Deal value in dollars." },
+        status: { type: "string", description: "Status: open, won, lost, abandoned." },
+        query: { type: "string", description: "Search query." },
+        fields: { type: "object", description: "Fields for update/upsert." },
+        assignedTo: { type: "string", description: "User ID to assign." },
+        limit: { type: "number", description: "Max results." },
+      },
+      required: ["client_name", "action"],
+    },
+  },
+
+  {
+    name: "ghl_marketing",
+    description:
+      "Manage marketing assets in GoHighLevel for a client: campaigns, workflows, forms, funnels, social media, email templates, surveys, blogs.\n\n" +
+      "ACTIONS:\n" +
+      "- list_campaigns: List campaigns\n" +
+      "- list_workflows: List automation workflows (read-only)\n" +
+      "- list_forms: List forms\n" +
+      "- get_form_submissions: Get form submissions. Params: form_id, limit, page\n" +
+      "- list_funnels: List funnels\n" +
+      "- get_funnel_pages: Get pages in a funnel. Params: funnel_id\n" +
+      "- list_email_templates: List email templates\n" +
+      "- list_surveys: List surveys\n" +
+      "- get_survey_submissions: Get survey submissions. Params: survey_id, limit, page\n" +
+      "- list_social_posts: List social media posts. Params: status, type\n" +
+      "- create_social_post: Create a social post. Params: platforms (array: facebook/instagram/linkedin/twitter/tiktok/google_my_business), content, media_urls, schedule_date\n" +
+      "- delete_social_post: Delete a social post. Params: post_id\n" +
+      "- list_blogs: List blog posts\n\n" +
+      "Note: Workflows are read-only via API. Trigger them by adding tags to contacts (use ghl_contacts add_tags).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        client_name: { type: "string", description: "Client name (REQUIRED)." },
+        action: { type: "string", description: "Action to perform." },
+        form_id: { type: "string", description: "Form ID." },
+        funnel_id: { type: "string", description: "Funnel ID." },
+        survey_id: { type: "string", description: "Survey ID." },
+        post_id: { type: "string", description: "Social post ID." },
+        platforms: { type: "array", items: { type: "string" }, description: "Social platforms: facebook, instagram, linkedin, twitter, tiktok, google_my_business." },
+        content: { type: "string", description: "Post content text." },
+        media_urls: { type: "array", items: { type: "string" }, description: "Media URLs for social posts." },
+        schedule_date: { type: "string", description: "ISO date to schedule the post." },
+        status: { type: "string", description: "Filter by status." },
+        type: { type: "string", description: "Post type filter." },
+        limit: { type: "number", description: "Max results." },
+        page: { type: "number", description: "Page number." },
+      },
+      required: ["client_name", "action"],
+    },
+  },
+
+  {
+    name: "ghl_admin",
+    description:
+      "GoHighLevel admin operations: manage locations (sub-accounts), users, invoices, products, media, documents, custom fields, and raw API access.\n\n" +
+      "ACTIONS:\n" +
+      "- list_locations: List ALL agency sub-accounts (client_name NOT required)\n" +
+      "- get_location: Get location details. Uses client_name to resolve locationId\n" +
+      "- list_users: List users/team members in a location\n" +
+      "- list_custom_fields: List custom fields. Params: model (contact/opportunity)\n" +
+      "- create_custom_field: Create a custom field. Params: name, dataType, model, placeholder\n" +
+      "- list_invoices: List invoices. Params: status, limit\n" +
+      "- get_invoice: Get invoice details. Params: invoice_id\n" +
+      "- create_invoice: Create an invoice. Params: fields (name, contactId, items[], dueDate, etc.)\n" +
+      "- list_products: List products\n" +
+      "- create_product: Create a product. Params: name, description, prices[]\n" +
+      "- list_media: List media files\n" +
+      "- upload_media: Upload a file. Params: url (public URL), name\n" +
+      "- list_documents: List documents/contracts\n" +
+      "- send_document: Send a document. Params: contact_id, template_id\n" +
+      "- list_businesses: List businesses\n" +
+      "- raw_api: Make any GHL API call not covered above. Params: method (GET/POST/PUT/DELETE), endpoint (e.g. /contacts/), body, params\n\n" +
+      "The raw_api action is an escape hatch for any GHL v2 endpoint. Use it when a specific endpoint is not covered by the other GHL tools.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        client_name: { type: "string", description: "Client name (required for most actions, optional for list_locations)." },
+        action: { type: "string", description: "Action to perform." },
+        location_id: { type: "string", description: "Location ID (usually auto-resolved from client_name)." },
+        model: { type: "string", description: "Model type for custom fields: contact, opportunity." },
+        name: { type: "string", description: "Name for creation operations." },
+        dataType: { type: "string", description: "Data type for custom fields." },
+        placeholder: { type: "string", description: "Placeholder for custom fields." },
+        invoice_id: { type: "string", description: "Invoice ID." },
+        contact_id: { type: "string", description: "Contact ID." },
+        template_id: { type: "string", description: "Document template ID." },
+        url: { type: "string", description: "Public URL for media upload." },
+        status: { type: "string", description: "Filter by status." },
+        method: { type: "string", description: "HTTP method for raw_api: GET, POST, PUT, DELETE." },
+        endpoint: { type: "string", description: "API endpoint path for raw_api (e.g. /contacts/)." },
+        body: { type: "object", description: "Request body for raw_api or creation operations." },
+        params: { type: "object", description: "Query params for raw_api GET requests." },
+        fields: { type: "object", description: "Fields for creation/update operations." },
+        limit: { type: "number", description: "Max results." },
+        description: { type: "string", description: "Description for products/custom fields." },
+        prices: { type: "array", items: { type: "object" }, description: "Price definitions for products." },
+      },
+      required: ["action"],
+    },
+  },
 ];
 
 /** Refresh a Canva OAuth access token and update the DB */
@@ -2213,6 +2796,11 @@ export async function executeTool(
       case "slack_post": {
         const token = await requireSecret("SLACK_BOT_TOKEN", "Slack Bot Token");
         const channel = toolInput.channel as string;
+        // HARD BLOCK: never post to #general
+        const normalizedChannel = channel.replace(/^#/, "").toLowerCase();
+        if (normalizedChannel === "general") {
+          return "Error: Posting to #general is not allowed. Use a more specific channel instead.";
+        }
         const text = toolInput.text as string;
         const threadTs = toolInput.thread_ts as string | undefined;
         const body: Record<string, string> = { channel, text };
@@ -2466,56 +3054,144 @@ export async function executeTool(
       }
 
       case "generate_video": {
-        const googleAiKey = process.env.GOOGLE_AI_API_KEY;
-        if (!googleAiKey) return "Error: GOOGLE_AI_API_KEY is not configured.";
+        const hfKeyId = process.env.HIGGSFIELD_KEY_ID;
+        const hfKeySecret = process.env.HIGGSFIELD_KEY_SECRET;
+        if (!hfKeyId || !hfKeySecret) return "Error: HIGGSFIELD_KEY_ID and HIGGSFIELD_KEY_SECRET are not configured.";
         const { supabase: sbVid } = await import("./supabase.js");
 
-        const videoPrompt = toolInput.prompt as string;
+        // Cinematic prompt enhancer - adds missing camera, lighting, film quality, pacing
+        const CAMERA_KW = ["shot", "pan", "dolly", "tracking", "zoom", "crane", "orbit", "tilt", "close-up", "closeup", "wide", "medium shot", "aerial", "drone", "handheld", "static", "fixed", "locked", "push-in", "pull-back", "whip"];
+        const LIGHT_KW = ["light", "lighting", "shadow", "glow", "rim", "backlit", "golden hour", "sunlight", "neon", "volumetric", "ambient", "illuminat", "key light"];
+        const FILM_KW = ["lens", "bokeh", "depth of field", "film grain", "anamorphic", "35mm", "4k", "8k", "red ", "arri", "alexa", "kodak", "cinematic lens", "shallow focus"];
+        const PACE_KW = ["slowly", "gradually", "gently", "pauses", "holds", "reveals", "builds", "accelerates", "eases", "smooth motion", "half speed", "slow motion"];
+        const hasKw = (t: string, kws: string[]) => kws.some(k => t.toLowerCase().includes(k));
+
+        const enhanceVideoPrompt = (raw: string): string => {
+          const parts = [raw.trim()];
+          if (!hasKw(raw, CAMERA_KW)) parts.push("Smooth dolly push-in, medium shot framing, steady gimbal-stabilized movement.");
+          if (!hasKw(raw, LIGHT_KW)) parts.push("Soft directional key light from camera-left with warm color temperature, subtle rim light separation from background.");
+          if (!hasKw(raw, FILM_KW)) parts.push("Cinematic lens with shallow depth of field, professional color grading, rich contrast.");
+          if (!hasKw(raw, PACE_KW)) parts.push("Smooth gradual motion building visual interest throughout the shot.");
+          parts.push("Photorealistic, broadcast-quality rendering, natural motion at 24fps, film-accurate color science.");
+          let out = parts.join(" ");
+          const words = out.split(/\s+/);
+          if (words.length > 160) out = words.slice(0, 155).join(" ") + ".";
+          return out;
+        };
+
+        const rawVideoPrompt = toolInput.prompt as string;
+        const videoPrompt = enhanceVideoPrompt(rawVideoPrompt);
         const videoAspect = (toolInput.aspect_ratio as string) || "16:9";
-        const videoDuration = (toolInput.duration as string) || "8";
-        const apiBase = "https://generativelanguage.googleapis.com/v1beta";
+        const videoDuration = (toolInput.duration as string) || "5";
+        const modelChoice = (toolInput.model as string) || "kling-3";
 
-        const startResp = await fetch(
-          `${apiBase}/models/veo-3.1-generate-preview:predictLongRunning?key=${googleAiKey}`,
-          {
+        const VIDEO_MODEL_MAP: Record<string, string> = {
+          "kling-3": "kling-video/v3.0/pro/text-to-video",
+          "kling-2.6": "kling-video/v2.6/pro/text-to-video",
+          "sora-2": "sora-2/text-to-video",
+          "minimax": "minimax/hailuo-02/pro/text-to-video",
+          "seedance": "bytedance/seedance/v1.5/pro/text-to-video",
+        };
+        const endpoint = VIDEO_MODEL_MAP[modelChoice] || VIDEO_MODEL_MAP["kling-3"];
+        const hfAuth = `Key ${hfKeyId}:${hfKeySecret}`;
+        const hfBase = "https://platform.higgsfield.ai";
+
+        try {
+          console.log(`[generate_video] Higgsfield: model=${modelChoice}, endpoint=${endpoint}`);
+
+          // Submit generation request
+          const submitBody: Record<string, any> = {
+            prompt: videoPrompt,
+            duration: parseInt(videoDuration, 10) || 5,
+            aspect_ratio: videoAspect,
+          };
+          if (modelChoice === "seedance") submitBody.seed = Math.floor(Math.random() * 999999);
+
+          const startResp = await fetch(`${hfBase}/${endpoint}`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              instances: [{ prompt: videoPrompt }],
-              parameters: { aspectRatio: videoAspect, durationSeconds: parseInt(videoDuration, 10) || 8 },
-            }),
-          }
-        );
-        if (!startResp.ok) {
-          const errText = await startResp.text().catch(() => "");
-          return `Video generation failed to start (${startResp.status}): ${errText.slice(0, 500)}`;
-        }
-        const startData = await startResp.json() as any;
-        const operationName = startData.name;
-        if (!operationName) return `Video generation failed: no operation ID returned.`;
+            headers: { Authorization: hfAuth, "Content-Type": "application/json" },
+            body: JSON.stringify(submitBody),
+          });
 
-        const maxPolls = 30;
-        for (let i = 0; i < maxPolls; i++) {
-          await new Promise(r => setTimeout(r, 10_000));
-          const pollResp = await fetch(`${apiBase}/${operationName}?key=${googleAiKey}`);
-          if (!pollResp.ok) continue;
-          const pollData = await pollResp.json() as any;
-          if (pollData.done) {
-            const videoUri = pollData.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
-            if (!videoUri) return `Video completed but no URI returned.`;
-            const videoResp = await fetch(`${videoUri}${videoUri.includes('?') ? '&' : '?'}key=${googleAiKey}`);
-            if (!videoResp.ok) return `Video generated but download failed.`;
-            const videoBuf = Buffer.from(await videoResp.arrayBuffer());
-            const storagePath = `generated/video-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.mp4`;
-            const { error: uploadErr } = await sbVid.storage
-              .from("ad-creatives")
-              .upload(storagePath, videoBuf, { contentType: "video/mp4", upsert: false });
-            if (uploadErr) return `Video generated but upload failed: ${uploadErr.message}`;
-            const { data: urlData } = sbVid.storage.from("ad-creatives").getPublicUrl(storagePath);
-            return `Video generated!\n\nWatch here: ${urlData.publicUrl}\n\nDuration: ${videoDuration}s | Aspect: ${videoAspect}`;
+          if (!startResp.ok) {
+            const errText = await startResp.text().catch(() => "");
+            return `Video generation failed (${startResp.status}): ${errText.slice(0, 500)}`;
           }
+
+          const startData = await startResp.json() as any;
+          const requestId = startData.request_id;
+          if (!requestId) return `Video generation failed: no request_id returned. Response: ${JSON.stringify(startData).slice(0, 300)}`;
+
+          console.log(`[generate_video] Higgsfield request_id: ${requestId}`);
+
+          // Poll for completion (max 120 attempts x 5s = 10 minutes)
+          const maxPolls = 120;
+          for (let i = 0; i < maxPolls; i++) {
+            await new Promise(r => setTimeout(r, 5_000));
+            const pollResp = await fetch(`${hfBase}/requests/${requestId}/status`, {
+              headers: { Authorization: hfAuth },
+            });
+            if (!pollResp.ok) {
+              if (pollResp.status >= 500) continue;
+              const pollErr = await pollResp.text().catch(() => "");
+              return `Video poll failed (${pollResp.status}): ${pollErr.slice(0, 300)}`;
+            }
+            const pollData = await pollResp.json() as any;
+            console.log(`[generate_video] Poll ${i + 1}: status=${pollData.status}`);
+
+            if (pollData.status === "completed") {
+              const videoUrl = pollData.video?.url || pollData.output?.video?.url || pollData.images?.[0]?.url;
+              if (!videoUrl) return `Video completed but no URL in response: ${JSON.stringify(pollData).slice(0, 500)}`;
+
+              // Download and upload to Supabase for permanent hosting
+              const videoResp = await fetch(videoUrl);
+              if (!videoResp.ok) return `Video generated but download failed (${videoResp.status}).`;
+              const videoBuf = Buffer.from(await videoResp.arrayBuffer());
+              const storagePath = `generated/video-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.mp4`;
+              const { error: uploadErr } = await sbVid.storage
+                .from("ad-creatives")
+                .upload(storagePath, videoBuf, { contentType: "video/mp4", upsert: false });
+              if (uploadErr) return `Video generated but upload failed: ${uploadErr.message}`;
+              const { data: urlData } = sbVid.storage.from("ad-creatives").getPublicUrl(storagePath);
+              return `Video generated!\n\nWatch here: ${urlData.publicUrl}\n\nDuration: ${videoDuration}s | Aspect: ${videoAspect} | Model: ${modelChoice}`;
+            }
+            if (pollData.status === "failed") return `Video generation failed. Try a different prompt or model.`;
+            if (pollData.status === "nsfw") return `Video blocked by content moderation. Please adjust the prompt.`;
+          }
+          return `Video generation timed out after 10 minutes. Try again or use a faster model.`;
+        } catch (err: any) {
+          console.error("[generate_video] Higgsfield error:", err);
+          return `Video generation failed: ${err.message || "Unknown error"}`;
         }
-        return `Video generation timed out. The job may still be processing. Try again in a few minutes.`;
+      }
+
+      case "upload_to_storage": {
+        const { supabase: sbUpload } = await import("./supabase.js");
+        const filePath = toolInput.file_path as string;
+
+        try {
+          const fileData = await import("fs/promises").then(fs => fs.readFile(filePath));
+          const ext = filePath.split(".").pop()?.toLowerCase() || "bin";
+          const mimeMap: Record<string, string> = {
+            mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
+            png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp",
+            pdf: "application/pdf", mp3: "audio/mpeg", wav: "audio/wav",
+          };
+          const contentType = (toolInput.content_type as string) || mimeMap[ext] || "application/octet-stream";
+          const storagePath = `generated/${ext}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
+
+          const { error: uploadErr } = await sbUpload.storage
+            .from("ad-creatives")
+            .upload(storagePath, fileData, { contentType, upsert: false });
+          if (uploadErr) return `Upload failed: ${uploadErr.message}`;
+
+          const { data: urlData } = sbUpload.storage.from("ad-creatives").getPublicUrl(storagePath);
+          console.log(`[upload_to_storage] Uploaded ${filePath} -> ${urlData.publicUrl}`);
+          return `File uploaded successfully!\n\nPermanent URL: ${urlData.publicUrl}\n\nSize: ${(fileData.length / 1024 / 1024).toFixed(1)}MB | Type: ${contentType}`;
+        } catch (err: any) {
+          console.error("[upload_to_storage] Error:", err);
+          return `Upload failed: ${err.message || "Unknown error"}`;
+        }
       }
 
       case "google_sheets_read": {
@@ -2587,6 +3263,87 @@ export async function executeTool(
         });
         const result = rows.join("\n");
         return result.length > 12000 ? result.slice(0, 12000) + "\n[...truncated]" : result;
+      }
+
+      case "apollo_search": {
+        const apiKey = await requireSecret("APOLLO_API_KEY", "Apollo API Key");
+        const searchType = (toolInput.search_type as string) || "people";
+        const endpoint = searchType === "organizations"
+          ? "https://api.apollo.io/api/v1/mixed_companies/search"
+          : "https://api.apollo.io/api/v1/mixed_people/api_search";
+
+        const body: Record<string, unknown> = {
+          per_page: (toolInput.per_page as number) || 10,
+          page: (toolInput.page as number) || 1,
+        };
+        if (toolInput.person_titles) body.person_titles = toolInput.person_titles;
+        if (toolInput.person_locations) body.person_locations = toolInput.person_locations;
+        if (toolInput.q_organization_name) body.q_organization_name = toolInput.q_organization_name;
+        if (toolInput.organization_locations) body.organization_locations = toolInput.organization_locations;
+        if (toolInput.organization_num_employees_ranges) body.organization_num_employees_ranges = toolInput.organization_num_employees_ranges;
+        if (toolInput.q_keywords) body.q_keywords = toolInput.q_keywords;
+
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Api-Key": apiKey,
+          },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json() as Record<string, unknown>;
+        if (!resp.ok) {
+          return `Apollo API error (${resp.status}): ${JSON.stringify(data).slice(0, 3000)}`;
+        }
+        const r = JSON.stringify(data, null, 2);
+        return r.length > 12000 ? r.slice(0, 12000) + "\n[...truncated]" : r;
+      }
+
+      case "apollo_enrich": {
+        const apiKey = await requireSecret("APOLLO_API_KEY", "Apollo API Key");
+        const enrichType = (toolInput.enrich_type as string) || "person";
+
+        if (enrichType === "organization") {
+          const body: Record<string, unknown> = {};
+          if (toolInput.domain) body.domain = toolInput.domain;
+          if (toolInput.organization_name) body.organization_name = toolInput.organization_name;
+
+          const resp = await fetch("https://api.apollo.io/api/v1/organizations/enrich", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Api-Key": apiKey,
+            },
+            body: JSON.stringify(body),
+          });
+          const data = await resp.json() as Record<string, unknown>;
+          if (!resp.ok) {
+            return `Apollo API error (${resp.status}): ${JSON.stringify(data).slice(0, 3000)}`;
+          }
+          const r = JSON.stringify(data, null, 2);
+          return r.length > 12000 ? r.slice(0, 12000) + "\n[...truncated]" : r;
+        } else {
+          const body: Record<string, unknown> = {};
+          if (toolInput.email) body.email = toolInput.email;
+          if (toolInput.first_name) body.first_name = toolInput.first_name;
+          if (toolInput.last_name) body.last_name = toolInput.last_name;
+          if (toolInput.domain) body.domain = toolInput.domain;
+
+          const resp = await fetch("https://api.apollo.io/api/v1/people/match", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Api-Key": apiKey,
+            },
+            body: JSON.stringify(body),
+          });
+          const data = await resp.json() as Record<string, unknown>;
+          if (!resp.ok) {
+            return `Apollo API error (${resp.status}): ${JSON.stringify(data).slice(0, 3000)}`;
+          }
+          const r = JSON.stringify(data, null, 2);
+          return r.length > 12000 ? r.slice(0, 12000) + "\n[...truncated]" : r;
+        }
       }
 
       case "get_current_date": {
@@ -2740,6 +3497,20 @@ export async function executeTool(
           else if (code === 2635) hint = "\nHINT: Budget is too low. Meta requires minimum $1/day ($100 in cents).";
           return `Meta API error (${status}):${hint}\n${errJson}`;
         };
+
+        // Auto-resolve page access token for Page API endpoints (published_posts, feed, photos, etc.)
+        // The System User token can't read page content directly -- need a page-specific token
+        const pageEndpointPattern = /^\/(\d+)\/(published_posts|feed|photos|videos|posts|conversations|messages)/;
+        const pageMatch = endpoint.match(pageEndpointPattern);
+        if (pageMatch) {
+          try {
+            const pageId = pageMatch[1];
+            const pagesResp = await fetch(`${baseUrl}/me/accounts?fields=id,access_token&limit=200&access_token=${token}`);
+            const pagesData = await pagesResp.json() as { data?: Array<{ id: string; access_token: string }> };
+            const page = pagesData.data?.find(p => p.id === pageId);
+            if (page?.access_token) token = page.access_token;
+          } catch { /* fall through with original token */ }
+        }
 
         try {
           if (method === "GET") {
@@ -3715,7 +4486,8 @@ export async function executeTool(
           const row: Record<string, unknown> = {
             title,
             description: (toolInput.description as string) || null,
-            status: "not_started",
+            status: "working_on_it",
+            started_at: new Date().toISOString(),
             priority: (toolInput.priority as string) || "medium",
             category: (toolInput.category as string) || null,
             client_name: (toolInput.client_name as string) || null,
@@ -3728,7 +4500,7 @@ export async function executeTool(
           };
           const { data, error } = await client.from("super_agent_tasks").insert(row).select().single();
           if (error) return `Error creating task: ${error.message}`;
-          return `Task created!\nID: ${(data as Record<string, unknown>).id}\nTitle: ${title}\nStatus: not_started\nPriority: ${row.priority}`;
+          return `Task created!\nID: ${(data as Record<string, unknown>).id}\nTitle: ${title}\nStatus: working_on_it\nPriority: ${row.priority}`;
         }
 
         if (action === "update") {
@@ -4627,6 +5399,716 @@ export async function executeTool(
 
           default:
             return `Unknown manage_uploads action "${action}". Available: list, search, view, describe, tag, delete.`;
+        }
+      }
+
+      // ── GoHighLevel (GHL) Tool Cases ──
+
+      case "ghl_contacts": {
+        const clientName = toolInput.client_name as string;
+        const action = toolInput.action as string;
+        if (!clientName) return "Error: client_name is required. Use get_client_accounts to find client names.";
+        if (!action) return "Error: action is required.";
+
+        const location = await resolveGhlLocation(clientName);
+        if (typeof location === "string") return location;
+        const { locationId, accessToken } = location;
+        const ghl = (opts: Omit<GhlRequestOptions, "accessToken">) => ghlLocationRequest(accessToken, opts);
+        console.log(`[ghl] ${memberName} | ${action} | ${clientName} (${locationId})`);
+
+        try {
+          switch (action) {
+            case "search_contacts": {
+              const result = await ghl({
+                endpoint: "/contacts/",
+                locationId,
+                params: {
+                  query: toolInput.query as string,
+                  email: toolInput.email as string,
+                  phone: toolInput.phone as string,
+                  limit: (toolInput.limit as number) || 20,
+                  startAfter: toolInput.startAfter as string,
+                },
+              });
+              return ghlResult(result);
+            }
+            case "get_contact": {
+              const contactId = toolInput.contact_id as string;
+              if (!contactId) return "Error: contact_id is required.";
+              const result = await ghl({ endpoint: `/contacts/${contactId}` });
+              return ghlResult(result);
+            }
+            case "create_contact": {
+              const fields = toolInput.fields as Record<string, unknown>;
+              if (!fields) return "Error: fields is required (firstName, lastName, email, phone, etc.).";
+              const result = await ghl({ method: "POST", endpoint: "/contacts/", body: { ...fields, locationId } });
+              return `Contact created!\n${ghlResult(result, 4000)}`;
+            }
+            case "update_contact": {
+              const contactId = toolInput.contact_id as string;
+              const fields = toolInput.fields as Record<string, unknown>;
+              if (!contactId || !fields) return "Error: contact_id and fields are required.";
+              const result = await ghl({ method: "PUT", endpoint: `/contacts/${contactId}`, body: fields });
+              return `Contact updated!\n${ghlResult(result, 4000)}`;
+            }
+            case "delete_contact": {
+              const contactId = toolInput.contact_id as string;
+              if (!contactId) return "Error: contact_id is required.";
+              await ghl({ method: "DELETE", endpoint: `/contacts/${contactId}` });
+              return `Contact ${contactId} deleted.`;
+            }
+            case "upsert_contact": {
+              const fields = toolInput.fields as Record<string, unknown>;
+              if (!fields) return "Error: fields is required.";
+              const result = await ghl({ method: "POST", endpoint: "/contacts/upsert", body: { ...fields, locationId } });
+              return `Contact upserted!\n${ghlResult(result, 4000)}`;
+            }
+            case "add_tags": {
+              const contactId = toolInput.contact_id as string;
+              const tags = toolInput.tags as string[];
+              if (!contactId || !tags?.length) return "Error: contact_id and tags (array) are required.";
+              const result = await ghl({ method: "POST", endpoint: `/contacts/${contactId}/tags`, body: { tags } });
+              return `Tags added to contact!\n${ghlResult(result, 4000)}`;
+            }
+            case "remove_tags": {
+              const contactId = toolInput.contact_id as string;
+              const tags = toolInput.tags as string[];
+              if (!contactId || !tags?.length) return "Error: contact_id and tags (array) are required.";
+              const result = await ghl({ method: "DELETE", endpoint: `/contacts/${contactId}/tags`, body: { tags } });
+              return `Tags removed from contact!\n${ghlResult(result, 4000)}`;
+            }
+            case "list_tasks": {
+              const contactId = toolInput.contact_id as string;
+              if (!contactId) return "Error: contact_id is required.";
+              const result = await ghl({ endpoint: `/contacts/${contactId}/tasks` });
+              return ghlResult(result);
+            }
+            case "create_task": {
+              const contactId = toolInput.contact_id as string;
+              if (!contactId) return "Error: contact_id is required.";
+              const result = await ghl({
+                method: "POST",
+                endpoint: `/contacts/${contactId}/tasks`,
+                body: { title: toolInput.title as string, dueDate: toolInput.dueDate as string, description: toolInput.description as string },
+              });
+              return `Task created!\n${ghlResult(result, 4000)}`;
+            }
+            case "list_notes": {
+              const contactId = toolInput.contact_id as string;
+              if (!contactId) return "Error: contact_id is required.";
+              const result = await ghl({ endpoint: `/contacts/${contactId}/notes` });
+              return ghlResult(result);
+            }
+            case "create_note": {
+              const contactId = toolInput.contact_id as string;
+              const noteBody = toolInput.body as string;
+              if (!contactId || !noteBody) return "Error: contact_id and body are required.";
+              const result = await ghl({ method: "POST", endpoint: `/contacts/${contactId}/notes`, body: { body: noteBody } });
+              return `Note added!\n${ghlResult(result, 4000)}`;
+            }
+            case "list_tags": {
+              const result = await ghl({ endpoint: `/locations/${locationId}/tags` });
+              return ghlResult(result);
+            }
+            case "create_tag": {
+              const tagName = toolInput.name as string;
+              if (!tagName) return "Error: name is required.";
+              const result = await ghl({ method: "POST", endpoint: `/locations/${locationId}/tags`, body: { name: tagName } });
+              return `Tag created!\n${ghlResult(result, 4000)}`;
+            }
+            case "delete_tag": {
+              const tagId = toolInput.tag_id as string;
+              if (!tagId) return "Error: tag_id is required.";
+              await ghl({ method: "DELETE", endpoint: `/locations/${locationId}/tags/${tagId}` });
+              return `Tag ${tagId} deleted.`;
+            }
+            case "get_custom_fields": {
+              const model = (toolInput.model as string) || "contact";
+              const result = await ghl({ endpoint: `/locations/${locationId}/customFields`, params: { model } });
+              return ghlResult(result);
+            }
+            case "bulk_update": {
+              const contactIds = toolInput.contact_ids as string[];
+              const fields = toolInput.fields as Record<string, unknown>;
+              if (!contactIds?.length || !fields) return "Error: contact_ids (array) and fields are required.";
+              const results: string[] = [];
+              for (const id of contactIds.slice(0, 25)) {
+                try {
+                  await ghl({ method: "PUT", endpoint: `/contacts/${id}`, body: fields });
+                  results.push(`${id}: updated`);
+                } catch (err: any) {
+                  results.push(`${id}: FAILED - ${err.message}`);
+                }
+              }
+              return `Bulk update (${results.length}/${contactIds.length}):\n${results.join("\n")}`;
+            }
+            default:
+              return `Unknown ghl_contacts action "${action}". Available: search_contacts, get_contact, create_contact, update_contact, delete_contact, upsert_contact, add_tags, remove_tags, list_tasks, create_task, list_notes, create_note, list_tags, create_tag, delete_tag, get_custom_fields, bulk_update.`;
+          }
+        } catch (err: any) {
+          return `GHL Contacts error (${clientName}): ${err.message}`;
+        }
+      }
+
+      case "ghl_conversations": {
+        const clientName = toolInput.client_name as string;
+        const action = toolInput.action as string;
+        if (!clientName) return "Error: client_name is required.";
+        if (!action) return "Error: action is required.";
+
+        const location = await resolveGhlLocation(clientName);
+        if (typeof location === "string") return location;
+        const { locationId, accessToken } = location;
+        const ghl = (opts: Omit<GhlRequestOptions, "accessToken">) => ghlLocationRequest(accessToken, opts);
+        console.log(`[ghl] ${memberName} | ${action} | ${clientName} (${locationId})`);
+
+        try {
+          switch (action) {
+            case "list_conversations": {
+              const result = await ghl({
+                endpoint: "/conversations/search",
+                locationId,
+                params: { status: toolInput.status as string, limit: (toolInput.limit as number) || 20 },
+              });
+              return ghlResult(result);
+            }
+            case "get_conversation": {
+              const convId = toolInput.conversation_id as string;
+              if (!convId) return "Error: conversation_id is required.";
+              const result = await ghl({ endpoint: `/conversations/${convId}` });
+              return ghlResult(result);
+            }
+            case "search_conversations": {
+              const result = await ghl({
+                endpoint: "/conversations/search",
+                locationId,
+                params: { query: toolInput.query as string, contactId: toolInput.contact_id as string, limit: (toolInput.limit as number) || 20 },
+              });
+              return ghlResult(result);
+            }
+            case "get_messages": {
+              const convId = toolInput.conversation_id as string;
+              if (!convId) return "Error: conversation_id is required.";
+              const result = await ghl({
+                endpoint: `/conversations/${convId}/messages`,
+                params: { limit: (toolInput.limit as number) || 20 },
+              });
+              return ghlResult(result);
+            }
+            case "send_message": {
+              const contactId = toolInput.contact_id as string;
+              const msgType = toolInput.type as string;
+              if (!contactId) return "Error: contact_id is required.";
+              if (!msgType) return "Error: type is required (SMS, Email, WhatsApp, etc.).";
+              const body: Record<string, unknown> = {
+                type: msgType,
+                contactId,
+              };
+              if (toolInput.message) body.message = toolInput.message;
+              if (toolInput.subject) body.subject = toolInput.subject;
+              if (toolInput.html) body.html = toolInput.html;
+              if (toolInput.emailFrom) body.emailFrom = toolInput.emailFrom;
+              const result = await ghl({ method: "POST", endpoint: "/conversations/messages", body });
+              return `Message sent (${msgType})!\n${ghlResult(result, 4000)}`;
+            }
+            case "update_conversation": {
+              const convId = toolInput.conversation_id as string;
+              if (!convId) return "Error: conversation_id is required.";
+              const result = await ghl({
+                method: "PUT",
+                endpoint: `/conversations/${convId}`,
+                body: { status: toolInput.status as string },
+              });
+              return `Conversation updated!\n${ghlResult(result, 4000)}`;
+            }
+            case "create_conversation": {
+              const contactId = toolInput.contact_id as string;
+              if (!contactId) return "Error: contact_id is required.";
+              const result = await ghl({ method: "POST", endpoint: "/conversations/", body: { contactId, locationId } });
+              return `Conversation created!\n${ghlResult(result, 4000)}`;
+            }
+            default:
+              return `Unknown ghl_conversations action "${action}". Available: list_conversations, get_conversation, search_conversations, get_messages, send_message, update_conversation, create_conversation.`;
+          }
+        } catch (err: any) {
+          return `GHL Conversations error (${clientName}): ${err.message}`;
+        }
+      }
+
+      case "ghl_calendar": {
+        const clientName = toolInput.client_name as string;
+        const action = toolInput.action as string;
+        if (!clientName) return "Error: client_name is required.";
+        if (!action) return "Error: action is required.";
+
+        const location = await resolveGhlLocation(clientName);
+        if (typeof location === "string") return location;
+        const { locationId, accessToken } = location;
+        const ghl = (opts: Omit<GhlRequestOptions, "accessToken">) => ghlLocationRequest(accessToken, opts);
+        console.log(`[ghl] ${memberName} | ${action} | ${clientName} (${locationId})`);
+
+        try {
+          switch (action) {
+            case "list_calendars": {
+              const result = await ghl({ endpoint: "/calendars/", locationId });
+              return ghlResult(result);
+            }
+            case "get_calendar": {
+              const calId = toolInput.calendar_id as string;
+              if (!calId) return "Error: calendar_id is required.";
+              const result = await ghl({ endpoint: `/calendars/${calId}` });
+              return ghlResult(result);
+            }
+            case "create_calendar": {
+              const result = await ghl({
+                method: "POST",
+                endpoint: "/calendars/",
+                body: {
+                  locationId,
+                  name: toolInput.name as string,
+                  description: toolInput.description as string,
+                  calendarType: toolInput.calendarType as string,
+                },
+              });
+              return `Calendar created!\n${ghlResult(result, 4000)}`;
+            }
+            case "update_calendar": {
+              const calId = toolInput.calendar_id as string;
+              const fields = toolInput.fields as Record<string, unknown>;
+              if (!calId || !fields) return "Error: calendar_id and fields are required.";
+              const result = await ghl({ method: "PUT", endpoint: `/calendars/${calId}`, body: fields });
+              return `Calendar updated!\n${ghlResult(result, 4000)}`;
+            }
+            case "delete_calendar": {
+              const calId = toolInput.calendar_id as string;
+              if (!calId) return "Error: calendar_id is required.";
+              await ghl({ method: "DELETE", endpoint: `/calendars/${calId}` });
+              return `Calendar ${calId} deleted.`;
+            }
+            case "get_free_slots": {
+              const calId = toolInput.calendar_id as string;
+              if (!calId) return "Error: calendar_id is required.";
+              const result = await ghl({
+                endpoint: `/calendars/${calId}/free-slots`,
+                params: {
+                  startDate: toolInput.start_date as string,
+                  endDate: toolInput.end_date as string,
+                  timezone: toolInput.timezone as string,
+                },
+              });
+              return ghlResult(result);
+            }
+            case "list_events": {
+              const result = await ghl({
+                endpoint: "/calendars/events",
+                locationId,
+                params: {
+                  startTime: toolInput.start_date ? new Date(toolInput.start_date as string).getTime().toString() : undefined,
+                  endTime: toolInput.end_date ? new Date(toolInput.end_date as string).getTime().toString() : undefined,
+                  calendarId: toolInput.calendar_id as string,
+                  contactId: toolInput.contact_id as string,
+                },
+              });
+              return ghlResult(result);
+            }
+            case "get_event": {
+              const eventId = toolInput.event_id as string;
+              if (!eventId) return "Error: event_id is required.";
+              const result = await ghl({ endpoint: `/calendars/events/appointments/${eventId}` });
+              return ghlResult(result);
+            }
+            case "create_event": {
+              const calId = toolInput.calendar_id as string;
+              const contactId = toolInput.contact_id as string;
+              if (!calId || !contactId) return "Error: calendar_id and contact_id are required.";
+              const result = await ghl({
+                method: "POST",
+                endpoint: "/calendars/events",
+                body: {
+                  locationId,
+                  calendarId: calId,
+                  contactId,
+                  startTime: toolInput.start_time as string,
+                  endTime: toolInput.end_time as string,
+                  title: toolInput.title as string,
+                  notes: toolInput.notes as string,
+                  status: toolInput.status as string || "confirmed",
+                },
+              });
+              return `Event created!\n${ghlResult(result, 4000)}`;
+            }
+            case "update_event": {
+              const eventId = toolInput.event_id as string;
+              const fields = toolInput.fields as Record<string, unknown>;
+              if (!eventId || !fields) return "Error: event_id and fields are required.";
+              const result = await ghl({ method: "PUT", endpoint: `/calendars/events/${eventId}`, body: fields });
+              return `Event updated!\n${ghlResult(result, 4000)}`;
+            }
+            case "delete_event": {
+              const eventId = toolInput.event_id as string;
+              if (!eventId) return "Error: event_id is required.";
+              await ghl({ method: "DELETE", endpoint: `/calendars/events/${eventId}` });
+              return `Event ${eventId} deleted.`;
+            }
+            case "list_calendar_groups": {
+              const result = await ghl({ endpoint: "/calendars/groups", locationId });
+              return ghlResult(result);
+            }
+            default:
+              return `Unknown ghl_calendar action "${action}". Available: list_calendars, get_calendar, create_calendar, update_calendar, delete_calendar, get_free_slots, list_events, get_event, create_event, update_event, delete_event, list_calendar_groups.`;
+          }
+        } catch (err: any) {
+          return `GHL Calendar error (${clientName}): ${err.message}`;
+        }
+      }
+
+      case "ghl_pipeline": {
+        const clientName = toolInput.client_name as string;
+        const action = toolInput.action as string;
+        if (!clientName) return "Error: client_name is required.";
+        if (!action) return "Error: action is required.";
+
+        const location = await resolveGhlLocation(clientName);
+        if (typeof location === "string") return location;
+        const { locationId, accessToken } = location;
+        const ghl = (opts: Omit<GhlRequestOptions, "accessToken">) => ghlLocationRequest(accessToken, opts);
+        console.log(`[ghl] ${memberName} | ${action} | ${clientName} (${locationId})`);
+
+        try {
+          switch (action) {
+            case "list_pipelines": {
+              const result = await ghl({ endpoint: "/opportunities/pipelines", locationId });
+              return ghlResult(result);
+            }
+            case "list_stages": {
+              const pipelineId = toolInput.pipeline_id as string;
+              if (!pipelineId) return "Error: pipeline_id is required. Use list_pipelines first.";
+              const result = await ghl({ endpoint: `/opportunities/pipelines/${pipelineId}`, locationId });
+              return ghlResult(result);
+            }
+            case "search_opportunities": {
+              const result = await ghl({
+                endpoint: "/opportunities/search",
+                locationId,
+                params: {
+                  pipeline_id: toolInput.pipeline_id as string,
+                  stage_id: toolInput.stage_id as string,
+                  status: toolInput.status as string,
+                  q: toolInput.query as string,
+                  contact_id: toolInput.contact_id as string,
+                  limit: (toolInput.limit as number) || 20,
+                },
+              });
+              return ghlResult(result);
+            }
+            case "get_opportunity": {
+              const oppId = toolInput.opportunity_id as string;
+              if (!oppId) return "Error: opportunity_id is required.";
+              const result = await ghl({ endpoint: `/opportunities/${oppId}` });
+              return ghlResult(result);
+            }
+            case "create_opportunity": {
+              const pipelineId = toolInput.pipeline_id as string;
+              const stageId = toolInput.stage_id as string;
+              const contactId = toolInput.contact_id as string;
+              if (!pipelineId || !stageId || !contactId) return "Error: pipeline_id, stage_id, and contact_id are required.";
+              const result = await ghl({
+                method: "POST",
+                endpoint: "/opportunities/",
+                body: {
+                  locationId,
+                  pipelineId,
+                  pipelineStageId: stageId,
+                  contactId,
+                  name: toolInput.name as string,
+                  monetaryValue: toolInput.monetaryValue as number,
+                  status: (toolInput.status as string) || "open",
+                  assignedTo: toolInput.assignedTo as string,
+                },
+              });
+              return `Opportunity created!\n${ghlResult(result, 4000)}`;
+            }
+            case "update_opportunity": {
+              const oppId = toolInput.opportunity_id as string;
+              const fields = toolInput.fields as Record<string, unknown>;
+              if (!oppId || !fields) return "Error: opportunity_id and fields are required.";
+              const result = await ghl({ method: "PUT", endpoint: `/opportunities/${oppId}`, body: fields });
+              return `Opportunity updated!\n${ghlResult(result, 4000)}`;
+            }
+            case "delete_opportunity": {
+              const oppId = toolInput.opportunity_id as string;
+              if (!oppId) return "Error: opportunity_id is required.";
+              await ghl({ method: "DELETE", endpoint: `/opportunities/${oppId}` });
+              return `Opportunity ${oppId} deleted.`;
+            }
+            case "upsert_opportunity": {
+              const pipelineId = toolInput.pipeline_id as string;
+              const contactId = toolInput.contact_id as string;
+              const fields = toolInput.fields as Record<string, unknown>;
+              if (!pipelineId || !contactId) return "Error: pipeline_id and contact_id are required.";
+              const result = await ghl({
+                method: "POST",
+                endpoint: "/opportunities/upsert",
+                body: { locationId, pipelineId, contactId, ...fields },
+              });
+              return `Opportunity upserted!\n${ghlResult(result, 4000)}`;
+            }
+            default:
+              return `Unknown ghl_pipeline action "${action}". Available: list_pipelines, list_stages, search_opportunities, get_opportunity, create_opportunity, update_opportunity, delete_opportunity, upsert_opportunity.`;
+          }
+        } catch (err: any) {
+          return `GHL Pipeline error (${clientName}): ${err.message}`;
+        }
+      }
+
+      case "ghl_marketing": {
+        const clientName = toolInput.client_name as string;
+        const action = toolInput.action as string;
+        if (!clientName) return "Error: client_name is required.";
+        if (!action) return "Error: action is required.";
+
+        const location = await resolveGhlLocation(clientName);
+        if (typeof location === "string") return location;
+        const { locationId, accessToken } = location;
+        const ghl = (opts: Omit<GhlRequestOptions, "accessToken">) => ghlLocationRequest(accessToken, opts);
+        console.log(`[ghl] ${memberName} | ${action} | ${clientName} (${locationId})`);
+
+        try {
+          switch (action) {
+            case "list_campaigns": {
+              const result = await ghl({ endpoint: "/campaigns/", locationId, params: { status: toolInput.status as string } });
+              return ghlResult(result);
+            }
+            case "list_workflows": {
+              const result = await ghl({ endpoint: "/workflows/", locationId });
+              return ghlResult(result);
+            }
+            case "list_forms": {
+              const result = await ghl({ endpoint: "/forms/", locationId });
+              return ghlResult(result);
+            }
+            case "get_form_submissions": {
+              const formId = toolInput.form_id as string;
+              if (!formId) return "Error: form_id is required.";
+              const result = await ghl({
+                endpoint: `/forms/submissions`,
+                locationId,
+                params: { formId, limit: (toolInput.limit as number) || 20, page: toolInput.page as number },
+              });
+              return ghlResult(result);
+            }
+            case "list_funnels": {
+              const result = await ghl({ endpoint: "/funnels/funnel/list", locationId });
+              return ghlResult(result);
+            }
+            case "get_funnel_pages": {
+              const funnelId = toolInput.funnel_id as string;
+              if (!funnelId) return "Error: funnel_id is required.";
+              const result = await ghl({ endpoint: `/funnels/funnel/${funnelId}`, locationId });
+              return ghlResult(result);
+            }
+            case "list_email_templates": {
+              const result = await ghl({ endpoint: "/emails/builder", locationId });
+              return ghlResult(result);
+            }
+            case "list_surveys": {
+              const result = await ghl({ endpoint: "/surveys/", locationId });
+              return ghlResult(result);
+            }
+            case "get_survey_submissions": {
+              const surveyId = toolInput.survey_id as string;
+              if (!surveyId) return "Error: survey_id is required.";
+              const result = await ghl({
+                endpoint: `/surveys/submissions`,
+                locationId,
+                params: { surveyId, limit: (toolInput.limit as number) || 20, page: toolInput.page as number },
+              });
+              return ghlResult(result);
+            }
+            case "list_social_posts": {
+              const result = await ghl({
+                endpoint: `/social-media-posting/${locationId}/posts/list`,
+                params: { status: toolInput.status as string, type: toolInput.type as string },
+              });
+              return ghlResult(result);
+            }
+            case "create_social_post": {
+              const platforms = toolInput.platforms as string[];
+              const content = toolInput.content as string;
+              if (!platforms?.length || !content) return "Error: platforms (array) and content are required.";
+              const body: Record<string, unknown> = { platforms, post: content };
+              if (toolInput.media_urls) body.mediaUrls = toolInput.media_urls;
+              if (toolInput.schedule_date) body.scheduledAt = toolInput.schedule_date;
+              const result = await ghl({
+                method: "POST",
+                endpoint: `/social-media-posting/${locationId}/posts`,
+                body,
+              });
+              return `Social post created!\n${ghlResult(result, 4000)}`;
+            }
+            case "delete_social_post": {
+              const postId = toolInput.post_id as string;
+              if (!postId) return "Error: post_id is required.";
+              await ghl({ method: "DELETE", endpoint: `/social-media-posting/${locationId}/posts/${postId}` });
+              return `Social post ${postId} deleted.`;
+            }
+            case "list_blogs": {
+              const result = await ghl({ endpoint: "/blogs/", locationId });
+              return ghlResult(result);
+            }
+            default:
+              return `Unknown ghl_marketing action "${action}". Available: list_campaigns, list_workflows, list_forms, get_form_submissions, list_funnels, get_funnel_pages, list_email_templates, list_surveys, get_survey_submissions, list_social_posts, create_social_post, delete_social_post, list_blogs.`;
+          }
+        } catch (err: any) {
+          return `GHL Marketing error (${clientName}): ${err.message}`;
+        }
+      }
+
+      case "ghl_admin": {
+        const action = toolInput.action as string;
+        if (!action) return "Error: action is required.";
+
+        // list_locations doesn't need a client_name
+        if (action === "list_locations") {
+          console.log(`[ghl] ${memberName} | list_locations`);
+          try {
+            const result = await ghlRequest({ endpoint: "/locations/search", params: { limit: 100, skip: 0 } });
+            const locations = (result.locations || []).map((loc: any) => ({
+              id: loc.id, name: loc.name, address: loc.address, city: loc.city,
+              state: loc.state, phone: loc.phone, email: loc.email, website: loc.website,
+              timezone: loc.timezone,
+            }));
+            return `Found ${locations.length} GHL locations:\n${ghlResult(locations)}`;
+          } catch (err: any) {
+            return `GHL Admin error: ${err.message}`;
+          }
+        }
+
+        const clientName = toolInput.client_name as string;
+        if (!clientName) return "Error: client_name is required for this action. Use list_locations to see all locations first.";
+
+        const location = await resolveGhlLocation(clientName);
+        if (typeof location === "string") return location;
+        const { locationId, accessToken } = location;
+        const ghl = (opts: Omit<GhlRequestOptions, "accessToken">) => ghlLocationRequest(accessToken, opts);
+        console.log(`[ghl] ${memberName} | ${action} | ${clientName} (${locationId})`);
+
+        try {
+          switch (action) {
+            case "get_location": {
+              const result = await ghlRequest({ endpoint: `/locations/${locationId}` });
+              return ghlResult(result);
+            }
+            case "list_users": {
+              const result = await ghl({ endpoint: `/locations/${locationId}/users` });
+              return ghlResult(result);
+            }
+            case "list_custom_fields": {
+              const model = (toolInput.model as string) || "contact";
+              const result = await ghl({ endpoint: `/locations/${locationId}/customFields`, params: { model } });
+              return ghlResult(result);
+            }
+            case "create_custom_field": {
+              const name = toolInput.name as string;
+              const dataType = toolInput.dataType as string;
+              if (!name || !dataType) return "Error: name and dataType are required.";
+              const result = await ghl({
+                method: "POST",
+                endpoint: `/locations/${locationId}/customFields`,
+                body: {
+                  name,
+                  dataType,
+                  model: (toolInput.model as string) || "contact",
+                  placeholder: toolInput.placeholder as string,
+                },
+              });
+              return `Custom field created!\n${ghlResult(result, 4000)}`;
+            }
+            case "list_invoices": {
+              const result = await ghl({
+                endpoint: "/invoices/",
+                params: { locationId, status: toolInput.status as string, limit: (toolInput.limit as number) || 20 },
+              });
+              return ghlResult(result);
+            }
+            case "get_invoice": {
+              const invoiceId = toolInput.invoice_id as string;
+              if (!invoiceId) return "Error: invoice_id is required.";
+              const result = await ghl({ endpoint: `/invoices/${invoiceId}` });
+              return ghlResult(result);
+            }
+            case "create_invoice": {
+              const fields = toolInput.fields as Record<string, unknown>;
+              if (!fields) return "Error: fields is required (name, contactId, items[], dueDate, etc.).";
+              const result = await ghl({ method: "POST", endpoint: "/invoices/", body: { ...fields, locationId } });
+              return `Invoice created!\n${ghlResult(result, 4000)}`;
+            }
+            case "list_products": {
+              const result = await ghl({ endpoint: "/products/", locationId });
+              return ghlResult(result);
+            }
+            case "create_product": {
+              const name = toolInput.name as string;
+              if (!name) return "Error: name is required.";
+              const result = await ghl({
+                method: "POST",
+                endpoint: "/products/",
+                body: { locationId, name, description: toolInput.description as string, prices: toolInput.prices as unknown[] },
+              });
+              return `Product created!\n${ghlResult(result, 4000)}`;
+            }
+            case "list_media": {
+              const result = await ghl({ endpoint: "/medias/", params: { locationId, limit: (toolInput.limit as number) || 20 } });
+              return ghlResult(result);
+            }
+            case "upload_media": {
+              const fileUrl = toolInput.url as string;
+              const fileName = toolInput.name as string;
+              if (!fileUrl) return "Error: url is required (public URL of file to upload).";
+              const result = await ghl({
+                method: "POST",
+                endpoint: "/medias/upload-file",
+                body: { locationId, url: fileUrl, name: fileName },
+              });
+              return `Media uploaded!\n${ghlResult(result, 4000)}`;
+            }
+            case "list_documents": {
+              const result = await ghl({ endpoint: "/documents/", locationId });
+              return ghlResult(result);
+            }
+            case "send_document": {
+              const contactId = toolInput.contact_id as string;
+              const templateId = toolInput.template_id as string;
+              if (!contactId || !templateId) return "Error: contact_id and template_id are required.";
+              const result = await ghl({
+                method: "POST",
+                endpoint: "/documents/send",
+                body: { locationId, contactId, templateId },
+              });
+              return `Document sent!\n${ghlResult(result, 4000)}`;
+            }
+            case "list_businesses": {
+              const result = await ghl({ endpoint: "/businesses/", locationId });
+              return ghlResult(result);
+            }
+            case "raw_api": {
+              const method = (toolInput.method as string) || "GET";
+              const endpoint = toolInput.endpoint as string;
+              if (!endpoint) return "Error: endpoint is required (e.g. /contacts/).";
+              const result = await ghl({
+                method,
+                endpoint,
+                locationId,
+                params: toolInput.params as Record<string, unknown>,
+                body: toolInput.body as Record<string, unknown>,
+              });
+              return ghlResult(result);
+            }
+            default:
+              return `Unknown ghl_admin action "${action}". Available: list_locations, get_location, list_users, list_custom_fields, create_custom_field, list_invoices, get_invoice, create_invoice, list_products, create_product, list_media, upload_media, list_documents, send_document, list_businesses, raw_api.`;
+          }
+        } catch (err: any) {
+          return `GHL Admin error (${clientName}): ${err.message}`;
         }
       }
 

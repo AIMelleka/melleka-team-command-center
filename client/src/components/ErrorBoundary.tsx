@@ -13,6 +13,14 @@ interface State {
   error: Error | null;
 }
 
+function isDynamicImportError(error: Error): boolean {
+  const msg = error.message || '';
+  return msg.includes('dynamically imported module') ||
+    msg.includes('Failed to fetch dynamically imported') ||
+    msg.includes('Loading chunk') ||
+    msg.includes('Loading CSS chunk');
+}
+
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
@@ -25,6 +33,17 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
+    // Auto-reload once on stale chunk errors (new deploy invalidated old JS filenames)
+    if (isDynamicImportError(error)) {
+      const reloadKey = 'chunk_reload_' + window.location.pathname;
+      if (!sessionStorage.getItem(reloadKey)) {
+        sessionStorage.setItem(reloadKey, '1');
+        window.location.reload();
+        return;
+      }
+      // Already tried reloading once this session, show error UI instead
+      sessionStorage.removeItem(reloadKey);
+    }
     this.props.onError?.(error, errorInfo);
   }
 
@@ -77,6 +96,37 @@ export const InlineErrorFallback = ({
         <RefreshCw className="w-4 h-4" />
       </Button>
     )}
+  </div>
+);
+
+export const PageErrorFallback = ({
+  error,
+  onRetry,
+}: {
+  error?: Error | null;
+  onRetry?: () => void;
+}) => (
+  <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center bg-background">
+    <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
+      <AlertTriangle className="w-8 h-8 text-destructive" />
+    </div>
+    <h3 className="text-lg font-semibold text-foreground mb-2">
+      This page ran into an error
+    </h3>
+    <p className="text-sm text-muted-foreground mb-4 max-w-md">
+      {error?.message || 'Something unexpected happened. The rest of the app still works.'}
+    </p>
+    <div className="flex gap-3">
+      {onRetry && (
+        <Button onClick={onRetry} variant="outline" size="sm">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Try Again
+        </Button>
+      )}
+      <Button onClick={() => window.location.href = '/'} variant="default" size="sm">
+        Go Home
+      </Button>
+    </div>
   </div>
 );
 

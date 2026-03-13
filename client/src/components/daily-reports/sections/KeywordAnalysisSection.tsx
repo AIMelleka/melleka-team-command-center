@@ -42,7 +42,7 @@ export function KeywordAnalysisSection({ keyMetrics }: Props) {
                     <TableCell className="text-sm text-right">{fmtCurrency(kw.spend)}</TableCell>
                     <TableCell className="text-sm text-right font-medium text-emerald-500">{kw.conversions}</TableCell>
                     <TableCell className="text-sm text-right">{fmtCurrency(kw.cpa)}</TableCell>
-                    <TableCell className="text-sm text-right">{(kw.ctr ?? 0).toFixed(2)}%</TableCell>
+                    <TableCell className="text-sm text-right">{Number(kw.ctr || 0).toFixed(2)}%</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -87,7 +87,7 @@ export function KeywordAnalysisSection({ keyMetrics }: Props) {
           <span className="text-xs text-muted-foreground">CTR by Platform:</span>
           {Object.entries(keyMetrics.ctrByPlatform).map(([platform, ctr]) => (
             <Badge key={platform} variant="outline" className="text-[10px]">
-              {platform}: {typeof ctr === 'number' ? ctr.toFixed(2) : ctr}%
+              {platform}: {Number(ctr || 0).toFixed(2)}%
             </Badge>
           ))}
         </div>

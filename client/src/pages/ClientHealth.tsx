@@ -31,6 +31,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { format, subDays, differenceInDays } from 'date-fns';
+import { safeFormatDate } from '@/lib/dateUtils';
 import AdminHeader from '@/components/AdminHeader';
 import MiniSparkline from '@/components/MiniSparkline';
 import {
@@ -361,7 +362,7 @@ function FleetRunHistory() {
                 <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${run.status === 'complete' || run.status === 'completed' ? 'bg-emerald-500' : run.status === 'processing' ? 'bg-amber-400 animate-pulse' : 'bg-red-500'}`} />
                 <div className="min-w-0">
                   <div className="text-sm font-medium truncate">
-                    {format(new Date(run.created_at), 'MMM d, yyyy · h:mm a')}
+                    {safeFormatDate(run.created_at, 'MMM d, yyyy · h:mm a')}
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
                     <span>{run.total_clients} clients</span>
@@ -1082,7 +1083,6 @@ const ClientHealth = () => {
           let score: number;
           if (ratio <= 0.5) score = 100;
           else if (ratio <= 1.0) score = 100 - ((ratio - 0.5) / 0.5) * 30; // 100 → 70
-          else if (ratio <= 1.0) score = 100 - ((ratio - 0.5) / 0.5) * 30;
           else if (ratio <= 1.5) score = 70 - ((ratio - 1.0) / 0.5) * 30;  // 70 → 40
           else if (ratio <= 2.0) score = 40 - ((ratio - 1.5) / 0.5) * 40;  // 40 → 0
           else score = 0;
@@ -1672,6 +1672,7 @@ const ClientHealth = () => {
     if (!fleetJobId) return;
 
     const poll = async () => {
+      try {
       const { data, error } = await supabase
         .from('fleet_run_jobs')
         .select('status, progress, total_clients, current_client, results')
@@ -1715,6 +1716,7 @@ const ClientHealth = () => {
         setTimeout(() => loadLastAdReviews(), 2000);
         setTimeout(() => setFleetProgress(null), 10000);
       }
+      } catch (e) { console.warn('[FLEET POLL] Error polling fleet job:', e); }
     };
 
     // Poll immediately, then every 5 seconds
@@ -2344,7 +2346,7 @@ const ClientHealth = () => {
                 <h1 className="text-base sm:text-lg font-bold text-foreground truncate">{detailClient}</h1>
                 {selectedClient && <StatusDot status={selectedClient.overallHealth} />}
                 <span className="hidden sm:inline-flex items-center text-xs text-muted-foreground bg-muted/50 border border-border/50 rounded-md px-2 py-0.5 shrink-0">
-                  {format(new Date(dateStart), 'MMM d')} – {format(new Date(dateEnd), 'MMM d, yyyy')}
+                  {safeFormatDate(dateStart, 'MMM d')} – {safeFormatDate(dateEnd, 'MMM d, yyyy')}
                 </span>
               </div>
               <Button variant="outline" size="sm" className="shrink-0" onClick={() => {
@@ -3703,7 +3705,7 @@ const ClientHealth = () => {
 
               {/* Active date range display */}
               <span className="text-xs text-muted-foreground hidden sm:inline shrink-0 px-1">
-                {format(new Date(dateStart), 'MMM d')} – {format(new Date(dateEnd), 'MMM d, yyyy')}
+                {safeFormatDate(dateStart, 'MMM d')} – {safeFormatDate(dateEnd, 'MMM d, yyyy')}
               </span>
 
               <div className="h-5 w-px bg-border hidden sm:block" />

@@ -58,4 +58,30 @@ router.get("/:id", requireAuth, async (req, res) => {
   res.json(data);
 });
 
+// GET /api/super-agent-tasks/:id/tool-executions — tool execution log for a task
+router.get("/:id/tool-executions", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("agent_tool_executions")
+    .select("id, tool_name, tool_input, tool_output, execution_ms, status, error_message, created_at")
+    .eq("task_id", req.params.id)
+    .order("created_at", { ascending: true })
+    .limit(200);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.setHeader("Cache-Control", "private, max-age=10");
+  res.json(data ?? []);
+});
+
+// GET /api/super-agent-tasks/conversation/:convId/tool-executions — tool log for a conversation
+router.get("/conversation/:convId/tool-executions", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("agent_tool_executions")
+    .select("id, tool_name, tool_input, tool_output, execution_ms, status, error_message, member_name, created_at")
+    .eq("conversation_id", req.params.convId)
+    .order("created_at", { ascending: true })
+    .limit(500);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.setHeader("Cache-Control", "private, max-age=10");
+  res.json(data ?? []);
+});
+
 export default router;

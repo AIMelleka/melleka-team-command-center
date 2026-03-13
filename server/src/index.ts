@@ -21,6 +21,8 @@ import websitesRouter from "./routes/websites.js";
 import deepAnalysisRouter from "./routes/deep-analysis.js";
 import recommendationsRouter from "./routes/recommendations.js";
 import uploadsRouter from "./routes/uploads.js";
+import onboardingBotRouter from "./routes/onboarding-bot.js";
+import preferencesRouter from "./routes/preferences.js";
 import { getActiveSseConnections } from "./routes/chat.js";
 import { warmCaches } from "./services/claude.js";
 
@@ -76,6 +78,7 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },
+  validate: { xForwardedForHeader: false },
 });
 const chatLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -83,6 +86,7 @@ const chatLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many chat requests, please slow down" },
+  validate: { xForwardedForHeader: false },
 });
 app.use("/api", apiLimiter);
 app.use("/api/chat", chatLimiter);
@@ -133,6 +137,29 @@ app.use("/api/websites", websitesRouter);
 app.use("/api/deep-analysis", deepAnalysisRouter);
 app.use("/api/recommendations", recommendationsRouter);
 app.use("/api/uploads", uploadsRouter);
+app.use("/api/onboarding-bot", onboardingBotRouter);
+app.use("/api/preferences", preferencesRouter);
+
+// ── Global error safety net (MUST be after all routes) ───────────────────
+// Catches ANY unhandled error thrown by middleware or route handlers so one
+// bad library (rate limiter, compression, etc.) can never take down the
+// entire API. Without this, an uncaught throw returns raw HTML 500 and the
+// client sees "Failed to load" instead of a usable JSON error.
+app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("[global-error-handler]", err?.code || "", err?.message || err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: "Internal server error" });
+});
+
+// ── Process-level crash protection ───────────────────────────────────────
+// Prevent the entire Node process from dying on stray promise rejections
+// or uncaught exceptions. Log the error but keep serving requests.
+process.on("uncaughtException", (err) => {
+  console.error("[uncaughtException] Server staying alive:", err?.message || err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection] Server staying alive:", reason);
+});
 
 const server = app.listen(PORT, () => {
   console.log(`Melleka Teams server running on http://localhost:${PORT}`);

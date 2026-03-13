@@ -316,21 +316,40 @@ router.get("/meta-pages", requireAuth, async (_req: AuthRequest, res) => {
     const META_API_VERSION = process.env.META_API_VERSION || "v21.0";
     const baseUrl = `https://graph.facebook.com/${META_API_VERSION}`;
 
-    // Fetch all pages the token has access to, including connected Instagram accounts
+    // Fetch all pages the token has access to, including connected Instagram account IDs
     const pagesResp = await fetch(
-      `${baseUrl}/me/accounts?fields=id,name,instagram_business_account{id,username,name}&limit=100&access_token=${token}`
+      `${baseUrl}/me/accounts?fields=id,name,instagram_business_account&limit=100&access_token=${token}`
     );
-    const pagesData = await pagesResp.json() as { data?: Array<{ id: string; name: string; instagram_business_account?: { id: string; username?: string; name?: string } }>; error?: any };
+    const pagesData = await pagesResp.json() as { data?: Array<{ id: string; name: string; instagram_business_account?: { id: string } }>; error?: any };
 
     if (!pagesResp.ok || pagesData.error) {
       return res.status(pagesResp.status).json({ error: pagesData.error?.message || "Failed to fetch pages" });
     }
 
-    const pages = (pagesData.data || []).map((p) => ({
+    // For each page with an IG account, fetch username/name in parallel
+    const rawPages = pagesData.data || [];
+    const igIds = rawPages
+      .filter(p => p.instagram_business_account?.id)
+      .map(p => p.instagram_business_account!.id);
+
+    const igDetails: Record<string, { username: string; name: string }> = {};
+    if (igIds.length > 0) {
+      const results = await Promise.allSettled(
+        igIds.map(async (igId) => {
+          const r = await fetch(`${baseUrl}/${igId}?fields=id,username,name&access_token=${token}`);
+          if (r.ok) {
+            const d = await r.json() as { id: string; username?: string; name?: string };
+            igDetails[igId] = { username: d.username || d.name || igId, name: d.name || d.username || igId };
+          }
+        })
+      );
+    }
+
+    const pages = rawPages.map((p) => ({
       id: p.id,
       name: p.name,
-      instagram: p.instagram_business_account
-        ? { id: p.instagram_business_account.id, username: p.instagram_business_account.username || p.instagram_business_account.name }
+      instagram: p.instagram_business_account?.id
+        ? { id: p.instagram_business_account.id, username: igDetails[p.instagram_business_account.id]?.username || p.instagram_business_account.id }
         : null,
     }));
 

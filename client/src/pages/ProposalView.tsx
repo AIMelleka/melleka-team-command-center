@@ -1597,20 +1597,24 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
   // Handle saving admin changes
   const handleSaveChanges = async (changes: Record<string, unknown>) => {
     if (!proposal) return;
-    const {
-      data: currentProposal
-    } = await supabase.from('proposals').select('content').eq('id', proposal.id).single();
-    if (currentProposal) {
-      const currentContent = currentProposal.content as Record<string, unknown> || {};
-      const updatedContent = {
-        ...currentContent,
-        ...changes
-      };
-      await supabase.from('proposals')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .update({
-        content: updatedContent as any
-      }).eq('id', proposal.id);
+    try {
+      const {
+        data: currentProposal
+      } = await supabase.from('proposals').select('content').eq('id', proposal.id).single();
+      if (currentProposal) {
+        const currentContent = currentProposal.content as Record<string, unknown> || {};
+        const updatedContent = {
+          ...currentContent,
+          ...changes
+        };
+        await supabase.from('proposals')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update({
+          content: updatedContent as any
+        }).eq('id', proposal.id);
+      }
+    } catch (err) {
+      console.error('Failed to save proposal changes:', err);
     }
   };
   return <div className="min-h-screen min-h-[100dvh] flex flex-col lg:flex-row overflow-x-hidden overflow-y-auto" style={brandStyle}>

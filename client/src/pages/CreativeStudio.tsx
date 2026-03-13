@@ -211,7 +211,7 @@ export default function CreativeStudio() {
             prompt: analysis.enhancedPrompt,
             timestamp: Date.now(),
             metadata: {
-              generator: 'veo-2.0',
+              generator: 'higgsfield',
               style: analysis.style,
               mode: 'text-to-video',
             },

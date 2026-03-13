@@ -862,10 +862,21 @@ const DeckBuilder = () => {
     );
   };
 
-  // Poll for deck status
+  // Poll for deck status (max 5 minutes)
   useEffect(() => {
     if (!deckJobId || !isGenerating) return;
+    const startTime = Date.now();
+    const MAX_POLL_MS = 5 * 60 * 1000;
     const pollInterval = setInterval(async () => {
+      // Timeout after 5 minutes
+      if (Date.now() - startTime > MAX_POLL_MS) {
+        clearInterval(pollInterval);
+        setIsGenerating(false);
+        updateStage('final_qa', 'error', 'Generation timed out after 5 minutes');
+        updateStage('save', 'error', 'Timed out');
+        toast.error('Deck generation timed out. Check Supabase function logs for errors.');
+        return;
+      }
       try {
         const { data: deck, error } = await supabase
           .from('decks')
@@ -1566,7 +1577,7 @@ const DeckBuilder = () => {
                 </div>
                 {!accountsLoaded && (
                   <button
-                    onClick={handleFetchSupermetricsAccounts}
+                    onClick={() => handleFetchSupermetricsAccounts(selectedClient)}
                     disabled={isFetchingAccounts}
                     className="px-4 py-2 rounded-lg bg-genie-purple text-foreground text-sm font-medium flex items-center gap-2 hover:bg-genie-purple-light transition-colors disabled:opacity-50"
                   >
@@ -2323,7 +2334,7 @@ const DeckBuilder = () => {
                   <div>
                     <p className="text-sm text-muted-foreground">SEO Deck Data</p>
                     <p className="text-foreground">
-                      {seoDeckData ? `✓ Organic metrics${seoDeckData.previous ? ' + PoP trends' : ''}${seoDeckData.siteAudit ? ' + Site audit' : ''}` : 'Not pulled'}
+                      {seoDeckData ? `✓ Organic metrics${seoDeckData.previous ? ' + PoP trends' : ''}` : 'Not pulled'}
                     </p>
                   </div>
                 </div>

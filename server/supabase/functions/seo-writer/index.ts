@@ -2193,9 +2193,10 @@ Return JSON: { "title": "Short H1 title", "articleType": "guide|listicle|compari
   const targetWords = options?.targetWordCount || competitorAnalysis.avgWordCount + 500;
   
   // Determine writing person
-  const personInstructions = options?.writingPerson === 'first' 
+  const personInstructions = options?.writingPerson === 'first'
     ? `WRITING PERSPECTIVE: First person (I/We). Write as if you are directly sharing your experience and expertise. Use "I recommend", "We've found", "In my experience".`
-    : `WRITING PERSPECTIVE: Third person. Write objectively using "businesses should", "companies find that", "professionals recommend".`;
+    : `WRITING PERSPECTIVE: Third person. Write objectively using "businesses should", "companies find that", "professionals recommend".
+CRITICAL: NEVER use first-person pronouns: 'I', 'me', 'my', 'myself', 'we', 'us', 'our', 'ourselves'. Only use third-person references: the brand name, 'the team', 'professionals', 'experts', or passive voice.`;
   
   // Target audience context - CRITICAL for proper targeting
   const audienceContext = options?.targetAudience 
@@ -2431,11 +2432,31 @@ OUTPUT: Only the article content. No explanations, no meta-commentary.`;
     });
     // CRITICAL: Clean em dashes and formatting from generated content
     fullContent = cleanGeneratedContent(rawContent);
+
+    // Post-generation third-person enforcement: scan and fix any first-person pronouns
+    if (options?.writingPerson !== 'first') {
+      const firstPersonRegex = /\b(I|me|my|myself|we|us|our|ourselves)\b/gi;
+      const firstPersonMatches = fullContent.match(firstPersonRegex);
+      if (firstPersonMatches && firstPersonMatches.length > 0) {
+        console.log(`Found ${firstPersonMatches.length} first-person pronouns in third-person article, running cleanup...`);
+        try {
+          const fixPrompt = `Rewrite the following article to remove ALL first-person pronouns (I, me, my, myself, we, us, our, ourselves). Replace them with third-person alternatives: the brand name, 'the team', 'professionals', 'experts', or passive voice. Keep EVERYTHING else identical - same structure, same headings, same information, same tone. Only change the pronouns.\n\nARTICLE:\n${fullContent}`;
+          const fixedContent = await callClaude(fixPrompt, {
+            system: "You are a precise editor. Your ONLY job is to replace first-person pronouns with third-person alternatives. Do not change anything else. Return the complete article.",
+            temperature: 0.3,
+            maxTokens: Math.max(2000, Math.min(16000, Math.ceil(targetWords * 1.8))),
+          });
+          fullContent = cleanGeneratedContent(fixedContent);
+        } catch (fixErr) {
+          console.error("Third-person pronoun fix failed:", fixErr);
+        }
+      }
+    }
   } catch (e) {
     console.error("Article generation error:", e);
     fullContent = `# ${articleTitle}\n\nContent generation failed. Please try again.`;
   }
-  
+
   const wordCount = fullContent.split(/\s+/).length;
   const contentScore = calculateContentScore(fullContent, primaryKeyword);
   await onProgress?.(85, "Calculating content score...");
@@ -2968,6 +2989,536 @@ CRITICAL: The output must pass Originality.ai, GPTZero, and other detection tool
         console.error("Humanization error:", e);
         throw new Error("Failed to humanize content");
       }
+    }
+
+    // ===== PROMPT-WRITE HANDLER =====
+    if (type === "prompt-write") {
+      const { prompt, notes, keywords, targetWordCount, writingPerson, tones, ctaText, ctaUrl, ctaPlacement } = body;
+      if (!prompt) throw new Error("Prompt is required");
+
+      if (!authResult.userId) throw new Error("Missing user context");
+      if (!supabaseUrl || !supabaseServiceKey) throw new Error("Backend is not configured");
+
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const inputParams = { type, prompt, notes, keywords, targetWordCount, writingPerson, tones, ctaText, ctaUrl, ctaPlacement };
+
+      const { data: job, error: jobError } = await supabase
+        .from("seo_writer_jobs")
+        .insert({
+          user_id: authResult.userId,
+          job_type: "prompt-write",
+          status: "processing",
+          progress: 5,
+          progress_message: "Preparing article from prompt...",
+          input_params: inputParams,
+        })
+        .select()
+        .single();
+
+      if (jobError || !job) {
+        throw new Error(`Failed to create job: ${jobError?.message || "unknown"}`);
+      }
+
+      const updateProgress = async (progress: number, message: string) => {
+        try {
+          await supabase
+            .from("seo_writer_jobs")
+            .update({
+              progress,
+              progress_message: message,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", job.id);
+        } catch (e) {
+          console.error("Progress update failed:", e);
+        }
+      };
+
+      const markFailed = async (errorMessage: string) => {
+        console.error(`Job ${job.id} failed:`, errorMessage);
+        try {
+          await supabase
+            .from("seo_writer_jobs")
+            .update({
+              status: "failed",
+              error: errorMessage,
+              completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", job.id);
+        } catch (e) {
+          console.error("Failed to mark job as failed:", e);
+        }
+      };
+
+      const markComplete = async (result: unknown) => {
+        try {
+          await supabase
+            .from("seo_writer_jobs")
+            .update({
+              status: "complete",
+              progress: 100,
+              progress_message: "Article complete!",
+              result,
+              completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", job.id);
+        } catch (e) {
+          console.error("Failed to mark job as complete:", e);
+        }
+      };
+
+      const process = async () => {
+        try {
+          console.log(`Starting async prompt-write job: ${job.id}`);
+          await updateProgress(10, "Parsing keywords and building prompt...");
+
+          // Parse keywords from comma-separated string
+          const keywordList: string[] = keywords
+            ? keywords.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 0)
+            : [];
+
+          // Build tone instructions
+          const toneInstructions: Record<string, string> = {
+            professional: 'Professional and polished - use industry terminology appropriately, maintain a business-appropriate register, convey expertise through confident, measured language.',
+            conversational: 'Conversational and laid-back - write as if chatting with a friend over coffee, use casual language, occasional humor, and relatable examples.',
+            authoritative: 'Authoritative and commanding - write with confidence and conviction, take strong positions, back them with evidence, establish yourself as the definitive expert.',
+            friendly: 'Friendly and warm - be encouraging and supportive, use positive language, celebrate wins, make the reader feel comfortable and motivated.'
+          };
+
+          const selectedTones = tones || ['professional'];
+          const toneDescriptions = selectedTones
+            .filter((t: string) => toneInstructions[t])
+            .map((t: string) => toneInstructions[t]);
+
+          const toneContext = toneDescriptions.length > 0
+            ? `TONE OF VOICE (blend these qualities naturally):\n${toneDescriptions.map((d: string, i: number) => `${i + 1}. ${d}`).join('\n')}`
+            : 'TONE: Professional and polished. Use industry terminology appropriately, maintain a business-appropriate register.';
+
+          // Build person instructions
+          const personInstructions = writingPerson === 'first'
+            ? `WRITING PERSPECTIVE: First person (I/We). Write as if you are directly sharing your experience and expertise. Use "I recommend", "We've found", "In my experience".`
+            : `WRITING PERSPECTIVE: Third person. Write objectively using "businesses should", "companies find that", "professionals recommend".
+CRITICAL: NEVER use first-person pronouns: 'I', 'me', 'my', 'myself', 'we', 'us', 'our', 'ourselves'. Only use third-person references: the brand name, 'the team', 'professionals', 'experts', or passive voice.`;
+
+          // Build keyword instructions
+          const keywordInstructions = keywordList.length > 0
+            ? `KEYWORDS TO WEAVE IN NATURALLY:
+${keywordList.map(k => `- "${k}" - use 2-3 times naturally, include once in a heading if possible`).join('\n')}
+Do NOT force keywords. They should read naturally in context.`
+            : '';
+
+          // Build CTA instructions
+          let ctaInstructions = '';
+          if (ctaText) {
+            const placementGuide = ctaPlacement === 'inline'
+              ? 'Insert the CTA naturally within the body of the article where it fits contextually.'
+              : ctaPlacement === 'both'
+                ? 'Insert the CTA both inline within the article body AND at the end as a closing call-to-action.'
+                : 'Place the CTA at the end of the article as a natural closing call-to-action.';
+
+            ctaInstructions = `
+CTA REQUIREMENT:
+CTA Text/Message: "${ctaText}"
+${ctaUrl ? `CTA Link: ${ctaUrl}` : ''}
+Placement: ${placementGuide}
+Make it feel organic, not salesy.`;
+          }
+
+          // Calculate word count targets
+          const targetWords = targetWordCount || 1500;
+          const minWords = Math.round(targetWords * 0.95);
+          const maxWords = Math.round(targetWords * 1.05);
+
+          await updateProgress(30, "Writing article with Claude...");
+
+          const articlePrompt = `You are a PROFESSIONAL COPYWRITER creating content that reads like it was written by an experienced human writer.
+
+#############################################
+# WORD COUNT: EXACTLY ${targetWords} WORDS   #
+#############################################
+- Your article MUST be between ${minWords} and ${maxWords} words
+- ${targetWords <= 600 ? 'This is a SHORT article. Be concise. No fluff.' : targetWords <= 1200 ? 'This is a MEDIUM article. Be focused but thorough.' : 'This is a LONG article. Go deep but stay cohesive.'}
+- Count as you write. Stop when you hit the target.
+
+ARTICLE BRIEF:
+${prompt}
+
+${notes ? `ADDITIONAL CONTEXT / KNOWLEDGE:\n${notes}\n` : ''}
+
+${keywordInstructions}
+
+${personInstructions}
+${toneContext}
+
+${ctaInstructions}
+
+###############################################
+# WRITING RHYTHM & FLOW                       #
+###############################################
+SENTENCE STRUCTURE:
+- Vary lengths: Short. Then longer with detail. Then punchy again.
+- Start 10% of sentences with "And" or "But"
+- Use fragments for emphasis. Like this.
+- Front-load key information in sentences
+
+PARAGRAPH STRUCTURE:
+- 2-4 sentences per paragraph
+- One idea per paragraph
+- Never start consecutive paragraphs the same way
+- Use single-sentence paragraphs sparingly for impact
+
+NATURAL VOICE:
+- Use contractions: don't, won't, it's, that's, we're
+- Include parenthetical asides (like this one)
+- Add occasional mild opinions: "This is often overlooked"
+- Reference specifics: "73% of marketers" not "most marketers"
+
+###############################################
+# HEADING RULES                               #
+###############################################
+- Use H2 (##) for main sections: 3-6 words MAX
+- Use H3 (###) sparingly for subsections
+- No clickbait headings
+
+###############################################
+# ABSOLUTELY BANNED PHRASES                   #
+###############################################
+NEVER USE (these are AI red flags):
+${SEO_COPYWRITING_GUIDELINES.antiAIPatterns.bannedPhrases.slice(0, 15).map((p: string) => `- ${p}`).join('\n')}
+
+###############################################
+# FORMATTING                                  #
+###############################################
+- No em dashes, use hyphens or commas instead
+- No bold (**text**) formatting
+- No emojis
+- ONE bullet list per section (3-5 actionable bullets)
+
+OUTPUT: Only the article content. No explanations, no meta-commentary.`;
+
+          const systemPrompt = `You are a professional copywriter with 15+ years of experience writing content that ranks AND converts. You write like a human - with personality, rhythm, and purpose.
+
+CORE IDENTITY:
+- You've written for major publications and understand what makes content engaging
+- You respect word counts precisely - never over or under by more than 5%
+- You create cohesive articles that flow, not stitched-together sections
+- You sound human: contractions, varied rhythm, occasional opinions, specific details
+
+WORD COUNT ENFORCEMENT (CRITICAL):
+- Target: ${targetWords} words
+- Acceptable range: ${minWords}-${maxWords} words
+
+QUALITY MARKERS:
+1. Transitions connect every section
+2. Sentence lengths vary dramatically (5 words to 25 words)
+3. Paragraphs are short (2-4 sentences max)
+4. Specific data points > vague claims
+
+OUTPUT: Only the article. No meta-commentary. Ready to publish.`;
+
+          const rawContent = await callClaude(articlePrompt, {
+            system: systemPrompt,
+            temperature: 0.75,
+            maxTokens: Math.max(2000, Math.min(16000, Math.ceil(targetWords * 1.8))),
+          });
+
+          let fullContent = cleanGeneratedContent(rawContent);
+
+          // Post-generation third-person enforcement
+          if (writingPerson !== 'first') {
+            const firstPersonRegex = /\b(I|me|my|myself|we|us|our|ourselves)\b/gi;
+            const firstPersonMatches = fullContent.match(firstPersonRegex);
+            if (firstPersonMatches && firstPersonMatches.length > 0) {
+              console.log(`Found ${firstPersonMatches.length} first-person pronouns in third-person article, running cleanup...`);
+              try {
+                const fixPrompt = `Rewrite the following article to remove ALL first-person pronouns (I, me, my, myself, we, us, our, ourselves). Replace them with third-person alternatives: the brand name, 'the team', 'professionals', 'experts', or passive voice. Keep EVERYTHING else identical - same structure, same headings, same information, same tone. Only change the pronouns.\n\nARTICLE:\n${fullContent}`;
+                const fixedContent = await callClaude(fixPrompt, {
+                  system: "You are a precise editor. Your ONLY job is to replace first-person pronouns with third-person alternatives. Do not change anything else. Return the complete article.",
+                  temperature: 0.3,
+                  maxTokens: Math.max(2000, Math.min(16000, Math.ceil(targetWords * 1.8))),
+                });
+                fullContent = cleanGeneratedContent(fixedContent);
+              } catch (fixErr) {
+                console.error("Third-person pronoun fix failed:", fixErr);
+              }
+            }
+          }
+
+          await updateProgress(70, "Analyzing content quality...");
+
+          const wordCount = fullContent.split(/\s+/).length;
+          const contentScore = calculateContentScore(fullContent, keywordList[0] || prompt.substring(0, 50));
+          const aiDetection = analyzeAIDetection(fullContent);
+
+          await updateProgress(85, "Generating meta title and description...");
+
+          // Generate meta title and meta description
+          let metaTitle = '';
+          let metaDescription = '';
+          try {
+            const metaPrompt = `Based on this article, generate an SEO-optimized meta title and meta description.
+
+ARTICLE (first 500 words):
+${fullContent.substring(0, 2000)}
+
+${keywordList.length > 0 ? `PRIMARY KEYWORD: ${keywordList[0]}` : ''}
+
+Requirements:
+- Meta title: 50-60 characters, compelling, includes primary keyword near the start
+- Meta description: 145-155 characters, includes keyword, has a compelling CTA
+
+Return ONLY valid JSON: {"metaTitle": "...", "metaDescription": "..."}`;
+
+            const metaContent = await callClaude(metaPrompt, {
+              system: "You are an SEO specialist. Generate meta tags that drive clicks. Return only valid JSON.",
+              temperature: 0.5,
+            });
+
+            const jsonMatch = metaContent.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, metaContent];
+            const parsed = JSON.parse(jsonMatch[1]?.trim() || metaContent.trim());
+            metaTitle = parsed.metaTitle || '';
+            metaDescription = parsed.metaDescription || '';
+          } catch (metaErr) {
+            console.error("Meta generation error:", metaErr);
+            metaTitle = prompt.substring(0, 60);
+            metaDescription = prompt.substring(0, 155);
+          }
+
+          await updateProgress(95, "Finalizing article...");
+
+          const result = {
+            topic: prompt,
+            primaryKeyword: keywordList[0] || prompt.substring(0, 50),
+            secondaryKeywords: keywordList.slice(1),
+            searchIntent: 'Informational',
+            competitorAnalysis: {},
+            serpFeatures: [],
+            outline: [],
+            fullContent,
+            wordCount,
+            contentScore,
+            metaTitle,
+            metaDescription,
+            internalLinkingSuggestions: [],
+            faqSchema: [],
+            aiDetection,
+          };
+
+          await markComplete(result);
+          return result;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          await markFailed(msg);
+          throw e;
+        }
+      };
+
+      if (EdgeRuntime?.waitUntil) {
+        EdgeRuntime.waitUntil(process());
+        return new Response(JSON.stringify({ success: true, job_id: job.id }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const result = await process();
+      return new Response(JSON.stringify({ success: true, job_id: job.id, result }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ===== EDITOR HANDLER =====
+    if (type === "editor") {
+      const { originalArticle, editInstructions, keywords, writingPerson, tones } = body;
+      if (!originalArticle) throw new Error("Original article is required");
+      if (!editInstructions) throw new Error("Edit instructions are required");
+
+      if (!authResult.userId) throw new Error("Missing user context");
+      if (!supabaseUrl || !supabaseServiceKey) throw new Error("Backend is not configured");
+
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const inputParams = { type, originalArticle: originalArticle.substring(0, 500) + '...', editInstructions, keywords, writingPerson, tones };
+
+      const { data: job, error: jobError } = await supabase
+        .from("seo_writer_jobs")
+        .insert({
+          user_id: authResult.userId,
+          job_type: "editor",
+          status: "processing",
+          progress: 5,
+          progress_message: "Preparing to edit article...",
+          input_params: inputParams,
+        })
+        .select()
+        .single();
+
+      if (jobError || !job) {
+        throw new Error(`Failed to create job: ${jobError?.message || "unknown"}`);
+      }
+
+      const updateProgress = async (progress: number, message: string) => {
+        try {
+          await supabase
+            .from("seo_writer_jobs")
+            .update({
+              progress,
+              progress_message: message,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", job.id);
+        } catch (e) {
+          console.error("Progress update failed:", e);
+        }
+      };
+
+      const markFailed = async (errorMessage: string) => {
+        console.error(`Job ${job.id} failed:`, errorMessage);
+        try {
+          await supabase
+            .from("seo_writer_jobs")
+            .update({
+              status: "failed",
+              error: errorMessage,
+              completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", job.id);
+        } catch (e) {
+          console.error("Failed to mark job as failed:", e);
+        }
+      };
+
+      const markComplete = async (result: unknown) => {
+        try {
+          await supabase
+            .from("seo_writer_jobs")
+            .update({
+              status: "complete",
+              progress: 100,
+              progress_message: "Edit complete!",
+              result,
+              completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", job.id);
+        } catch (e) {
+          console.error("Failed to mark job as complete:", e);
+        }
+      };
+
+      const process = async () => {
+        try {
+          console.log(`Starting async editor job: ${job.id}`);
+          await updateProgress(10, "Building edit instructions...");
+
+          // Build tone instructions
+          const toneInstructions: Record<string, string> = {
+            professional: 'Professional and polished - use industry terminology appropriately, maintain a business-appropriate register, convey expertise through confident, measured language.',
+            conversational: 'Conversational and laid-back - write as if chatting with a friend over coffee, use casual language, occasional humor, and relatable examples.',
+            authoritative: 'Authoritative and commanding - write with confidence and conviction, take strong positions, back them with evidence, establish yourself as the definitive expert.',
+            friendly: 'Friendly and warm - be encouraging and supportive, use positive language, celebrate wins, make the reader feel comfortable and motivated.'
+          };
+
+          const selectedTones = tones || ['professional'];
+          const toneDescriptions = selectedTones
+            .filter((t: string) => toneInstructions[t])
+            .map((t: string) => toneInstructions[t]);
+
+          const toneContext = toneDescriptions.length > 0
+            ? `TONE OF VOICE (blend these qualities naturally):\n${toneDescriptions.map((d: string, i: number) => `${i + 1}. ${d}`).join('\n')}`
+            : '';
+
+          // Build person instructions
+          const personContext = writingPerson === 'first'
+            ? `WRITING PERSPECTIVE: First person (I/We).`
+            : writingPerson === 'third'
+              ? `WRITING PERSPECTIVE: Third person. CRITICAL: NEVER use first-person pronouns: 'I', 'me', 'my', 'myself', 'we', 'us', 'our', 'ourselves'. Only use third-person references.`
+              : '';
+
+          // Build keyword instructions
+          const keywordContext = keywords
+            ? `Naturally incorporate these keywords where they fit: ${keywords}`
+            : '';
+
+          await updateProgress(30, "Rewriting article per instructions...");
+
+          const editPrompt = `ORIGINAL ARTICLE:
+${originalArticle}
+
+EDIT INSTRUCTIONS:
+${editInstructions}
+
+${keywordContext}
+${personContext}
+${toneContext}
+
+Maintain all factual information. Do NOT add AI filler phrases.
+Preserve the article's structure unless the edit instructions specifically ask to change it.
+Return ONLY the rewritten article. No explanations or meta-commentary.`;
+
+          const rawContent = await callClaude(editPrompt, {
+            system: "You are a professional editor who rewrites content while preserving its structure and voice. You follow edit instructions precisely while maintaining quality. Your edits are invisible - the result reads like it was always written this way.",
+            temperature: 0.7,
+            maxTokens: 16000,
+          });
+
+          let fullContent = cleanGeneratedContent(rawContent);
+
+          // Post-generation third-person enforcement
+          if (writingPerson === 'third') {
+            const firstPersonRegex = /\b(I|me|my|myself|we|us|our|ourselves)\b/gi;
+            const firstPersonMatches = fullContent.match(firstPersonRegex);
+            if (firstPersonMatches && firstPersonMatches.length > 0) {
+              console.log(`Found ${firstPersonMatches.length} first-person pronouns in edited third-person article, running cleanup...`);
+              try {
+                const fixPrompt = `Rewrite the following article to remove ALL first-person pronouns (I, me, my, myself, we, us, our, ourselves). Replace them with third-person alternatives: the brand name, 'the team', 'professionals', 'experts', or passive voice. Keep EVERYTHING else identical.\n\nARTICLE:\n${fullContent}`;
+                const fixedContent = await callClaude(fixPrompt, {
+                  system: "You are a precise editor. Your ONLY job is to replace first-person pronouns with third-person alternatives. Do not change anything else. Return the complete article.",
+                  temperature: 0.3,
+                  maxTokens: 16000,
+                });
+                fullContent = cleanGeneratedContent(fixedContent);
+              } catch (fixErr) {
+                console.error("Third-person pronoun fix failed:", fixErr);
+              }
+            }
+          }
+
+          await updateProgress(80, "Analyzing edited content...");
+
+          const wordCount = fullContent.split(/\s+/).length;
+          const contentScore = calculateContentScore(fullContent, keywords || "");
+
+          await updateProgress(95, "Finalizing edit...");
+
+          const result = {
+            fullContent,
+            wordCount,
+            contentScore,
+            edited: true,
+          };
+
+          await markComplete(result);
+          return result;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          await markFailed(msg);
+          throw e;
+        }
+      };
+
+      if (EdgeRuntime?.waitUntil) {
+        EdgeRuntime.waitUntil(process());
+        return new Response(JSON.stringify({ success: true, job_id: job.id }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const result = await process();
+      return new Response(JSON.stringify({ success: true, job_id: job.id, result }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     throw new Error(`Unknown type: ${type}`);

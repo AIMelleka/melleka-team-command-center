@@ -95,6 +95,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUser(session?.user ?? null);
 
         if (session?.user) {
+          // Keep isLoading true while we verify admin status so ProtectedRoute
+          // shows a spinner instead of briefly flashing "Access Denied".
+          if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+            setIsLoading(true);
+          }
           // On TOKEN_REFRESHED, re-verify admin status in the background
           // On SIGNED_IN or INITIAL_SESSION, do full check
           setTimeout(() => {

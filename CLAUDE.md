@@ -110,7 +110,7 @@ Rate limits:
 - /api/*: 100 req/min (global)
 
 ## Database Tables (key ones)
-All tables live in shared Supabase project nhebotmrnxixvcvtspet:
+All tables live in dedicated Supabase project nhebotmrnxixvcvtspet (Melleka Teams only):
 - team_members: team member profiles
 - team_conversations / messages: chat history
 - team_memory: persistent key-value memory per member

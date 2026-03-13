@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import { buildMemoryForPrompt, migrateMemoryIfNeeded } from "./memory.js";
 import { TOOL_DEFINITIONS, executeTool } from "./tools.js";
 import { callLLMWithFallback, type LLMStreamEvent } from "./llm-provider.js";
+import { supabase } from "./supabase.js";
 import type { Response } from "express";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -66,6 +67,104 @@ export async function warmCaches(): Promise<void> {
   console.log("[claude] Caches pre-warmed (CLAUDE.md, marketing-skills, community-skills)");
 }
 
+/** Load recent cron job outputs and tasks so the chat agent knows what's been automated */
+async function loadRecentCronContext(memberName: string): Promise<string> {
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const memberSlug = memberName.toLowerCase();
+
+  try {
+    // 1. Recent super_agent_tasks (team-wide, last 48h)
+    const { data: tasks } = await supabase
+      .from("super_agent_tasks")
+      .select("title, status, category, client_name, requested_by, notes, links, created_at")
+      .gte("created_at", cutoff)
+      .order("created_at", { ascending: false })
+      .limit(15);
+
+    // 2. Recent cron conversation outputs (team-wide, not member-filtered)
+    // Cron jobs are assigned to specific members but their outputs are relevant
+    // to the whole team (e.g. Bryan's Teachertainment cron Slacks everyone)
+    const { data: cronConvs } = await supabase
+      .from("team_conversations")
+      .select("id, title, member_name, updated_at")
+      .eq("is_cron", true)
+      .gte("updated_at", cutoff)
+      .order("updated_at", { ascending: false })
+      .limit(8);
+
+    const cronOutputs: { title: string; member: string; ago: string; content: string }[] = [];
+    if (cronConvs && cronConvs.length > 0) {
+      const convIds = cronConvs.map((c) => c.id);
+      const { data: msgs } = await supabase
+        .from("team_messages")
+        .select("conversation_id, content, created_at")
+        .in("conversation_id", convIds)
+        .eq("role", "assistant")
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (msgs) {
+        // Group by conversation, take the latest assistant message per conversation
+        const seen = new Set<string>();
+        for (const m of msgs) {
+          if (seen.has(m.conversation_id)) continue;
+          seen.add(m.conversation_id);
+          const conv = cronConvs.find((c) => c.id === m.conversation_id);
+          const hoursAgo = Math.round((Date.now() - new Date(m.created_at).getTime()) / 3600000);
+          const agoStr = hoursAgo < 1 ? "just now" : `${hoursAgo}h ago`;
+          const truncated = m.content.length > 2000
+            ? m.content.slice(0, 2000) + "\n[...truncated]"
+            : m.content;
+          cronOutputs.push({
+            title: conv?.title || "Cron Job",
+            member: conv?.member_name || "unknown",
+            ago: agoStr,
+            content: truncated,
+          });
+        }
+      }
+    }
+
+    if ((!tasks || tasks.length === 0) && cronOutputs.length === 0) return "";
+
+    const lines: string[] = [
+      "\n## Recent Automated Activity (Cron Jobs & Tasks)",
+      "The following tasks and cron job outputs were generated in the last 48 hours.",
+      "If the user references any of this work, you have full context to continue it.\n",
+    ];
+
+    if (tasks && tasks.length > 0) {
+      lines.push("### Recent Tasks:");
+      for (const t of tasks) {
+        const notes = (t.notes as any[])?.slice(-2).map((n: any) => n.text).join(" | ") || "";
+        const links = (t.links as any[])?.map((l: any) => `${l.label}: ${l.url}`).join(", ") || "";
+        let line = `- "${t.title}" | status: ${t.status}`;
+        if (t.client_name) line += ` | client: ${t.client_name}`;
+        if (t.category) line += ` | category: ${t.category}`;
+        if (t.requested_by) line += ` | by: ${t.requested_by}`;
+        if (notes) line += ` | notes: ${notes}`;
+        if (links) line += ` | links: ${links}`;
+        lines.push(line);
+      }
+      lines.push("");
+    }
+
+    if (cronOutputs.length > 0) {
+      lines.push("### Recent Cron Job Outputs:");
+      for (const o of cronOutputs) {
+        lines.push(`[Cron: "${o.title}" — ${o.member} — ${o.ago}]`);
+        lines.push(o.content);
+        lines.push("");
+      }
+    }
+
+    return lines.join("\n");
+  } catch (err) {
+    console.warn("[claude] Failed to load cron context:", (err as Error).message);
+    return "";
+  }
+}
+
 const TEAM_TIMEZONE = "America/New_York";
 
 function getCurrentDateTime(): string {
@@ -88,7 +187,7 @@ function getCurrentDateISO(): string {
   return now.toLocaleDateString("en-CA", { timeZone: TEAM_TIMEZONE });
 }
 
-function buildSystemPrompt(name: string, memory: string, claudeMd: string, marketingSkills: string, communitySkills: string): string {
+function buildSystemPrompt(name: string, memory: string, claudeMd: string, marketingSkills: string, communitySkills: string, cronContext: string = ""): string {
   const slug = name.toLowerCase().replace(/\s+/g, "-");
   const scratchDir = `/tmp/${slug}`;
   const melleka = MELLEKA_PROJECT ? `\n## Melleka Project (${MELLEKA_PROJECT}):\n${claudeMd}` : "";
@@ -107,7 +206,7 @@ NEVER state the current date, time, or day of the week in your responses unless 
 ## Your memory of ${name}:
 ${memory || "(no memory yet — this is a new team member)"}
 ${melleka}
-
+${cronContext}
 ## Your scratch workspace:
 You have full read/write access to \`${scratchDir}/\` — use this as your working directory for any files you create.
 Example: write HTML to \`${scratchDir}/site/index.html\`, then call deploy_site with directory \`${scratchDir}/site/\`.
@@ -132,6 +231,8 @@ Example: write HTML to \`${scratchDir}/site/index.html\`, then call deploy_site 
 - **supermetrics_query** — pull marketing data from GA4, Google Ads, Meta Ads, Instagram, LinkedIn, Search Console, etc.
 - **supermetrics_accounts** — list available accounts for any Supermetrics data source
 - **semrush_query** — SEO data: domain overview, organic keywords, backlinks, keyword research, competitor analysis
+- **apollo_search** — search Apollo.io for people (leads/contacts) or companies by job title, location, industry, company size, keywords
+- **apollo_enrich** — enrich a person (by email or name+domain) or company (by domain or name) with full Apollo.io profile data, contact info, and social links
 
 ### Client Accounts
 - **get_client_accounts** — look up a client's linked ad accounts (Google Ads, Meta Ads, etc.), GA4 property, domain, and metadata. Call with no args to see ALL active clients.
@@ -141,10 +242,10 @@ Example: write HTML to \`${scratchDir}/site/index.html\`, then call deploy_site 
 
 ### Communication
 - **send_email** — send an email to anyone (via Resend)
-- **slack_post** — post a message to any Slack channel
+- **slack_post** — post a message to a Slack channel (NEVER post to #general — this is strictly forbidden; always use a specific channel like #cron-alerts, #marketing, etc.)
 - **slack_history** — read message history from a Slack channel
 - **slack_list_channels** — list all Slack channels and their IDs
-- **http_request** — make any HTTP/API call (Meta Ads, Stripe, any REST API)
+- **http_request** — make any HTTP/API call (Meta Ads, any REST API)
 
 ### Google Sheets
 - **google_sheets_read** — read data from any Google Sheets spreadsheet
@@ -167,6 +268,23 @@ Example: write HTML to \`${scratchDir}/site/index.html\`, then call deploy_site 
 - **social_media** — post, schedule, delete, and manage content across Facebook, Instagram, X/Twitter, LinkedIn, TikTok, Pinterest, Reddit, YouTube, Threads, Telegram, Bluesky, Google Business Profile, and Snapchat via Ayrshare API
   - Actions: post (publish/schedule), delete_post, get_post, update_post, history (post history), analytics_post (post metrics), analytics_social (profile analytics/followers), comment, get_comments, reply_comment, delete_comment, auto_schedule (set posting times), get_auto_schedule, generate_text (AI generate post), generate_rewrite, generate_translate, upload_media, get_media, hashtags_recommend, hashtags_auto, shorten_link, add_feed (RSS auto-posting), get_feeds, get_user (connected platforms), get_reviews, reply_review, validate_post, send_message (DMs), get_messages, brand_search, custom (raw API call)
 
+### GoHighLevel CRM (Full Agency API Access)
+- **ghl_contacts** — search, create, update, delete, upsert contacts; manage tags (add/remove/list/create); tasks and notes on contacts; custom fields; bulk update up to 25 contacts
+- **ghl_conversations** — list/search conversations; send SMS, email, WhatsApp messages; read message threads; update conversation status (read/unread/starred)
+- **ghl_calendar** — list/create/update/delete calendars; get free booking slots; create/update/cancel appointments; calendar groups
+- **ghl_pipeline** — list pipelines and stages; search/create/update/delete opportunities; track deal values and statuses (open/won/lost/abandoned)
+- **ghl_marketing** — list campaigns, forms (+ submissions), funnels (+ pages), workflows, surveys (+ submissions), email templates, blogs; create/manage social media posts
+- **ghl_admin** — list ALL sub-accounts (locations); manage users, invoices, products, custom fields, media library, documents/contracts, businesses; raw_api for any GHL v2 endpoint
+
+GHL USAGE RULES:
+1. ALWAYS call get_client_accounts first to verify the client has a GHL location linked (platform='ghl')
+2. client_name is REQUIRED for all GHL tools except ghl_admin list_locations
+3. All GHL operations use the agency Private Integration Token (no per-client setup needed)
+4. Rate limit: 100 requests per 10 seconds. Space out bulk operations.
+5. To trigger a GHL workflow/automation, add the appropriate tag to a contact using ghl_contacts add_tags
+6. When asked to "send a text" or "message a lead", use ghl_conversations send_message with type='SMS'
+7. When asked about "deals", "pipeline", or "opportunities", use ghl_pipeline
+
 ### Scheduling & Memory
 - **create_cron_job** — schedule a recurring task (daily reports, weekly summaries, etc.)
 - **list_cron_jobs** / **delete_cron_job** — manage scheduled tasks
@@ -177,14 +295,20 @@ Example: write HTML to \`${scratchDir}/site/index.html\`, then call deploy_site 
 - **create_agent** — queue background tasks
 - **get_current_date** — get the exact current date/time (always call this before building date ranges)
 
-### Super Agent Task Tracker
-- **super_agent_task** — create, update, or list tasks on the shared Super Agent Dashboard visible to the whole team. Use this to:
-  - Create a task when starting significant work (action='create', include title, category, client_name, requested_by)
-  - Update task status as you progress (action='update', task_id, status='working_on_it'/'completed'/'error', add notes)
-  - Add links to deliverables (deployed URLs, sheets, docs) as you produce them
-  - Log errors when something fails (status='error', error_details='...')
-  - List your current tasks (action='list', optionally filter by status or client)
-  - IMPORTANT: Create exactly ONE task per user request at the start, then UPDATE that same task_id throughout. Never create duplicate tasks. Always list first to check for existing tasks before creating a new one.
+### Super Agent Task Tracker (MANDATORY)
+- **super_agent_task** — create, update, or list tasks on the shared Super Agent Dashboard visible to the whole team.
+  - CRITICAL RULES — you MUST follow these for EVERY conversation:
+    1. As your VERY FIRST action in every conversation, call super_agent_task with action='create' to log what you are about to do. Include title, category, client_name (if applicable), and requested_by (the team member's name).
+    2. Immediately update the task to status='working_on_it' and add a note describing your approach.
+    3. As you complete each significant step, call super_agent_task with action='update' to add a note (e.g. "Pulled Google Ads data for last 30 days", "Generated report HTML", "Deployed site to melleka.app").
+    4. When you produce a deliverable (URL, file, sheet, etc.), add it as a link.
+    5. When you finish the request, update status='completed' with a summary note.
+    6. If anything fails, update status='error' with error_details explaining what went wrong.
+    7. NEVER skip task creation. Even simple questions get a task (category='Other', title='Answered question about X').
+    8. Create exactly ONE task per user request, then UPDATE that same task_id throughout. Never create duplicate tasks.
+    9. Every tool execution you make is automatically logged and linked to your current task. The team can see exactly what tools you used, how long each took, and whether they succeeded or failed.
+  - Available statuses: not_started, working_on_it, completed, in_review, error, blocked, cancelled
+  - Available categories: Ad Campaign, SEO, Content, Client Work, Analytics, Website, Email, Report, PPC, Social Media, Development, Other
 
 ### Website Builder
 - **website_create_project** — create a new website project with a name and slug (e.g. "acme-corp" -> acme-corp.melleka.app)
@@ -246,7 +370,6 @@ The main client-facing SaaS product. Key facts for the team:
 - **Stack**: React 18 + TypeScript + Vite (frontend), Supabase Edge Functions (backend), Supabase Postgres (DB)
 - **Supabase project**: nhebotmrnxixvcvtspet (prod) — app.melleka.com / turbo.melleka.com
 - **Plans**: Self-Managed AI ($499), Team-Managed AI ($1,999), Full AI Suite ($2,999)
-- **Stripe product IDs**: self-managed=prod_U452A2SLFdtmL0, team-managed=prod_U452QHJQiL3kd2, full-suite=prod_U4527flDgRuu96
 
 ### Client-Facing AI Agents (turbo.melleka.com/agents):
 Each agent has a dedicated category with tools and system prompt tuning:
@@ -286,8 +409,6 @@ Clients connect their own Google Ads / Meta Ads accounts via OAuth 2.0. Melleka'
 | meta-ads-oauth | Generates Meta/Facebook OAuth URL |
 | meta-ads-callback | Exchanges code for long-lived token, stores in oauth_connections |
 | disconnect-integration | Deletes oauth_connections row for a provider |
-| check-subscription | Verifies Stripe subscription status |
-| create-checkout | Creates Stripe checkout session |
 | admin-manage-users | Admin CRUD on users |
 | admin-impersonate | Issues session token for user impersonation |
 
@@ -507,8 +628,31 @@ EVERY TIME you run a cron job that involves PPC, ad data, or client optimization
 - If image generation fails (API error, quota, etc.), still deliver the content with a note that visuals need to be added manually. Do NOT block a deliverable because image generation failed.
 - The deliverable should be READY TO USE — not a draft that needs more work. A team member should be able to take it and launch/publish immediately.
 - When generating ad creatives, create multiple variants with different angles/hooks.
-- Use generate_video for short-form ad content when appropriate (social media ads, reels).
 - Upload all visual assets to Supabase storage (ad-creatives bucket) so URLs persist.
+
+## VIDEO PRODUCTION (CRITICAL - follow this EXACT workflow):
+
+When asked to create a video, ALWAYS produce a COMPLETE, scroll-stopping social media video with audio. NEVER deliver a silent video or disconnected clips.
+
+MANDATORY WORKFLOW:
+1. SCRIPT FIRST: Write a short script with a HOOK in the first 1-2 seconds (question, bold statement, surprising fact, or visual shock). The hook is the most important element.
+2. GENERATE VIDEO: Use generate_video with a cinematographic prompt (Kling 3.0 default). Write prompts like a director: specify shot type, camera movement, lighting, and mood. NEVER use vague terms like "cinematic quality" -- be SPECIFIC (e.g. "slow dolly push-in, medium shot, soft key light from camera-left, warm rim light, shallow depth of field").
+3. GENERATE VOICEOVER: Use the voice tool (action: speak) to create a professional voiceover for the script. Use a voice that matches the brand tone. Keep it punchy and confident.
+4. COMBINE AUDIO + VIDEO: Use run_command with ffmpeg to merge the video and voiceover into one file. Example: ffmpeg -i video.mp4 -i voiceover.mp3 -map 0:v -map 1:a -c:v copy -c:a aac -shortest output.mp4
+5. UPLOAD FINAL: Use upload_to_storage to upload the final combined file and return the permanent URL.
+
+SCROLL-STOPPING ELEMENTS (include in EVERY video):
+- HOOK (first 1-2 seconds): A bold visual + audio opener that stops the scroll. Examples: "What if I told you...", "Stop scrolling if you...", dramatic visual reveal, unexpected contrast
+- VOICEOVER: Professional narration. Always. Never deliver silent video.
+- PACING: Fast cuts for social media (2-4 second scenes). Slow elegant motion for luxury/brand content.
+- EMOTION: Every video must make the viewer FEEL something (curiosity, desire, urgency, aspiration)
+- CTA: End with a clear call-to-action if it's an ad
+
+QUALITY STANDARDS:
+- Portrait 9:16 for Reels/TikTok/Shorts, Landscape 16:9 for YouTube/LinkedIn, Square 1:1 for Instagram feed
+- If making multiple scenes, generate each clip separately then stitch with ffmpeg
+- Color grade consistently across all clips
+- The final video must feel like ONE cohesive piece, not random clips slapped together
 
 ## Google Sheets Guidelines:
 - The spreadsheet must be shared with the service account email (found in GOOGLE_SERVICE_ACCOUNT_JSON → client_email)
@@ -629,11 +773,27 @@ Summarize what changed: campaign status changes, budget modifications, new ads c
 If the endpoint returns errors or no data, skip silently.
 
 STEP 7 - SOCIAL MEDIA POSTS:
-If the client has a facebook_page linked in accounts, call meta_ads_manage:
-Method: GET, Endpoint: /{page_id}/published_posts, Params: { "fields": "message,created_time,shares,likes.summary(true),comments.summary(true)", "limit": "50" }
-Count posts within the date range and summarize engagement (total likes, comments, shares).
-If no facebook_page is linked, add a note: "Social Media: No Facebook Page linked for this client. Add the Page ID in Client Settings to track posts."
-Always add at end of client section: "Reminder: Check if social media posts are scheduled for next week."
+Pull BOTH Facebook and Instagram posts. Show the actual content of each post.
+
+A) FACEBOOK POSTS: If the client has a facebook_page linked in accounts, call meta_ads_manage:
+Method: GET, Endpoint: /{page_id}/published_posts, Params: { "fields": "message,created_time,full_picture,shares,likes.summary(true),comments.summary(true)", "limit": "50" }
+Filter to posts within the date range.
+
+B) INSTAGRAM POSTS: If the client has an instagram_account linked in accounts, call meta_ads_manage:
+Method: GET, Endpoint: /{instagram_account_id}/media, Params: { "fields": "caption,timestamp,like_count,comments_count,media_type,media_url,thumbnail_url,permalink", "limit": "50" }
+Filter to posts within the date range.
+
+For EACH post found (Facebook and Instagram), include in the report:
+- Date posted
+- Platform (Facebook or Instagram)
+- The image/thumbnail (Facebook: use full_picture URL, Instagram: use media_url or thumbnail_url for videos)
+- The full post caption/message text (do NOT omit or summarize the content)
+- Engagement: likes, comments, shares (if available)
+In the branded HTML page, display each post's image using an <img> tag (max-width: 100%, border-radius: 8px). Show images inline with the post content.
+
+Then show totals: X Facebook posts, Y Instagram posts, total engagement.
+If neither facebook_page nor instagram_account is linked, add a note: "Social Media: No Facebook Page or Instagram Account linked for this client. Add them in Client Settings to track posts."
+Always add at end of social section: "Reminder: Check if social media posts are scheduled for next week."
 
 STEP 8 - BUILD BRANDED HTML UPDATE PAGE (LIVE CHAT ONLY, NOT CRON):
 When generating for live chat (not a cron job or scheduled task):
@@ -774,18 +934,20 @@ function safeWrite(write: SseWriter): SseWriter {
 async function runChat(
   memberName: string,
   messages: Anthropic.MessageParam[],
-  write: SseWriter
+  write: SseWriter,
+  conversationId?: string | null,
 ): Promise<string> {
   // Migrate old blob memory to individual entries (first time only)
   await migrateMemoryIfNeeded(memberName);
 
-  const [memory, claudeMd, marketingSkills, communitySkills] = await Promise.all([
+  const [memory, claudeMd, marketingSkills, communitySkills, cronContext] = await Promise.all([
     buildMemoryForPrompt(memberName),
     loadClaudeMd(),
     loadMarketingSkills(),
     loadCommunitySkills(),
+    loadRecentCronContext(memberName),
   ]);
-  const systemPrompt = buildSystemPrompt(memberName, memory, claudeMd, marketingSkills, communitySkills);
+  const systemPrompt = buildSystemPrompt(memberName, memory, claudeMd, marketingSkills, communitySkills, cronContext);
   console.log(`[runChat] ${memberName} | system prompt length=${systemPrompt.length}, history=${messages.length} messages`);
   let fullResponse = "";
   const currentMessages = [...messages];
@@ -866,6 +1028,34 @@ async function runChat(
 
   // callLLMWithFallback replaces the old callClaudeWithRetry.
   // It tries Claude -> Gemini -> OpenAI automatically.
+
+  // ── Tool execution tracking ─────────────────────────────────────────
+  // Track the current super_agent_task ID so we can link tool executions to it
+  let currentTaskId: string | null = null;
+
+  // Fire-and-forget: log a tool execution to the database
+  const logToolExecution = (entry: {
+    tool_name: string;
+    tool_input: Record<string, unknown>;
+    tool_output: string;
+    execution_ms: number;
+    status: string;
+    error_message?: string;
+  }) => {
+    supabase.from("agent_tool_executions").insert({
+      task_id: currentTaskId,
+      conversation_id: conversationId || null,
+      tool_name: entry.tool_name,
+      tool_input: entry.tool_input,
+      tool_output: (entry.tool_output || "").slice(0, 2000),
+      execution_ms: entry.execution_ms,
+      status: entry.status,
+      error_message: entry.error_message || null,
+      member_name: memberName,
+    }).then(({ error }) => {
+      if (error) console.warn("[logToolExecution] insert failed:", error.message);
+    });
+  };
 
   // ── Main agentic loop — UNLIMITED iterations ───────────────────────
   // Safety valve at 200 to prevent truly infinite loops from bugs,
@@ -1017,13 +1207,33 @@ async function runChat(
         }
 
         let result: string;
+        let toolError: string | undefined;
+        const toolStart = Date.now();
         try {
           result = await executeTool(block.name, parsedInput, memberName);
         } catch (toolErr: any) {
           // Tool execution crashed — give Claude the error so it can adapt
           result = `ERROR: Tool "${block.name}" failed: ${toolErr.message}`;
+          toolError = toolErr.message;
           console.error(`[runChat] ${memberName} | tool ${block.name} threw:`, toolErr.message);
         }
+        const toolMs = Date.now() - toolStart;
+
+        // Track current super_agent_task ID from create results
+        if (block.name === "super_agent_task" && !toolError) {
+          const idMatch = result.match(/ID:\s*([0-9a-f-]{36})/i);
+          if (idMatch) currentTaskId = idMatch[1];
+        }
+
+        // Log tool execution to database (fire-and-forget)
+        logToolExecution({
+          tool_name: block.name,
+          tool_input: parsedInput,
+          tool_output: result,
+          execution_ms: toolMs,
+          status: toolError ? "error" : "success",
+          error_message: toolError,
+        });
 
         write?.({ type: "tool_result", name: block.name, output: result.slice(0, 500) });
 
@@ -1058,18 +1268,20 @@ export async function streamChat(
   messages: Anthropic.MessageParam[],
   res: Response,
   onEvent?: (event: Record<string, unknown>) => void,
+  conversationId?: string | null,
 ): Promise<string> {
   const write: SseWriter = safeWrite((event) => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
     if (onEvent) onEvent(event);
   });
-  return runChat(memberName, messages, write);
+  return runChat(memberName, messages, write, conversationId);
 }
 
 /** Run chat in the background (no SSE, just returns the full response) */
 export async function runChatBackground(
   memberName: string,
-  messages: Anthropic.MessageParam[]
+  messages: Anthropic.MessageParam[],
+  conversationId?: string | null,
 ): Promise<string> {
-  return runChat(memberName, messages, null);
+  return runChat(memberName, messages, null, conversationId);
 }

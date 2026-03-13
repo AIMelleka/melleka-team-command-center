@@ -110,7 +110,21 @@ async function applyGoogleAdsChange(
       console.log(`[GOOGLE] Converted cpc_bid_micros ${rawBid} → $${numericBid.toFixed(2)}`);
     }
     if (isNaN(numericBid) || numericBid <= 0) throw new Error(`Invalid bid value: ${JSON.stringify(rawBid)}`);
-    
+
+    // SAFETY CAP: Never allow a single keyword/ad group bid above $50
+    // This prevents runaway spending if AI proposes an absurd bid
+    const MAX_BID_DOLLARS = 50;
+    if (numericBid > MAX_BID_DOLLARS) {
+      throw new Error(`Bid $${numericBid.toFixed(2)} exceeds safety cap of $${MAX_BID_DOLLARS}. Budget protection: bids cannot be set this high.`);
+    }
+
+    // SAFETY: Check before_value bid — never allow more than 3x increase
+    const beforeValue = change.before_value as Record<string, unknown> || {};
+    const beforeBid = parseFloat(String(beforeValue.cpc_bid ?? beforeValue.bid ?? '0').replace(/[$,]/g, ''));
+    if (beforeBid > 0 && numericBid > beforeBid * 3) {
+      throw new Error(`Bid increase from $${beforeBid.toFixed(2)} to $${numericBid.toFixed(2)} exceeds 3x safety limit. Budget protection: cannot increase bids by more than 300%.`);
+    }
+
     const newCpcMicros = Math.round(numericBid * 1_000_000);
     const endpoint = entityType === 'keyword' ? 'adGroupCriteria' : 'adGroups';
     const mutateRes = await fetch(`${GOOGLE_ADS_API_BASE}/customers/${customerId}/${endpoint}:mutate`, {

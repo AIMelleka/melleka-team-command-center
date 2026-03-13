@@ -1,14 +1,15 @@
-import { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Trash2, Loader2, Check, Link, ChevronDown } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { X, Plus, Trash2, Loader2, Check, Link, ChevronDown, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { syncAfterMappingChange } from '@/lib/accountMappingSync';
 interface SupermetricsAccount { id: string; name: string; }
 interface MetaPage { id: string; name: string; instagram: { id: string; username: string } | null; }
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.teams.melleka.com/api';
 
 interface AccountMapping {
   id: string;
@@ -34,6 +35,7 @@ const PLATFORMS = [
   { key: 'facebook_page', smKey: '', label: 'Facebook Page', color: 'bg-blue-600/15 text-blue-500 border-blue-600/20', manual: false, source: 'meta' as const },
   { key: 'instagram_account', smKey: '', label: 'Instagram Account', color: 'bg-pink-600/15 text-pink-500 border-pink-600/20', manual: false, source: 'meta' as const },
   { key: 'ayrshare_profile', smKey: '', label: 'Ayrshare Profile', color: 'bg-purple-500/15 text-purple-400 border-purple-500/20', manual: true },
+  { key: 'ghl', smKey: '', label: 'GoHighLevel', color: 'bg-orange-500/15 text-orange-400 border-orange-500/20', manual: false, source: 'ghl' as const },
 ];
 
 export default function AccountMappingModal({ clientName, smAccounts, onClose, onSaved }: Props) {
@@ -48,12 +50,19 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
   // Pending selection per platform (for dropdown)
   const [pendingSelections, setPendingSelections] = useState<Record<string, string>>({});
 
+  // Track whether any mapping was added/removed/replaced
+  const hasChanged = useRef(false);
+
   // Manual input state for social/manual platforms
   const [manualInputs, setManualInputs] = useState<Record<string, { id: string; name: string }>>({});
 
   // Meta pages (Facebook Pages + Instagram accounts from Meta API)
   const [metaPages, setMetaPages] = useState<MetaPage[]>([]);
   const [metaPagesLoading, setMetaPagesLoading] = useState(false);
+
+  // GHL locations (from agency-level API)
+  const [ghlLocations, setGhlLocations] = useState<{ id: string; name: string }[]>([]);
+  const [ghlLoading, setGhlLoading] = useState(false);
 
   // Load existing mappings
   useEffect(() => {
@@ -88,7 +97,7 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
         if (token) {
-          const resp = await fetch(`${API_URL}/api/social/meta-pages`, {
+          const resp = await fetch(`${API_URL}/social/meta-pages`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (resp.ok) {
@@ -101,8 +110,43 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     })();
   }, []);
 
-  // Get available Meta accounts for a platform
-  const getMetaAccountsForPlatform = (platformKey: string): SupermetricsAccount[] => {
+  // Fetch GHL locations from edge function
+  useEffect(() => {
+    (async () => {
+      setGhlLoading(true);
+      try {
+        // Use fetch directly for reliability (supabase.functions.invoke can silently fail)
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://nhebotmrnxixvcvtspet.supabase.co';
+        const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        const resp = await fetch(`${supabaseUrl}/functions/v1/ghl-list-locations`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token || anonKey}`,
+            'apikey': anonKey,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (resp.ok) {
+          const json = await resp.json();
+          if (json?.success && json?.locations) {
+            setGhlLocations(json.locations.map((l: any) => ({ id: l.id, name: l.name })));
+          } else {
+            console.warn('[GHL] Edge function returned:', json);
+          }
+        } else {
+          console.warn('[GHL] Edge function error:', resp.status, await resp.text().catch(() => ''));
+        }
+      } catch (err) {
+        console.warn('[GHL] Failed to fetch locations:', err);
+      }
+      setGhlLoading(false);
+    })();
+  }, []);
+
+  // Get available accounts for Meta or GHL platforms
+  const getSourceAccountsForPlatform = (platformKey: string): SupermetricsAccount[] => {
     if (platformKey === 'facebook_page') {
       return metaPages.map(p => ({ id: p.id, name: p.name }));
     }
@@ -110,6 +154,9 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
       return metaPages
         .filter(p => p.instagram)
         .map(p => ({ id: p.instagram!.id, name: `${p.instagram!.username} (${p.name})` }));
+    }
+    if (platformKey === 'ghl') {
+      return ghlLocations.map(l => ({ id: l.id, name: l.name }));
     }
     return [];
   };
@@ -132,11 +179,11 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     return new Set(getMappingsForPlatform(platformKey).map(m => m.account_id));
   };
 
-  // Resolve account from either Supermetrics or Meta sources
+  // Resolve account from Supermetrics, Meta, or GHL sources
   const resolveAccount = (platformKey: string, accountId: string): SupermetricsAccount | undefined => {
     const platform = PLATFORMS.find(p => p.key === platformKey);
-    const isMeta = platform && (platform as any).source === 'meta';
-    const accounts = isMeta ? getMetaAccountsForPlatform(platformKey) : getAccountsForPlatform(platformKey);
+    const source = platform && (platform as any).source;
+    const accounts = source ? getSourceAccountsForPlatform(platformKey) : getAccountsForPlatform(platformKey);
     return accounts.find(a => a.id === accountId);
   };
 
@@ -155,6 +202,7 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     } else if (data) {
       setMappings(prev => [...prev, data as AccountMapping]);
       toast({ title: `Linked ${account.name}` });
+      hasChanged.current = true;
     }
     setPendingSelections(prev => ({ ...prev, [platformKey]: '' }));
     setIsSaving(false);
@@ -170,6 +218,7 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     } else {
       setMappings(prev => prev.filter(m => m.id !== mapping.id));
       toast({ title: `Removed ${mapping.account_name || mapping.account_id}` });
+      hasChanged.current = true;
     }
   };
 
@@ -198,6 +247,7 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     } else if (data) {
       setMappings(prev => [...prev.filter(m => m.platform !== platformKey), data as AccountMapping]);
       toast({ title: `Linked ${account.name}` });
+      hasChanged.current = true;
     }
     setIsSaving(false);
   };
@@ -218,18 +268,28 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     } else if (data) {
       setMappings(prev => [...prev, data as AccountMapping]);
       toast({ title: `Linked ${input.name.trim() || input.id.trim()}` });
+      hasChanged.current = true;
     }
     setManualInputs(prev => ({ ...prev, [platformKey]: { id: '', name: '' } }));
     setIsSaving(false);
   };
 
-  const handleClose = () => {
-    onSaved();
+  const handleClose = async () => {
+    if (hasChanged.current) {
+      const result = await syncAfterMappingChange(clientName);
+      onSaved();
+      toast({
+        title: 'Account mappings updated',
+        description: `Cleared ${result.purged.reports} old report${result.purged.reports !== 1 ? 's' : ''} and ${result.purged.snapshots} snapshot${result.purged.snapshots !== 1 ? 's' : ''}. Regenerating fresh data now...`,
+      });
+    } else {
+      onSaved();
+    }
     onClose();
   };
 
-  // Check if there are any accounts available (Supermetrics, Meta, or manual platforms)
-  const hasAnyAccounts = PLATFORMS.some(p => p.manual || (p as any).source === 'meta' || getAccountsForPlatform(p.key).length > 0);
+  // Check if there are any accounts available (Supermetrics, Meta, GHL, or manual platforms)
+  const hasAnyAccounts = PLATFORMS.some(p => p.manual || (p as any).source === 'meta' || (p as any).source === 'ghl' || getAccountsForPlatform(p.key).length > 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={handleClose}>
@@ -249,6 +309,19 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {/* Connect GHL OAuth button */}
+          <div className="flex items-center justify-between rounded-lg border border-orange-500/20 bg-orange-500/5 px-4 py-2.5">
+            <span className="text-sm text-orange-400">GoHighLevel OAuth</span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
+              onClick={() => window.open('https://nhebotmrnxixvcvtspet.supabase.co/functions/v1/ghl-oauth-start', '_blank')}
+            >
+              <ExternalLink className="h-3 w-3" /> Connect GHL
+            </Button>
+          </div>
+
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -260,15 +333,18 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
             </div>
           ) : (
             PLATFORMS.map(platform => {
-              const isMeta = (platform as any).source === 'meta';
-              const accounts = isMeta ? getMetaAccountsForPlatform(platform.key) : getAccountsForPlatform(platform.key);
+              const source = (platform as any).source;
+              const hasSource = source === 'meta' || source === 'ghl';
+              const accounts = hasSource ? getSourceAccountsForPlatform(platform.key) : getAccountsForPlatform(platform.key);
               const currentMappings = getMappingsForPlatform(platform.key);
               const mappedIds = getMappedIds(platform.key);
               const isMulti = multiAccountPlatforms.has(platform.key);
               const unmapped = accounts.filter(a => !mappedIds.has(a.id));
+              const isGhl = source === 'ghl';
+              const isMeta = source === 'meta';
 
-              // Skip non-manual, non-meta platforms with no available accounts and no existing mappings
-              if (!platform.manual && !isMeta && accounts.length === 0 && currentMappings.length === 0) return null;
+              // Skip non-manual, non-source platforms with no available accounts and no existing mappings
+              if (!platform.manual && !hasSource && accounts.length === 0 && currentMappings.length === 0) return null;
 
               return (
                 <div key={platform.key} className="rounded-lg border border-border overflow-hidden">
@@ -445,11 +521,29 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
                     )}
 
                     {!platform.manual && accounts.length === 0 && currentMappings.length === 0 && (
-                      <p className="text-xs text-muted-foreground italic py-1">
-                        {isMeta && metaPagesLoading ? 'Loading pages from Meta...' :
-                         isMeta ? 'No pages found from Meta API. Check your Meta access token.' :
-                         'No accounts available from Supermetrics for this platform.'}
-                      </p>
+                      <div className="py-1">
+                        {isGhl && ghlLoading ? (
+                          <p className="text-xs text-muted-foreground italic">Loading GHL locations...</p>
+                        ) : isGhl ? (
+                          <div className="space-y-2">
+                            <p className="text-xs text-muted-foreground">No GHL locations found. Connect your GoHighLevel account to see available locations.</p>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5 text-xs"
+                              onClick={() => window.open('https://nhebotmrnxixvcvtspet.supabase.co/functions/v1/ghl-oauth-start', '_blank')}
+                            >
+                              <ExternalLink className="h-3 w-3" /> Connect GoHighLevel
+                            </Button>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground italic">
+                            {isMeta && metaPagesLoading ? 'Loading pages from Meta...' :
+                             isMeta ? 'No pages found from Meta API. Check your Meta access token.' :
+                             'No accounts available from Supermetrics for this platform.'}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
