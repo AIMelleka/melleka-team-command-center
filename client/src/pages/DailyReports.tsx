@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Loader2, BarChart3, ArrowLeft, RefreshCw, Brain, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -10,10 +10,10 @@ import { useDeepAnalysis } from '@/hooks/useDeepAnalysis';
 import { useRecommendationActions } from '@/hooks/useRecommendationActions';
 import { useAutoOptimizeData } from '@/hooks/useAutoOptimizeData';
 import { useAutoOptimizeMemory } from '@/hooks/useAutoOptimizeMemory';
-import { ClientReportCard } from '@/components/daily-reports/ClientReportCard';
-import { ReportTableOfContents } from '@/components/daily-reports/ReportTableOfContents';
 import { ReportDatePicker } from '@/components/daily-reports/ReportDatePicker';
 import { AutoUpdatesDashboard } from '@/components/daily-reports/AutoUpdatesDashboard';
+import { ClientsOverview } from '@/components/daily-reports/ClientsOverview';
+import { ClientDetailView } from '@/components/daily-reports/ClientDetailView';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -25,12 +25,14 @@ export default function DailyReports() {
   const cancelRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Drill-down state: null = overview, string = client detail
+  const [selectedClient, setSelectedClient] = useState<string | null>(null);
+
   const handleRegenerate = async () => {
     setIsRegenerating(true);
     cancelRef.current = false;
 
     try {
-      // Step 1: Get list of clients with linked accounts
       const { data: listData, error: listError } = await supabase.functions.invoke('bulk-ad-review', {
         body: { action: 'list-clients' },
       });
@@ -45,11 +47,9 @@ export default function DailyReports() {
 
       toast({ title: `Generating reports for ${clients.length} clients...`, description: 'Each client takes 30-120 seconds. Reports appear as they finish.' });
 
-      // Step 2: Fire off each client as fire-and-forget, poll DB for results
       const startTime = Date.now();
       let launched = 0;
 
-      // Track which reports existed before we started
       const today = new Date().toISOString().split('T')[0];
       const { data: existingReports } = await supabase
         .from('ad_review_history')
@@ -58,7 +58,6 @@ export default function DailyReports() {
         .gte('created_at', new Date(startTime - 60000).toISOString());
       const alreadyDone = new Set((existingReports || []).map((r: any) => r.client_name));
 
-      // Launch clients with staggered starts (3 seconds apart to avoid overwhelming)
       const launchNext = async () => {
         for (const clientName of clients) {
           if (cancelRef.current) break;
@@ -67,20 +66,16 @@ export default function DailyReports() {
           launched++;
           setRegenProgress({ done: alreadyDone.size, total: clients.length, current: `Launched ${launched}/${clients.length}` });
 
-          // Fire and forget -- don't await
           supabase.functions.invoke('bulk-ad-review', {
             body: { clientName },
           }).catch(() => {});
 
-          // Stagger by 3 seconds so we don't hit rate limits
           await new Promise(r => setTimeout(r, 3000));
         }
       };
 
-      // Start launching in background
       launchNext();
 
-      // Poll DB every 10 seconds to track completion
       pollRef.current = setInterval(async () => {
         const { data: newReports } = await supabase
           .from('ad_review_history')
@@ -95,7 +90,6 @@ export default function DailyReports() {
 
         if (doneCount > 0) reload();
 
-        // Stop after all done or 10 minutes
         if (doneCount >= clients.length || cancelRef.current || Date.now() - startTime > 600000) {
           if (pollRef.current) clearInterval(pollRef.current);
           pollRef.current = null;
@@ -165,10 +159,20 @@ export default function DailyReports() {
 
   const { memories } = useAutoOptimizeMemory();
 
+  // Reset drill-down when date changes
+  useEffect(() => {
+    setSelectedClient(null);
+  }, [dateSelection.singleDate, dateSelection.startDate, dateSelection.endDate]);
+
   const handleRunDeepAnalysis = () => {
     if (!dateSelection.startDate || !dateSelection.endDate) return;
     analyzeAllClients(dailyBreakdowns, dateSelection.startDate, dateSelection.endDate);
   };
+
+  // Find the selected client's report
+  const selectedReport = selectedClient
+    ? reports.find(r => r.clientName === selectedClient) ?? null
+    : null;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -329,33 +333,25 @@ export default function DailyReports() {
                   )}
                 </div>
               </div>
+            ) : selectedReport ? (
+              /* Level 2: Client Detail View */
+              <ClientDetailView
+                report={selectedReport}
+                onBack={() => setSelectedClient(null)}
+                isRangeMode={isRangeMode}
+                deepAnalysis={analyses.get(selectedReport.clientName) || null}
+                getStatus={getStatus}
+                getError={getError}
+                onApprove={approve}
+                onReject={reject}
+                onExecute={execute}
+              />
             ) : (
-              <div className="flex gap-6">
-                {/* Sticky TOC sidebar */}
-                <div className="hidden lg:block w-56 shrink-0">
-                  <div className="sticky top-[85px]">
-                    <ReportTableOfContents reports={reports} autoOptimizeData={autoOptimizeData} />
-                  </div>
-                </div>
-
-                {/* Report cards */}
-                <div className="flex-1 min-w-0 space-y-10">
-                  {reports.map((report) => (
-                    <ClientReportCard
-                      key={report.id}
-                      report={report}
-                      isRangeMode={isRangeMode}
-                      deepAnalysis={analyses.get(report.clientName) || null}
-                      isAnalysisLoading={loadingClients.has(report.clientName)}
-                      recGetStatus={getStatus}
-                      recGetError={getError}
-                      recOnApprove={approve}
-                      recOnReject={reject}
-                      recOnExecute={execute}
-                    />
-                  ))}
-                </div>
-              </div>
+              /* Level 1: Overview Grid */
+              <ClientsOverview
+                reports={reports}
+                onSelectClient={setSelectedClient}
+              />
             )}
           </TabsContent>
 
