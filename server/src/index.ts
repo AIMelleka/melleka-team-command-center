@@ -23,6 +23,11 @@ import recommendationsRouter from "./routes/recommendations.js";
 import uploadsRouter from "./routes/uploads.js";
 import onboardingBotRouter from "./routes/onboarding-bot.js";
 import preferencesRouter from "./routes/preferences.js";
+import googleAdsRouter from "./routes/google-ads.js";
+import metaAdsRouter from "./routes/meta-ads.js";
+import clientUpdatesRouter from "./routes/client-updates.js";
+import cronJobsRouter from "./routes/cron-jobs.js";
+import publicRouter from "./routes/public.js";
 import { getActiveSseConnections } from "./routes/chat.js";
 import { warmCaches } from "./services/claude.js";
 
@@ -39,8 +44,15 @@ const allowedOrigins = new Set(
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && (allowedOrigins.has("*") || allowedOrigins.has(origin))) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
+  const isPublicRoute = req.path.startsWith("/api/public/");
+  const isAllowed =
+    origin &&
+    (allowedOrigins.has("*") ||
+      allowedOrigins.has(origin) ||
+      origin.endsWith(".melleka.app") ||
+      isPublicRoute);
+  if (isAllowed) {
+    res.setHeader("Access-Control-Allow-Origin", origin!);
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Vary", "Origin");
   }
@@ -139,6 +151,11 @@ app.use("/api/recommendations", recommendationsRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/onboarding-bot", onboardingBotRouter);
 app.use("/api/preferences", preferencesRouter);
+app.use("/api/google-ads", googleAdsRouter);
+app.use("/api/meta-ads", metaAdsRouter);
+app.use("/api/client-updates", clientUpdatesRouter);
+app.use("/api/cron-jobs", cronJobsRouter);
+app.use("/api/public", publicRouter);
 
 // ── Global error safety net (MUST be after all routes) ───────────────────
 // Catches ANY unhandled error thrown by middleware or route handlers so one

@@ -139,13 +139,13 @@ export interface CronJob {
 
 export async function fetchCronJobs(): Promise<CronJob[]> {
   const h = await authHeaders();
-  const res = await fetch(`${API_BASE}/notifications/cron-jobs`, { headers: h });
+  const res = await fetch(`${API_BASE}/cron-jobs`, { headers: h });
   if (!res.ok) return [];
   return res.json();
 }
 
 export async function deleteCronJob(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/notifications/cron-jobs/${id}`, {
+  const res = await fetch(`${API_BASE}/cron-jobs/${id}`, {
     method: "DELETE",
     headers: await authHeaders(),
   });
@@ -155,6 +155,32 @@ export async function deleteCronJob(id: string): Promise<void> {
   }
 }
 
+export async function createCronJob(body: { name: string; cron_expr: string; task: string }): Promise<CronJob> {
+  const res = await fetch(`${API_BASE}/cron-jobs`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to create" }));
+    throw new Error(err.error || "Failed to create cron job");
+  }
+  return res.json();
+}
+
+export async function updateCronJob(id: string, body: Partial<Pick<CronJob, "name" | "cron_expr" | "task" | "enabled">>): Promise<CronJob> {
+  const res = await fetch(`${API_BASE}/cron-jobs/${id}`, {
+    method: "PATCH",
+    headers: await authHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to update" }));
+    throw new Error(err.error || "Failed to update cron job");
+  }
+  return res.json();
+}
+
 export async function ensureTeamMember(): Promise<{ name: string; userId: string }> {
   const res = await fetch(`${API_BASE}/auth/me`, { headers: await authHeaders() });
   if (!res.ok) throw new Error("Not authenticated");
@@ -162,12 +188,13 @@ export async function ensureTeamMember(): Promise<{ name: string; userId: string
 }
 
 export interface SSEEvent {
-  type: "text" | "tool_start" | "tool_result" | "done" | "error";
+  type: "text" | "tool_start" | "tool_result" | "done" | "error" | "html_content";
   delta?: string;
   name?: string;
   output?: string;
   conversationId?: string;
   message?: string;
+  content?: string; // for html_content events (full HTML from write_file)
 }
 
 // Stale timeout: if no data (including keepalive pings) for this many ms, consider dead.
@@ -314,6 +341,24 @@ export function streamMessage(
     aborted = true;
     controller.abort();
   };
+}
+
+// ── Client Update publishing ──
+
+export async function publishClientUpdate(
+  html: string,
+  clientSlug: string
+): Promise<{ url: string; vercelUrl: string | null; domainOk: boolean }> {
+  const res = await fetch(`${API_BASE}/client-updates/publish`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ html, clientSlug }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Publish failed" }));
+    throw new Error(err.error || "Publish failed");
+  }
+  return res.json();
 }
 
 // ── Persistent background chat: reconnect APIs ──
