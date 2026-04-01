@@ -75,7 +75,6 @@ import {
   DeckRecommendationCard,
   DeckPerformanceGrade,
   DeckSectionHeader,
-  DeckNav,
   DeckFooter,
   DeckComparisonChart,
   DeckTrendChart,
@@ -1256,7 +1255,7 @@ const TasksCompletedSection = ({
             <div key={`extra-${bIdx}`} className="deck-ref-card p-6">
               <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: brandPrimary }} />
-                <InlineEdit value={block.name} editKey={`extraTaskBlock.${bIdx}.name`} as="span" className="text-lg font-semibold text-white" />
+                <InlineEdit value={block.name} editKey={`extraTaskBlock.${bIdx}.name`} as="span" className="text-lg font-semibold text-[#1a1a1a]" />
                 {isEditMode && (
                   <button
                     onClick={() => {
@@ -1334,7 +1333,7 @@ const TasksCompletedSection = ({
                     value={newBlockName}
                     onChange={(e) => setNewBlockName(e.target.value)}
                     placeholder="Block name (e.g. Meta Ads Tasks)"
-                    className="bg-white/5 border border-[#e5e5e0] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-white/40 w-full"
+                    className="bg-[#f9fafb] border border-[#e5e5e0] rounded-lg px-3 py-2 text-[#1a1a1a] text-sm focus:outline-none focus:border-[#6C3FA0]/40 w-full"
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && newBlockName.trim()) {
@@ -1363,7 +1362,7 @@ const TasksCompletedSection = ({
                     </button>
                     <button
                       onClick={() => { setShowAddBlock(false); setNewBlockName(''); }}
-                      className="flex-1 bg-white/5 text-[#6b7280] border border-[#e5e5e0] rounded-lg px-3 py-1.5 text-sm hover:bg-white/10 transition-colors"
+                      className="flex-1 bg-gray-50 text-[#6b7280] border border-[#e5e5e0] rounded-lg px-3 py-1.5 text-sm hover:bg-gray-100 transition-colors"
                     >
                       Cancel
                     </button>
@@ -2233,7 +2232,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                             setColorDraft(prev => ({ ...prev, [key]: val }));
                           }
                         }}
-                        className="mt-1 w-full text-xs text-center text-[#4b5563] bg-white/5 border border-[#e5e5e0] rounded px-1 py-0.5 font-mono"
+                        className="mt-1 w-full text-xs text-center text-[#4b5563] bg-[#f9fafb] border border-[#e5e5e0] rounded px-1 py-0.5 font-mono"
                         maxLength={7}
                       />
                     </div>
@@ -2434,7 +2433,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   return (
                   <div 
                     key={idx}
-                    className="rounded-2xl overflow-hidden shadow-xl border border-[#e5e5e0] cursor-zoom-in hover:border-white/30 transition-all group"
+                    className="rounded-2xl overflow-hidden shadow-xl border border-[#e5e5e0] cursor-zoom-in hover:border-[#6C3FA0]/30 transition-all group"
                   >
                     <ResizableImage
                       src={screenshot}
@@ -2804,7 +2803,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 );
               })}
             </div>
-            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-emerald-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
+            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-emerald-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-[#1a1a1a]">
               <Upload className="h-5 w-5" />
               <span>{isUploadingAsset ? 'Uploading...' : 'Upload SMS Campaign Screenshots'}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'nextSmsCampaign')} />
@@ -2957,7 +2956,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Top Campaigns</h3>
                   <div className="space-y-3">
                     {deck.content.email.campaigns.slice(0, 5).map((campaign, idx) => (
-                      <div key={idx} className="flex items-center justify-between bg-white/5 rounded-xl p-4">
+                      <div key={idx} className="flex items-center justify-between bg-[#f9fafb] rounded-xl p-4">
                         <span className="text-[#1a1a1a] font-medium">{campaign.name}</span>
                         <div className="flex gap-4 text-sm">
                           <span className="text-purple-400">{campaign.opens} opens</span>
@@ -3127,13 +3126,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
 
             {/* Subject Line & Preview Text Options */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-[#e5e5e0]">
+              <div className="bg-[#f9fafb] rounded-2xl p-6 border border-[#e5e5e0]">
                 <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-4">📧 Subject Line Options</h3>
                 {isAdminMode ? (
                   <textarea
                     defaultValue={(deck.content.nextEmailDetails?.subjectLines || []).join('\n')}
                     placeholder="Enter subject line options (one per line)..."
-                    className="w-full bg-white/5 border border-[#e5e5e0] rounded-xl p-3 text-[#374151] text-sm placeholder:text-white/30 focus:outline-none focus:border-purple-500/50 min-h-[120px] resize-none"
+                    className="w-full bg-[#f9fafb] border border-[#e5e5e0] rounded-xl p-3 text-[#374151] text-sm placeholder:text-[#9ca3af] focus:outline-none focus:border-purple-500/50 min-h-[120px] resize-none"
                     onBlur={async (e) => {
                       const lines = e.target.value.split('\n').filter(l => l.trim());
                       const updated = { ...deck.content, nextEmailDetails: { ...deck.content.nextEmailDetails, subjectLines: lines.length > 0 ? lines : undefined } };
@@ -3158,13 +3157,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   </ul>
                 ) : null}
               </div>
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-[#e5e5e0]">
+              <div className="bg-[#f9fafb] rounded-2xl p-6 border border-[#e5e5e0]">
                 <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-4">👁️ Preview Text Options</h3>
                 {isAdminMode ? (
                   <textarea
                     defaultValue={(deck.content.nextEmailDetails?.previewTexts || []).join('\n')}
                     placeholder="Enter preview text options (one per line)..."
-                    className="w-full bg-white/5 border border-[#e5e5e0] rounded-xl p-3 text-[#374151] text-sm placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50 min-h-[120px] resize-none"
+                    className="w-full bg-[#f9fafb] border border-[#e5e5e0] rounded-xl p-3 text-[#374151] text-sm placeholder:text-[#9ca3af] focus:outline-none focus:border-cyan-500/50 min-h-[120px] resize-none"
                     onBlur={async (e) => {
                       const lines = e.target.value.split('\n').filter(l => l.trim());
                       const updated = { ...deck.content, nextEmailDetails: { ...deck.content.nextEmailDetails, previewTexts: lines.length > 0 ? lines : undefined } };
@@ -3231,7 +3230,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 );
               })}
             </div>
-            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-purple-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
+            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-purple-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-[#1a1a1a]">
               <Upload className="h-5 w-5" />
               <span>{isUploadingAsset ? 'Uploading...' : 'Upload Email Campaign Screenshots'}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'nextEmailCampaign')} />
@@ -3276,7 +3275,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">New Automations Added</h3>
                     <div className="space-y-3">
                       {deck.content.workflows.newAutomations.map((item, idx) => (
-                        <div key={idx} className="flex items-center gap-3 bg-white/5 rounded-lg p-4">
+                        <div key={idx} className="flex items-center gap-3 bg-[#f9fafb] rounded-lg p-4">
                           <Zap className="h-5 w-5 text-yellow-500" />
                           <span className="text-[#1a1a1a]">{item}</span>
                         </div>
@@ -3340,7 +3339,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                             value={savedNote || 'Add a note…'}
                             editKey={noteKey}
                             as="p"
-                            className={`text-sm ${savedNote ? 'text-[#4b5563]' : 'text-white/30 italic'}`}
+                            className={`text-sm ${savedNote ? 'text-[#4b5563]' : 'text-[#9ca3af] italic'}`}
                           />
                         )}
                       </div>
@@ -3525,7 +3524,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Top Forms</h3>
                   <div className="space-y-3">
                     {deck.content.forms.forms.filter(f => f.submissions > 0).slice(0, 5).map((form, idx) => (
-                      <div key={idx} className="flex items-center justify-between bg-white/5 rounded-xl p-4">
+                      <div key={idx} className="flex items-center justify-between bg-[#f9fafb] rounded-xl p-4">
                         <span className="text-[#1a1a1a] font-medium">{form.name}</span>
                         <span className="text-indigo-400 font-semibold">{form.submissions} submissions</span>
                       </div>
@@ -3614,7 +3613,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                       {[1, 2, 3, 4, 5].map((star) => (
                         <Star 
                           key={star} 
-                          className={`h-8 w-8 ${star <= Math.round(deck.content.reviews?.averageRating || 0) ? 'text-yellow-400 fill-yellow-400' : 'text-white/20'}`} 
+                          className={`h-8 w-8 ${star <= Math.round(deck.content.reviews?.averageRating || 0) ? 'text-yellow-400 fill-yellow-400' : 'text-[#e5e5e0]'}`} 
                         />
                       ))}
                     </div>
@@ -3637,10 +3636,10 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Recent Reviews</h3>
                   <div className="space-y-4">
                     {deck.content.reviews.recentReviews.slice(0, 3).map((review, idx) => (
-                      <div key={idx} className="bg-white/5 rounded-xl p-4">
+                      <div key={idx} className="bg-[#f9fafb] rounded-xl p-4">
                         <div className="flex items-center gap-2 mb-2">
                           {[1, 2, 3, 4, 5].map((star) => (
-                            <Star key={star} className={`h-4 w-4 ${star <= review.rating ? 'text-yellow-400 fill-yellow-400' : 'text-white/20'}`} />
+                            <Star key={star} className={`h-4 w-4 ${star <= review.rating ? 'text-yellow-400 fill-yellow-400' : 'text-[#e5e5e0]'}`} />
                           ))}
                           {review.source && <span className="text-xs text-[#9ca3af] ml-2">{review.source}</span>}
                         </div>
@@ -3718,7 +3717,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 );
               })}
             </div>
-            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-orange-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
+            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-orange-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-[#1a1a1a]">
               <Upload className="h-5 w-5" />
               <span>{isUploadingAsset ? 'Uploading...' : 'Upload Ad Creatives'}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'adCreativeApprovals')} />
@@ -3799,7 +3798,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               })}
             </div>
             )}
-            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-cyan-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
+            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-cyan-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-[#1a1a1a]">
               <Upload className="h-5 w-5" />
               <span>{isUploadingAsset ? 'Uploading...' : 'Upload Blog/SEO Page Screenshots'}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'blogPosts')} />
@@ -3834,7 +3833,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                       return (
                         <div key={i} className="deck-ref-card p-4 text-center">
                           <span className="text-2xl">{m.icon}</span>
-                          <div className="text-2xl font-bold text-white mt-1">{(m.value ?? 0).toLocaleString()}</div>
+                          <div className="text-2xl font-bold text-[#1a1a1a] mt-1">{(m.value ?? 0).toLocaleString()}</div>
                           <div className="text-xs text-[#6b7280] mt-1">{m.label}</div>
                           {delta !== null && (
                             <div className={`text-xs mt-1 font-medium ${delta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -3849,7 +3848,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                       {paidMetrics.map((m, i) => (
                         <div key={i} className="deck-ref-card p-3 text-center">
-                          <div className="text-lg font-bold text-white">{(m.value ?? 0).toLocaleString()}</div>
+                          <div className="text-lg font-bold text-[#1a1a1a]">{(m.value ?? 0).toLocaleString()}</div>
                           <div className="text-xs text-[#6b7280]">{m.label}</div>
                         </div>
                       ))}
@@ -3871,10 +3870,10 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                           </thead>
                           <tbody>
                             {topKeywords.map((kw: any, i: number) => (
-                              <tr key={i} className="border-t border-white/5">
+                              <tr key={i} className="border-t border-[#e5e5e0]">
                                 <td className="py-2 pr-4 text-[#374151] font-medium">{kw.keyword}</td>
                                 <td className="py-2 px-2 text-center">
-                                  <span className={`inline-block min-w-[28px] rounded px-1.5 py-0.5 text-xs font-bold ${kw.position <= 3 ? 'bg-emerald-500/20 text-emerald-400' : kw.position <= 10 ? 'bg-cyan-500/20 text-cyan-400' : 'bg-white/10 text-[#6b7280]'}`}>
+                                  <span className={`inline-block min-w-[28px] rounded px-1.5 py-0.5 text-xs font-bold ${kw.position <= 3 ? 'bg-emerald-500/20 text-emerald-400' : kw.position <= 10 ? 'bg-cyan-500/20 text-cyan-400' : 'bg-gray-100 text-[#6b7280]'}`}>
                                     #{kw.position}
                                   </span>
                                 </td>
@@ -3893,7 +3892,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                       <h4 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-3">Organic Competitors</h4>
                       <div className="space-y-2">
                         {competitors.map((c: any, i: number) => (
-                          <div key={i} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                          <div key={i} className="flex items-center justify-between py-2 border-b border-[#e5e5e0] last:border-0">
                             <span className="text-[#374151] font-medium">{c.domain}</span>
                             <div className="flex gap-4 text-xs text-[#6b7280]">
                               <span>{(c.commonKeywords ?? 0).toLocaleString()} common</span>
@@ -3992,7 +3991,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   })}
                 </div>
 
-                <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-purple-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
+                <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-purple-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-[#1a1a1a]">
                   <Upload className="h-5 w-5" />
                   <span>{isUploadingAsset ? 'Uploading...' : 'Upload Website Edit Screenshots'}</span>
                   <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'websiteEditsScreenshots')} />
@@ -4065,7 +4064,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 );
               })}
             </div>
-            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-blue-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
+            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-blue-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-[#1a1a1a]">
               <Upload className="h-5 w-5" />
               <span>{isUploadingAsset ? 'Uploading...' : 'Upload Analytics Screenshots'}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'analyticsScreenshots')} />
@@ -4142,7 +4141,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   })}
                 </div>
 
-                <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-blue-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
+                <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-blue-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-[#1a1a1a]">
                   <Upload className="h-5 w-5" />
                   <span>{isUploadingAsset ? 'Uploading...' : 'Upload Other Screenshots'}</span>
                   <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'otherScreenshots')} />
@@ -4245,7 +4244,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               </div>
             ) : (
               <div className="deck-ref-card p-12 text-center">
-                <Target className="h-16 w-16 text-white/20 mx-auto mb-4" />
+                <Target className="h-16 w-16 text-[#e5e5e0] mx-auto mb-4" />
                 <p className="text-[#6b7280]">Action items will be generated based on your performance data.</p>
               </div>
             )}
@@ -4284,7 +4283,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     <div className="deck-ref-card p-6">
                       <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-3">✏️ Additional Notes</h3>
                       <textarea
-                        className="w-full bg-white/5 border border-[#e5e5e0] rounded-xl p-4 text-white placeholder-white/30 focus:border-yellow-400/50 focus:outline-none focus:ring-1 focus:ring-yellow-400/30 resize-y min-h-[120px] text-sm leading-relaxed"
+                        className="w-full bg-[#f9fafb] border border-[#e5e5e0] rounded-xl p-4 text-[#1a1a1a] placeholder-[#9ca3af] focus:border-[#6C3FA0]/50 focus:outline-none focus:ring-1 focus:ring-[#6C3FA0]/30 resize-y min-h-[120px] text-sm leading-relaxed"
                         style={{ minHeight: 120 }}
                         placeholder="Add custom notes, action items, or recommendations here…"
                         defaultValue={savedNotes}
@@ -4297,7 +4296,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                           await supabase.from('decks').update({ content: { ...content, overrides } as any, updated_at: new Date().toISOString() }).eq('id', deck.id);
                         }}
                       />
-                      <p className="text-white/30 text-xs mt-2">Changes save automatically when you click away.</p>
+                      <p className="text-[#9ca3af] text-xs mt-2">Changes save automatically when you click away.</p>
                     </div>
                   ) : (
                     <div className="deck-ref-card p-6">

@@ -2,7 +2,6 @@ import { useState, useCallback, useContext, useRef, useEffect } from 'react';
 import { DeckEditContext } from './DeckEditContext';
 import { cn } from '@/lib/utils';
 import { DeckMetricCard } from './DeckMetricCard';
-import { DeckPerformanceGrade } from './DeckPerformanceGrade';
 import { DeckTrendChart } from './DeckTrendChart';
 import { InlineEdit } from './InlineEdit';
 import { EditableImage, AddImageButton } from './EditableImage';
@@ -14,7 +13,6 @@ import {
 } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell,
-  FunnelChart, Funnel, LabelList,
 } from 'recharts';
 
 // ─── Add Metric Dialog ────────────────────────────────────────────────────────
@@ -98,7 +96,7 @@ function AddMetricButton({ ekp, color }: { ekp: string; color: string }) {
             <Trash2 className="w-3 h-3" />
           </button>
           {/* Custom badge */}
-          <div className="absolute bottom-2 left-2 text-[9px] px-1.5 py-0.5 rounded-full bg-yellow-400/20 text-yellow-300 font-semibold uppercase tracking-wide">
+          <div className="absolute bottom-2 left-2 text-[9px] px-1.5 py-0.5 rounded-full bg-yellow-400/20 text-yellow-600 font-semibold uppercase tracking-wide">
             Custom
           </div>
         </div>
@@ -119,7 +117,7 @@ function AddMetricButton({ ekp, color }: { ekp: string; color: string }) {
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" onClick={() => setOpen(false)}>
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
           <div
-            className="relative z-10 w-full max-w-sm rounded-2xl bg-[#0d0d1a] border border-yellow-400/30 p-6 shadow-2xl"
+            className="relative z-10 w-full max-w-sm rounded-2xl bg-white border border-[#e5e5e0] p-6 shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-5">
@@ -193,7 +191,7 @@ function AddMetricButton({ ekp, color }: { ekp: string; color: string }) {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setOpen(false)}
-                className="flex-1 py-2.5 rounded-xl border border-[#e5e5e0] text-[#6b7280] hover:text-[#1a1a1a] hover:border-white/40 transition-colors text-sm"
+                className="flex-1 py-2.5 rounded-xl border border-[#e5e5e0] text-[#6b7280] hover:text-[#1a1a1a] hover:border-[#9ca3af] transition-colors text-sm"
               >
                 Cancel
               </button>
@@ -713,7 +711,7 @@ export const EnhancedPlatformSection = ({
                   {platform.campaigns.sort((a, b) => b.spend - a.spend).map((campaign, idx) => {
                     const c = campaign as any;
                     return (
-                    <tr key={idx} className="border-b border-white/5 hover:bg-[#f9fafb] transition-colors">
+                    <tr key={idx} className="border-b border-[#e5e5e0] hover:bg-[#f9fafb] transition-colors">
                       <td className="p-4">
                         <div className="text-[#1a1a1a] font-medium max-w-[220px] truncate">{campaign.name}</div>
                       </td>
@@ -764,12 +762,12 @@ export const EnhancedPlatformSection = ({
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={platform.campaigns.sort((a, b) => b.spend - a.spend).slice(0, 8)} layout="vertical">
-                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} tickFormatter={v => `$${v.toLocaleString()}`} />
-                    <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={140} tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 11 }} />
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} tickFormatter={v => `$${v.toLocaleString()}`} />
+                    <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={140} tick={{ fill: '#374151', fontSize: 11 }} />
                     <Tooltip
                       formatter={(value: number) => [`$${value.toLocaleString()}`, 'Spend']}
                       contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e0', borderRadius: '12px', color: '#1a1a1a', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
-                      labelStyle={{ color: 'white' }}
+                      labelStyle={{ color: '#374151' }}
                     />
                     <Bar dataKey="spend" radius={[0, 6, 6, 0]} fill={color}>
                       {platform.campaigns.sort((a, b) => b.spend - a.spend).slice(0, 8).map((_, index) => (
@@ -790,12 +788,12 @@ export const EnhancedPlatformSection = ({
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={platform.campaigns.sort((a, b) => b.clicks - a.clicks).slice(0, 8)} layout="vertical">
-                      <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                      <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={140} tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 11 }} />
+                      <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+                      <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={140} tick={{ fill: '#374151', fontSize: 11 }} />
                       <Tooltip
                         formatter={(value: number) => [value.toLocaleString(), 'Clicks']}
                         contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e0', borderRadius: '12px', color: '#1a1a1a', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
-                        labelStyle={{ color: 'white' }}
+                        labelStyle={{ color: '#374151' }}
                       />
                       <Bar dataKey="clicks" radius={[0, 6, 6, 0]} fill="#F59E0B">
                         {platform.campaigns.sort((a, b) => b.clicks - a.clicks).slice(0, 8).map((_, index) => (
@@ -811,12 +809,12 @@ export const EnhancedPlatformSection = ({
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={platform.campaigns.sort((a, b) => b.conversions - a.conversions).slice(0, 8)} layout="vertical">
-                      <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                      <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={140} tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 11 }} />
+                      <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+                      <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={140} tick={{ fill: '#374151', fontSize: 11 }} />
                       <Tooltip
                         formatter={(value: number) => [value.toLocaleString(), 'Conversions']}
                         contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e0', borderRadius: '12px', color: '#1a1a1a', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
-                        labelStyle={{ color: 'white' }}
+                        labelStyle={{ color: '#374151' }}
                       />
                       <Bar dataKey="conversions" radius={[0, 6, 6, 0]} fill="#10B981">
                         {platform.campaigns.sort((a, b) => b.conversions - a.conversions).slice(0, 8).map((_, index) => (
@@ -852,7 +850,7 @@ export const EnhancedPlatformSection = ({
                 </thead>
                 <tbody>
                   {platform.keywords.map((kw, idx) => (
-                    <tr key={idx} className="border-b border-white/5 hover:bg-[#f9fafb] transition-colors">
+                    <tr key={idx} className="border-b border-[#e5e5e0] hover:bg-[#f9fafb] transition-colors">
                       <td className="p-4 text-[#9ca3af]">{idx + 1}.</td>
                       <td className="p-4 text-[#1a1a1a] font-medium">{kw.keyword}</td>
                       <td className="text-right text-[#374151] p-4">{kw.impressions.toLocaleString()}</td>
@@ -878,12 +876,12 @@ export const EnhancedPlatformSection = ({
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={platform.keywords.slice(0, 10)} layout="vertical">
-                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                    <YAxis type="category" dataKey="keyword" axisLine={false} tickLine={false} width={180} tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 11 }} />
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+                    <YAxis type="category" dataKey="keyword" axisLine={false} tickLine={false} width={180} tick={{ fill: '#374151', fontSize: 11 }} />
                     <Tooltip
                       formatter={(value: number) => [value.toLocaleString(), 'Impressions']}
                       contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e0', borderRadius: '12px', color: '#1a1a1a', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
-                      labelStyle={{ color: 'white' }}
+                      labelStyle={{ color: '#374151' }}
                     />
                     <Bar dataKey="impressions" radius={[0, 6, 6, 0]} fill={color}>
                       {platform.keywords.slice(0, 10).map((_, index) => (
@@ -904,12 +902,12 @@ export const EnhancedPlatformSection = ({
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={platform.keywords.sort((a, b) => b.clicks - a.clicks).slice(0, 8)} layout="vertical">
-                      <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                      <YAxis type="category" dataKey="keyword" axisLine={false} tickLine={false} width={160} tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 11 }} />
+                      <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+                      <YAxis type="category" dataKey="keyword" axisLine={false} tickLine={false} width={160} tick={{ fill: '#374151', fontSize: 11 }} />
                       <Tooltip
                         formatter={(value: number) => [value.toLocaleString(), 'Clicks']}
                         contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e0', borderRadius: '12px', color: '#1a1a1a', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
-                        labelStyle={{ color: 'white' }}
+                        labelStyle={{ color: '#374151' }}
                       />
                       <Bar dataKey="clicks" radius={[0, 6, 6, 0]} fill="#F59E0B" />
                     </BarChart>
@@ -921,12 +919,12 @@ export const EnhancedPlatformSection = ({
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={platform.keywords.sort((a, b) => b.ctr - a.ctr).slice(0, 8)} layout="vertical">
-                      <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} tickFormatter={v => `${v.toFixed(1)}%`} />
-                      <YAxis type="category" dataKey="keyword" axisLine={false} tickLine={false} width={160} tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 11 }} />
+                      <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} tickFormatter={v => `${v.toFixed(1)}%`} />
+                      <YAxis type="category" dataKey="keyword" axisLine={false} tickLine={false} width={160} tick={{ fill: '#374151', fontSize: 11 }} />
                       <Tooltip
                         formatter={(value: number) => [`${value.toFixed(2)}%`, 'CTR']}
                         contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e0', borderRadius: '12px', color: '#1a1a1a', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
-                        labelStyle={{ color: 'white' }}
+                        labelStyle={{ color: '#374151' }}
                       />
                       <Bar dataKey="ctr" radius={[0, 6, 6, 0]} fill="#8B5CF6" />
                     </BarChart>

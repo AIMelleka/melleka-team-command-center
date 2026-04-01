@@ -1,5 +1,4 @@
 import { ReactNode, useContext } from 'react';
-import { DeckPerformanceGrade } from './DeckPerformanceGrade';
 import { LucideIcon } from 'lucide-react';
 import { DeckEditContext } from './DeckEditContext';
 import { InlineEdit } from './InlineEdit';
