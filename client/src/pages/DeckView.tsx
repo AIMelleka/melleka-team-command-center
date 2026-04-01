@@ -336,15 +336,13 @@ const ExecSummarySection = ({
         assetKey="executive-summary"
         aiContext={deck.content.hero?.executiveSummary || ''}
       >
-        <section className="py-16 px-8">
-          <div className="max-w-6xl mx-auto">
-            <DeckExecutiveSummary
-              summary={deck.content.hero?.executiveSummary || ''}
-              keyWins={liveKeyWins}
-              challenges={liveChallenges}
-              brandColor={brandPrimary}
-            />
-          </div>
+        <section className="py-8">
+          <DeckExecutiveSummary
+            summary={deck.content.hero?.executiveSummary || ''}
+            keyWins={liveKeyWins}
+            challenges={liveChallenges}
+            brandColor={brandPrimary}
+          />
         </section>
       </SectionToggle>
     );
@@ -358,87 +356,85 @@ const ExecSummarySection = ({
       assetKey="executive-summary"
       aiContext={deck.content.hero?.executiveSummary || ''}
     >
-      <section className="py-16 px-8">
-        <div className="max-w-6xl mx-auto">
-          <div className="deck-glass-card p-8 space-y-6">
-            <h2 className="text-2xl font-bold text-white">Executive Summary</h2>
-            <InlineEdit
-              value={deck.content.hero?.executiveSummary || ''}
-              editKey="hero.executiveSummary"
-              as="p"
-              multiline
-              className="text-white/80 leading-relaxed text-lg"
-            />
-            <div className="grid md:grid-cols-2 gap-6 pt-2">
-              {/* Key Wins */}
-              <div className="bg-emerald-500/10 rounded-2xl p-5 border border-emerald-500/20 space-y-3">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-emerald-400" />
-                  <h3 className="text-sm font-semibold text-emerald-400 uppercase tracking-wider">Key Wins</h3>
-                </div>
-                <ul className="space-y-2">
-                  {liveKeyWins.map((win, i) => (
-                    <li key={i} className="flex items-start gap-2 group/bullet">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                      <InlineEdit
-                        value={win}
-                        editKey={`hero.keyWins.${i}`}
-                        as="span"
-                        className="text-white/70 text-sm flex-1"
-                      />
-                      <button
-                        onClick={() => handleRemove('hero.keyWins', i, liveKeyWins)}
-                        className="ml-1 p-0.5 rounded text-red-400/50 hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover/bullet:opacity-100 transition-all flex-shrink-0"
-                        title="Remove bullet"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  onClick={() => handleAdd('hero.keyWins', liveKeyWins)}
-                  className="flex items-center gap-1.5 text-xs text-emerald-400/70 hover:text-emerald-400 hover:bg-emerald-400/10 px-2 py-1.5 rounded-lg border border-emerald-400/20 hover:border-emerald-400/40 transition-all w-full justify-center"
-                >
-                  <Plus className="w-3 h-3" />
-                  Add Key Win
-                </button>
+      <section className="py-8">
+        <div className="deck-ref-card space-y-6">
+          <h2 className="text-2xl font-bold text-[#1a1a1a]" style={{ fontFamily: "'Outfit', sans-serif" }}>Executive Summary</h2>
+          <InlineEdit
+            value={deck.content.hero?.executiveSummary || ''}
+            editKey="hero.executiveSummary"
+            as="p"
+            multiline
+            className="text-[#374151] leading-relaxed text-lg"
+          />
+          <div className="grid md:grid-cols-2 gap-5 pt-2">
+            {/* Key Wins */}
+            <div className="bg-emerald-50 rounded-2xl p-5 border border-emerald-100 space-y-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-emerald-600" />
+                <h3 className="text-sm font-semibold text-emerald-700 uppercase tracking-wider">Key Wins</h3>
               </div>
+              <ul className="space-y-2">
+                {liveKeyWins.map((win, i) => (
+                  <li key={i} className="flex items-start gap-2 group/bullet">
+                    <CheckCircle className="h-4 w-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                    <InlineEdit
+                      value={win}
+                      editKey={`hero.keyWins.${i}`}
+                      as="span"
+                      className="text-[#374151] text-sm flex-1"
+                    />
+                    <button
+                      onClick={() => handleRemove('hero.keyWins', i, liveKeyWins)}
+                      className="ml-1 p-0.5 rounded text-red-400/50 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover/bullet:opacity-100 transition-all flex-shrink-0"
+                      title="Remove bullet"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={() => handleAdd('hero.keyWins', liveKeyWins)}
+                className="flex items-center gap-1.5 text-xs text-emerald-600/70 hover:text-emerald-700 hover:bg-emerald-100 px-2 py-1.5 rounded-lg border border-emerald-200 hover:border-emerald-300 transition-all w-full justify-center"
+              >
+                <Plus className="w-3 h-3" />
+                Add Key Win
+              </button>
+            </div>
 
-              {/* Areas of Focus */}
-              <div className="bg-amber-500/10 rounded-2xl p-5 border border-amber-500/20 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Target className="h-4 w-4 text-amber-400" />
-                  <h3 className="text-sm font-semibold text-amber-400 uppercase tracking-wider">Areas of Focus</h3>
-                </div>
-                <ul className="space-y-2">
-                  {liveChallenges.map((challenge, i) => (
-                    <li key={i} className="flex items-start gap-2 group/bullet">
-                      <Target className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" />
-                      <InlineEdit
-                        value={challenge}
-                        editKey={`hero.challenges.${i}`}
-                        as="span"
-                        className="text-white/70 text-sm flex-1"
-                      />
-                      <button
-                        onClick={() => handleRemove('hero.challenges', i, liveChallenges)}
-                        className="ml-1 p-0.5 rounded text-red-400/50 hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover/bullet:opacity-100 transition-all flex-shrink-0"
-                        title="Remove bullet"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  onClick={() => handleAdd('hero.challenges', liveChallenges)}
-                  className="flex items-center gap-1.5 text-xs text-amber-400/70 hover:text-amber-400 hover:bg-amber-400/10 px-2 py-1.5 rounded-lg border border-amber-400/20 hover:border-amber-400/40 transition-all w-full justify-center"
-                >
-                  <Plus className="w-3 h-3" />
-                  Add Challenge
-                </button>
+            {/* Areas of Focus */}
+            <div className="bg-amber-50 rounded-2xl p-5 border border-amber-100 space-y-3">
+              <div className="flex items-center gap-2">
+                <Target className="h-4 w-4 text-amber-600" />
+                <h3 className="text-sm font-semibold text-amber-700 uppercase tracking-wider">Areas of Focus</h3>
               </div>
+              <ul className="space-y-2">
+                {liveChallenges.map((challenge, i) => (
+                  <li key={i} className="flex items-start gap-2 group/bullet">
+                    <Target className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                    <InlineEdit
+                      value={challenge}
+                      editKey={`hero.challenges.${i}`}
+                      as="span"
+                      className="text-[#374151] text-sm flex-1"
+                    />
+                    <button
+                      onClick={() => handleRemove('hero.challenges', i, liveChallenges)}
+                      className="ml-1 p-0.5 rounded text-red-400/50 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover/bullet:opacity-100 transition-all flex-shrink-0"
+                      title="Remove bullet"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={() => handleAdd('hero.challenges', liveChallenges)}
+                className="flex items-center gap-1.5 text-xs text-amber-600/70 hover:text-amber-700 hover:bg-amber-100 px-2 py-1.5 rounded-lg border border-amber-200 hover:border-amber-300 transition-all w-full justify-center"
+              >
+                <Plus className="w-3 h-3" />
+                Add Challenge
+              </button>
             </div>
           </div>
         </div>
@@ -448,13 +444,13 @@ const ExecSummarySection = ({
 };
 
 // ─── Section Notes (editable in Edit Mode, visible when content exists) ──────
-const SectionNotes = ({ editKey, borderColor = 'border-white/20' }: { editKey: string; borderColor?: string }) => {
+const SectionNotes = ({ editKey, borderColor = 'border-[#e5e5e0]' }: { editKey: string; borderColor?: string }) => {
   const { isEditMode, overrides } = useDeckEdit();
   const noteValue = overrides[editKey] || '';
   if (!isEditMode && !noteValue.trim()) return null;
   return (
-    <div className={`deck-glass-card p-6 mt-8 ${borderColor}`}>
-      <h3 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-3 flex items-center gap-2">
+    <div className="deck-ref-card p-6 mt-6">
+      <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-3 flex items-center gap-2">
         <Pencil className="h-3.5 w-3.5" />
         Additional Notes
       </h3>
@@ -463,7 +459,7 @@ const SectionNotes = ({ editKey, borderColor = 'border-white/20' }: { editKey: s
         editKey={editKey}
         as="p"
         multiline
-        className="text-white/80 leading-relaxed"
+        className="text-[#374151] leading-relaxed"
       />
     </div>
   );
@@ -582,8 +578,7 @@ const SaveChangesButton = ({ brandPrimary }: { brandPrimary: string }) => {
           <button
             onClick={undo}
             disabled={!canUndo}
-            className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium backdrop-blur-xl border shadow-md transition-all hover:scale-105 disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.7)' }}
+            className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium border shadow-sm transition-all hover:scale-105 disabled:opacity-30 disabled:cursor-not-allowed bg-white border-[#e5e5e0] text-[#6b7280]"
             title="Undo (Ctrl+Z)"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
@@ -592,8 +587,7 @@ const SaveChangesButton = ({ brandPrimary }: { brandPrimary: string }) => {
           <button
             onClick={redo}
             disabled={!canRedo}
-            className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium backdrop-blur-xl border shadow-md transition-all hover:scale-105 disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.7)' }}
+            className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium border shadow-sm transition-all hover:scale-105 disabled:opacity-30 disabled:cursor-not-allowed bg-white border-[#e5e5e0] text-[#6b7280]"
             title="Redo (Ctrl+Shift+Z)"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/></svg>
@@ -604,8 +598,7 @@ const SaveChangesButton = ({ brandPrimary }: { brandPrimary: string }) => {
       {isDirty && (
         <button
           onClick={discardChanges}
-          className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium backdrop-blur-xl border shadow-lg transition-all hover:scale-105"
-          style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.6)' }}
+          className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium border shadow-sm transition-all hover:scale-105 bg-white border-[#e5e5e0] text-[#6b7280]"
           title="Discard unsaved changes"
         >
           <X className="w-3.5 h-3.5" />
@@ -615,11 +608,11 @@ const SaveChangesButton = ({ brandPrimary }: { brandPrimary: string }) => {
       <button
         onClick={publishChanges}
         disabled={isSaving || !isDirty}
-        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold backdrop-blur-xl border shadow-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed ${isDirty ? 'animate-pulse ring-2 ring-emerald-400/50' : ''}`}
+        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold border shadow-md transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed ${isDirty ? 'ring-2 ring-emerald-300' : ''}`}
         style={{
-          backgroundColor: isDirty ? 'rgba(16,185,129,0.3)' : 'rgba(16,185,129,0.1)',
-          borderColor: isDirty ? 'rgba(16,185,129,0.6)' : 'rgba(16,185,129,0.2)',
-          color: isDirty ? '#6ee7b7' : 'rgba(110,231,183,0.4)',
+          backgroundColor: isDirty ? '#059669' : '#d1fae5',
+          borderColor: isDirty ? '#059669' : '#a7f3d0',
+          color: isDirty ? '#ffffff' : '#6b7280',
         }}
         title={isDirty ? `Save ${dirtyCount} pending change(s) to database` : 'No unsaved changes'}
       >
@@ -690,23 +683,21 @@ const DeckView = () => {
   useEffect(() => {
     const fetchDeck = async () => {
       if (!slug) return;
-      
+
       try {
-        const { data, error } = await supabase
-          .from('decks')
-          .select('*')
-          .eq('slug', slug)
-          .single();
-        
-        if (error) throw error;
-        
+        // Fetch via public server endpoint — no auth required so anyone with the link can view
+        const apiBase = import.meta.env.VITE_API_URL || 'https://api.teams.melleka.com/api';
+        const resp = await fetch(`${apiBase}/public/decks/${encodeURIComponent(slug)}`);
+        if (!resp.ok) throw new Error(`Failed to load deck: ${resp.status}`);
+        const { deck: data } = await resp.json();
+
         const deckData = {
           ...data,
           content: typeof data.content === 'string' ? JSON.parse(data.content) : data.content,
           brand_colors: typeof data.brand_colors === 'string' ? JSON.parse(data.brand_colors) : data.brand_colors,
           screenshots: Array.isArray(data.screenshots) ? data.screenshots : [],
         } as unknown as DeckData;
-        
+
         console.log('Deck content:', deckData.content);
         setDeck(deckData);
         setDateStart(new Date(deckData.date_range_start + 'T00:00:00'));
@@ -718,7 +709,7 @@ const DeckView = () => {
         setLoading(false);
       }
     };
-    
+
     fetchDeck();
   }, [slug]); // intentionally omit navigate/toast — stable refs used instead
 
@@ -1143,7 +1134,7 @@ const ClientNeedsSection = ({ clientNeeds, sectionRef }: { clientNeeds: string[]
   if (!showSection) return null;
 
   return (
-    <section ref={sectionRef} id="client-needs" className="py-16 px-8">
+    <section ref={sectionRef} id="client-needs" className="py-8">
       <div className="max-w-6xl mx-auto">
         <DeckSectionHeader
           title="What We Need From You"
@@ -1151,18 +1142,18 @@ const ClientNeedsSection = ({ clientNeeds, sectionRef }: { clientNeeds: string[]
           icon={AlertCircle}
           brandColor="#f59e0b"
         />
-        <div className="deck-glass-card p-6">
+        <div className="deck-ref-card p-6">
           <ul className="space-y-4">
             {clientNeeds.map((item, idx) => (
-              <li key={idx} className="flex items-start gap-3 text-white/90">
+              <li key={idx} className="flex items-start gap-3 text-[#1a1a1a]">
                 <AlertCircle className="h-5 w-5 text-amber-400 mt-0.5 flex-shrink-0" />
-                <InlineEdit value={item} editKey={`tasks.clientNeeds.${idx}`} as="span" className="text-white/90" />
+                <InlineEdit value={item} editKey={`tasks.clientNeeds.${idx}`} as="span" className="text-[#1a1a1a]" />
               </li>
             ))}
             {extraClientNeeds.map((item, idx) => (
-              <li key={`extra-${idx}`} className="flex items-start gap-3 text-white/90">
+              <li key={`extra-${idx}`} className="flex items-start gap-3 text-[#1a1a1a]">
                 <AlertCircle className="h-5 w-5 text-amber-400 mt-0.5 flex-shrink-0" />
-                <InlineEdit value={item} editKey={`clientNeeds.extra.${idx}`} as="span" className="text-white/90" />
+                <InlineEdit value={item} editKey={`clientNeeds.extra.${idx}`} as="span" className="text-[#1a1a1a]" />
                 {isEditMode && (
                   <button
                     onClick={() => {
@@ -1235,7 +1226,7 @@ const TasksCompletedSection = ({
   if (!isEditMode && !hasContent) return null;
 
   return (
-    <section ref={sectionRef} id="tasks-completed" className="py-16 px-8">
+    <section ref={sectionRef} id="tasks-completed" className="py-8">
       <div className="max-w-6xl mx-auto">
         <DeckSectionHeader
           title="Tasks Completed"
@@ -1245,16 +1236,16 @@ const TasksCompletedSection = ({
         />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {allCompletedTasksByCategory.map((cat, catIdx) => (
-            <div key={catIdx} className="deck-glass-card p-6">
-              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <div key={catIdx} className="deck-ref-card p-6">
+              <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: brandPrimary }} />
                 {cat.category}
               </h3>
               <ul className="space-y-3">
                 {cat.items.map((item, itemIdx) => (
-                  <li key={itemIdx} className="flex items-start gap-3 text-white/80">
+                  <li key={itemIdx} className="flex items-start gap-3 text-[#374151]">
                     <CheckCircle className="h-4 w-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                    <InlineEdit value={item} editKey={`tasks.summary.${cat.category}.${itemIdx}`} as="span" className="text-sm text-white/80" />
+                    <InlineEdit value={item} editKey={`tasks.summary.${cat.category}.${itemIdx}`} as="span" className="text-sm text-[#374151]" />
                   </li>
                 ))}
               </ul>
@@ -1262,8 +1253,8 @@ const TasksCompletedSection = ({
           ))}
 
           {extraBlocks.map((block, bIdx) => (
-            <div key={`extra-${bIdx}`} className="deck-glass-card p-6">
-              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <div key={`extra-${bIdx}`} className="deck-ref-card p-6">
+              <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: brandPrimary }} />
                 <InlineEdit value={block.name} editKey={`extraTaskBlock.${bIdx}.name`} as="span" className="text-lg font-semibold text-white" />
                 {isEditMode && (
@@ -1300,9 +1291,9 @@ const TasksCompletedSection = ({
               </h3>
               <ul className="space-y-3">
                 {block.items.map((item, itemIdx) => (
-                  <li key={itemIdx} className="flex items-start gap-3 text-white/80">
+                  <li key={itemIdx} className="flex items-start gap-3 text-[#374151]">
                     <CheckCircle className="h-4 w-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                    <InlineEdit value={item} editKey={`extraTaskBlock.${bIdx}.item.${itemIdx}`} as="span" className="text-sm text-white/80" />
+                    <InlineEdit value={item} editKey={`extraTaskBlock.${bIdx}.item.${itemIdx}`} as="span" className="text-sm text-[#374151]" />
                     {isEditMode && (
                       <button
                         onClick={() => {
@@ -1335,7 +1326,7 @@ const TasksCompletedSection = ({
           ))}
 
           {isEditMode && (
-            <div className="deck-glass-card p-6 border-2 border-dashed border-white/10 flex flex-col items-center justify-center gap-3 min-h-[120px] deck-admin-control">
+            <div className="deck-ref-card p-6 border-2 border-dashed border-[#e5e5e0] flex flex-col items-center justify-center gap-3 min-h-[120px] deck-admin-control">
               {showAddBlock ? (
                 <div className="flex flex-col gap-3 w-full">
                   <input
@@ -1343,7 +1334,7 @@ const TasksCompletedSection = ({
                     value={newBlockName}
                     onChange={(e) => setNewBlockName(e.target.value)}
                     placeholder="Block name (e.g. Meta Ads Tasks)"
-                    className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-white/40 w-full"
+                    className="bg-white/5 border border-[#e5e5e0] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-white/40 w-full"
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && newBlockName.trim()) {
@@ -1372,7 +1363,7 @@ const TasksCompletedSection = ({
                     </button>
                     <button
                       onClick={() => { setShowAddBlock(false); setNewBlockName(''); }}
-                      className="flex-1 bg-white/5 text-white/60 border border-white/10 rounded-lg px-3 py-1.5 text-sm hover:bg-white/10 transition-colors"
+                      className="flex-1 bg-white/5 text-[#6b7280] border border-[#e5e5e0] rounded-lg px-3 py-1.5 text-sm hover:bg-white/10 transition-colors"
                     >
                       Cancel
                     </button>
@@ -1381,7 +1372,7 @@ const TasksCompletedSection = ({
               ) : (
                 <button
                   onClick={() => setShowAddBlock(true)}
-                  className="flex items-center gap-2 text-white/40 hover:text-white/70 transition-colors"
+                  className="flex items-center gap-2 text-[#9ca3af] hover:text-[#4b5563] transition-colors"
                 >
                   <Plus className="h-5 w-5" />
                   <span className="text-sm">Add Task Block</span>
@@ -1410,15 +1401,15 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
   if (!isEditMode && extraItems.length === 0) return null;
 
   return (
-    <div className="deck-glass-card p-6 mt-4">
+    <div className="deck-ref-card p-6 mt-4">
       {extraItems.length > 0 && (
         <>
-          <h3 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-4">✅ What We Worked On</h3>
+          <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-4">✅ What We Worked On</h3>
           <ul className="space-y-3">
             {extraItems.map((item, i) => (
-              <li key={i} className="flex items-start gap-3 text-white/80">
+              <li key={i} className="flex items-start gap-3 text-[#374151]">
                 <CheckCircle className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                <InlineEdit value={item} editKey={`${sectionKey}.extraTask.${i}`} as="span" className="text-white/80" />
+                <InlineEdit value={item} editKey={`${sectionKey}.extraTask.${i}`} as="span" className="text-[#374151]" />
                 {isEditMode && (
                   <button
                     onClick={() => {
@@ -1706,15 +1697,15 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${brandBackground}, ${brandBackground})` }}>
+      <div className="min-h-screen flex items-center justify-center bg-[#f5f5f0]">
         <div className="text-center space-y-6">
           <div className="relative">
-            <div className="w-20 h-20 border-4 border-primary/20 border-t-primary rounded-full animate-spin mx-auto" />
-            <Sparkles className="h-8 w-8 text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
+            <div className="w-16 h-16 border-4 border-[#e5e5e0] border-t-[#6C3FA0] rounded-full animate-spin mx-auto" />
+            <Sparkles className="h-6 w-6 text-[#6C3FA0] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
           </div>
           <div>
-            <p className="text-lg font-medium" style={{ color: brandTextPrimary, opacity: 0.8 }}>Loading your deck...</p>
-            <p className="text-sm" style={{ color: brandTextSecondary }}>Preparing your premium presentation</p>
+            <p className="text-lg font-medium text-[#1a1a1a]">Loading your deck...</p>
+            <p className="text-sm text-[#6b7280]">Preparing your presentation</p>
           </div>
         </div>
       </div>
@@ -1723,8 +1714,8 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
 
   if (!deck) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: brandBackground }}>
-        <div className="text-center" style={{ color: brandTextPrimary }}>
+      <div className="min-h-screen flex items-center justify-center bg-[#f5f5f0]">
+        <div className="text-center text-[#1a1a1a]">
           <h1 className="text-2xl font-bold">Deck Not Found</h1>
           <Button onClick={() => navigate('/')} className="mt-4">
             Go Home
@@ -1827,14 +1818,14 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
       initialSectionNotes={initialSectionNotes}
       onPublished={handlePublished}
     >
-    <div className={cn("min-h-screen", !isAdminMode && "deck-present-mode")} style={{ 
-      background: brandBackground,
-      '--deck-text': brandTextPrimary,
-      '--deck-text-muted': brandTextSecondary,
-      '--deck-bg': brandBackground,
-      '--deck-surface': `${brandTextPrimary}0d`,
-      '--deck-border': `${brandTextPrimary}1a`,
-      color: brandTextPrimary,
+    <div className={cn("min-h-screen deck-ref-page", !isAdminMode && "deck-present-mode")} style={{
+      background: '#f5f5f0',
+      '--deck-text': '#1a1a1a',
+      '--deck-text-muted': '#6b7280',
+      '--deck-bg': '#f5f5f0',
+      '--deck-surface': '#f9fafb',
+      '--deck-border': '#e5e5e0',
+      color: '#1a1a1a',
     } as React.CSSProperties}>
 
       {/* Screenshot Lightbox */}
@@ -1883,7 +1874,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             {/* Navigation arrows */}
             {hasPrev && (
               <button
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-3 transition-all"
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-[#374151] hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-3 transition-all"
                 onClick={(e) => { e.stopPropagation(); goPrev(); }}
               >
                 <ArrowLeft className="h-6 w-6" />
@@ -1891,7 +1882,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             )}
             {hasNext && (
               <button
-                className="absolute right-16 top-1/2 -translate-y-1/2 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-3 transition-all"
+                className="absolute right-16 top-1/2 -translate-y-1/2 text-[#374151] hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-3 transition-all"
                 onClick={(e) => { e.stopPropagation(); goNext(); }}
               >
                 <ArrowLeft className="h-6 w-6 rotate-180" />
@@ -1899,12 +1890,12 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             )}
             {/* Counter */}
             {unique.length > 1 && currentIdx >= 0 && (
-              <span className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/60 text-sm bg-white/10 px-4 py-1.5 rounded-full backdrop-blur">
+              <span className="absolute bottom-6 left-1/2 -translate-x-1/2 text-[#6b7280] text-sm bg-white/10 px-4 py-1.5 rounded-full backdrop-blur">
                 {currentIdx + 1} / {unique.length}
               </span>
             )}
             <button 
-              className="absolute top-6 right-6 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-3 transition-all"
+              className="absolute top-6 right-6 text-[#374151] hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-3 transition-all"
               onClick={() => setExpandedScreenshot(null)}
             >
               <X className="h-6 w-6" />
@@ -1913,25 +1904,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
         );
       })()}
 
-      {/* Premium Navigation */}
-      <DeckNav
-        items={visibleNavItems}
-        activeSection={activeSection}
-        onNavigate={scrollToSection}
-        clientName={deck.client_name}
-        clientLogo={clientLogo}
-        brandColor={brandPrimary}
-        brandBackground={brandBackground}
-        brandTextPrimary={brandTextPrimary}
-        brandTextSecondary={brandTextSecondary}
-        dateRange={dateRangeShort}
-        onBack={isAdminMode ? () => navigate('/deck-builder') : undefined}
-        collapsed={navCollapsed}
-        onToggleCollapse={() => setNavCollapsed(c => !c)}
-        isAdminMode={isAdminMode}
-        isEditMode={isEditMode}
-        onLogoUpload={isEditMode ? handleLogoUpload : undefined}
-      />
+      {/* Sidebar nav hidden — reference design uses single scrollable page */}
 
       {/* Admin Toolbar — floating bar */}
       {isAdminMode && (
@@ -1939,9 +1912,9 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
           {/* Status badge */}
           <div className="flex items-center gap-2">
             <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold uppercase tracking-wide ${
-              deck.status === 'published' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-              deck.status === 'review' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' :
-              'bg-white/10 text-white/50 border border-white/10'
+              deck.status === 'published' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+              deck.status === 'review' ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' :
+              'bg-gray-100 text-[#6b7280] border border-[#e5e5e0]'
             }`}>
               {deck.status === 'published' ? '✓ Published' : deck.status === 'review' ? '👀 In Review' : '✏️ Draft'}
             </span>
@@ -1967,7 +1940,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 <Popover open={showDateEditor} onOpenChange={setShowDateEditor}>
                   <PopoverTrigger asChild>
                     <button
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium backdrop-blur-xl border shadow-lg transition-all hover:scale-105"
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white"
                       style={{
                         backgroundColor: 'rgba(139,92,246,0.2)',
                         borderColor: 'rgba(139,92,246,0.45)',
@@ -2034,7 +2007,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 <button
                   onClick={() => handleQuickDataRefresh()}
                   disabled={isRefreshingData}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium backdrop-blur-xl border shadow-lg transition-all hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed`}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white disabled:opacity-60 disabled:cursor-not-allowed`}
                   style={{
                     backgroundColor: 'rgba(6,182,212,0.2)',
                     borderColor: 'rgba(6,182,212,0.45)',
@@ -2048,20 +2021,25 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               </div>
             )}
 
-            {/* Edit Mode toggle */}
-            <button
-              onClick={() => setIsEditMode(v => !v)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium backdrop-blur-xl border shadow-lg transition-all hover:scale-105 ${isEditMode ? 'ring-2 ring-yellow-400/60' : ''}`}
-              style={{
-                backgroundColor: isEditMode ? 'rgba(234,179,8,0.25)' : `${brandPrimary}15`,
-                borderColor: isEditMode ? 'rgba(234,179,8,0.5)' : `${brandPrimary}35`,
-                color: isEditMode ? '#fde047' : brandTextPrimary,
-              }}
-              title="Toggle inline edit mode"
-            >
-              <Pencil className="w-4 h-4" />
-              {isEditMode ? 'Editing' : 'Edit Mode'}
-            </button>
+            {/* Edit / Present Mode toggle */}
+            <div className="flex items-center rounded-xl border border-[#e5e5e0] overflow-hidden shadow-md bg-white">
+              <button
+                onClick={() => setIsEditMode(true)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium transition-all ${isEditMode ? 'bg-yellow-400 text-yellow-900' : 'bg-white text-[#6b7280] hover:bg-gray-50'}`}
+                title="Edit mode"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Edit
+              </button>
+              <button
+                onClick={() => setIsEditMode(false)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium transition-all ${!isEditMode ? 'bg-[#6C3FA0] text-white' : 'bg-white text-[#6b7280] hover:bg-gray-50'}`}
+                title="Present mode"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                Present
+              </button>
+            </div>
 
             {/* Save Changes — bulletproof publish */}
             <SaveChangesButton brandPrimary={brandPrimary} />
@@ -2070,7 +2048,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             <button
               onClick={handleRegenerate}
               disabled={isRegenerating}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium backdrop-blur-xl border shadow-lg transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ backgroundColor: `${brandPrimary}15`, borderColor: `${brandPrimary}35`, color: brandTextPrimary }}
               title="Regenerate AI content"
             >
@@ -2084,7 +2062,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 <button
                   onClick={handleSubmitForReview}
                   disabled={isSubmittingForReview}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium backdrop-blur-xl border shadow-lg transition-all hover:scale-105 disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white disabled:opacity-50"
                   style={{ backgroundColor: 'rgba(234,179,8,0.15)', borderColor: 'rgba(234,179,8,0.35)', color: '#fde047' }}
                   title="Mark as ready for review"
                 >
@@ -2094,7 +2072,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 <button
                   onClick={handleApproveDeck}
                   disabled={isApprovingDeck}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium backdrop-blur-xl border shadow-lg transition-all hover:scale-105 disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white disabled:opacity-50"
                   style={{ backgroundColor: 'rgba(16,185,129,0.2)', borderColor: 'rgba(16,185,129,0.4)', color: '#6ee7b7' }}
                   title="Publish deck directly to client"
                 >
@@ -2107,7 +2085,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               <>
                 <button
                   onClick={handleUnpublish}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium backdrop-blur-xl border shadow-lg transition-all hover:scale-105"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white"
                   style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.15)', color: brandTextSecondary }}
                 >
                   Back to Draft
@@ -2115,7 +2093,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 <button
                   onClick={handleApproveDeck}
                   disabled={isApprovingDeck}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium backdrop-blur-xl border shadow-lg transition-all hover:scale-105 disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white disabled:opacity-50"
                   style={{ backgroundColor: 'rgba(16,185,129,0.2)', borderColor: 'rgba(16,185,129,0.4)', color: '#6ee7b7' }}
                   title="Approve and publish to client"
                 >
@@ -2127,7 +2105,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             {deck.status === 'published' && (
               <button
                 onClick={handleUnpublish}
-                className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium backdrop-blur-xl border shadow-lg transition-all hover:scale-105"
+                className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium border shadow-md transition-all hover:scale-105 bg-white"
                 style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)', color: brandTextSecondary }}
               >
                 Unpublish
@@ -2141,7 +2119,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 navigator.clipboard.writeText(clientUrl);
                 toast({ title: 'Client link copied!', description: clientUrl });
               }}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium backdrop-blur-xl border shadow-lg transition-all hover:scale-105"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white"
               style={{ backgroundColor: `${brandPrimary}20`, borderColor: `${brandPrimary}40`, color: brandTextPrimary }}
             >
               <Share2 className="w-4 h-4" />
@@ -2149,7 +2127,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             </button>
             <button
               onClick={() => window.open(`/deck/${slug}/present`, '_blank')}
-              className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium backdrop-blur-xl border shadow-lg transition-all hover:scale-105"
+              className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white"
               style={{ backgroundColor: `${brandPrimary}10`, borderColor: `${brandPrimary}30`, color: brandTextSecondary }}
               title="Preview as client"
             >
@@ -2221,12 +2199,12 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
 
           {/* Color Editor Panel */}
           {isEditMode && showColorEditor && deck && (
-            <div className="bg-black/80 backdrop-blur-xl border border-white/10 rounded-xl p-4 shadow-2xl w-full max-w-md">
+            <div className="bg-black/80 backdrop-blur-xl border border-[#e5e5e0] rounded-xl p-4 shadow-2xl w-full max-w-md">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-semibold text-white/90 flex items-center gap-2">
+                <h4 className="text-sm font-semibold text-[#1a1a1a] flex items-center gap-2">
                   <Palette className="w-4 h-4" /> Deck Colors
                 </h4>
-                <button onClick={() => setShowColorEditor(false)} className="text-white/40 hover:text-white/80 transition-colors">
+                <button onClick={() => setShowColorEditor(false)} className="text-[#9ca3af] hover:text-[#374151] transition-colors">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -2237,13 +2215,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   { label: 'Background', key: 'background' as const },
                 ].map(({ label, key }) => (
                   <div key={key} className="flex flex-col gap-1.5">
-                    <label className="text-xs text-white/60 font-medium">{label}</label>
+                    <label className="text-xs text-[#6b7280] font-medium">{label}</label>
                     <div className="relative">
                       <input
                         type="color"
                         value={colorDraft[key]}
                         onChange={e => setColorDraft(prev => ({ ...prev, [key]: e.target.value }))}
-                        className="w-full h-9 rounded-lg border border-white/20 cursor-pointer bg-transparent"
+                        className="w-full h-9 rounded-lg border border-[#e5e5e0] cursor-pointer bg-transparent"
                         style={{ padding: '2px' }}
                       />
                       <input
@@ -2255,7 +2233,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                             setColorDraft(prev => ({ ...prev, [key]: val }));
                           }
                         }}
-                        className="mt-1 w-full text-xs text-center text-white/70 bg-white/5 border border-white/10 rounded px-1 py-0.5 font-mono"
+                        className="mt-1 w-full text-xs text-center text-[#4b5563] bg-white/5 border border-[#e5e5e0] rounded px-1 py-0.5 font-mono"
                         maxLength={7}
                       />
                     </div>
@@ -2305,75 +2283,74 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
 
 
       {/* Main Content */}
-      <main className={cn("transition-all duration-300", navCollapsed ? "lg:ml-16" : "lg:ml-72")}>
-        {/* Cover Page */}
-        <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-          {/* Animated background layers */}
-          <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 30% 20%, ${brandPrimary}18 0%, transparent 50%), radial-gradient(ellipse at 70% 80%, ${brandSecondary}12 0%, transparent 50%)` }} />
-          <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, transparent 0%, ${brandBackground}40 100%)` }} />
-          {/* Subtle grid pattern */}
-          <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: `linear-gradient(${brandTextPrimary}20 1px, transparent 1px), linear-gradient(90deg, ${brandTextPrimary}20 1px, transparent 1px)`, backgroundSize: '60px 60px' }} />
-          {/* Accent line */}
-          <div className="absolute top-0 left-0 right-0 h-1" style={{ background: `linear-gradient(90deg, transparent, ${brandPrimary}, ${brandSecondary}, transparent)` }} />
+      <main className="max-w-[960px] mx-auto px-4 sm:px-6 transition-all duration-300">
+        {/* Hero Section — Purple Gradient */}
+        <section className="pt-8 pb-4">
+          <div className="deck-ref-hero relative" style={{ background: `linear-gradient(135deg, ${brandPrimary} 0%, ${brandPrimary}dd 50%, ${brandPrimary}aa 100%)` }}>
+            {/* Animated radial overlay */}
+            <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(circle at 70% 30%, rgba(255,255,255,0.08) 0%, transparent 60%)' }} />
 
-           <div className="relative z-10 text-center px-8 max-w-4xl mx-auto">
-            {/* Client Logo — replaceable in Edit Mode */}
-            {(clientLogo || isEditMode) && (
-              <div className="mb-12 flex justify-center">
-                <EditableImage
-                  editKey="cover.logo"
-                  src={clientLogo}
-                  alt={deck.client_name}
-                  className="h-20 md:h-28 object-contain drop-shadow-lg"
-                  wrapperClassName="relative"
-                  style={{ filter: isLightBg ? 'none' : 'drop-shadow(0 0 30px rgba(255,255,255,0.08))' }}
-                  placeholderLabel="Upload Client Logo"
-                />
+            <div className="relative z-10">
+              {/* Top row: Logo + Performance Deck badge */}
+              <div className="flex items-center justify-between mb-8">
+                {(clientLogo || isEditMode) && (
+                  <EditableImage
+                    editKey="cover.logo"
+                    src={clientLogo}
+                    alt={deck.client_name}
+                    className="h-10 md:h-14 object-contain"
+                    wrapperClassName="relative"
+                    style={{ filter: 'brightness(0) invert(1) opacity(0.9)' }}
+                    placeholderLabel="Upload Logo"
+                  />
+                )}
+                <span className="deck-ref-badge-gold">Performance Deck</span>
               </div>
-            )}
 
-            {/* Decorative line above title */}
-            <div className="flex items-center justify-center gap-4 mb-8">
-              <div className="h-px w-16 md:w-24" style={{ background: `linear-gradient(90deg, transparent, ${brandPrimary})` }} />
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: brandPrimary }} />
-              <div className="h-px w-16 md:w-24" style={{ background: `linear-gradient(270deg, transparent, ${brandPrimary})` }} />
-            </div>
+              {/* Client Name */}
+              <h1 className="text-3xl md:text-5xl font-bold text-[#1a1a1a] mb-2 tracking-tight" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                <InlineEdit
+                  value={deck.client_name}
+                  editKey="cover.clientName"
+                  as="span"
+                  className="text-3xl md:text-5xl font-bold text-white tracking-tight"
+                  style={{ fontFamily: "'Outfit', sans-serif" }}
+                />
+              </h1>
 
-            {/* Client Name */}
-            <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight mb-6 leading-[1.1]" style={{ color: brandTextPrimary }}>
+              {/* Subtitle */}
               <InlineEdit
-                value={deck.client_name}
-                editKey="cover.clientName"
-                as="span"
-                className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight leading-[1.1]"
-                style={{ color: brandTextPrimary }}
+                value="Weekly Review"
+                editKey="cover.subtitle"
+                as="p"
+                className="text-lg md:text-xl text-[#374151] font-light mb-2"
               />
-            </h1>
 
-            {/* Weekly Review subtitle */}
-            <InlineEdit
-              value="Weekly Review"
-              editKey="cover.subtitle"
-              as="p"
-              className="text-2xl md:text-3xl lg:text-4xl font-light tracking-[0.15em] uppercase mb-10"
-              style={{ color: brandTextSecondary }}
-            />
+              {/* Date Range */}
+              <p className="text-sm text-[#6b7280] mb-8">
+                <InlineEdit value={dateRangeLabel} editKey="cover.dateRange" as="span" className="text-sm text-[#6b7280]" />
+              </p>
 
-            {/* Decorative line below subtitle */}
-            <div className="flex items-center justify-center gap-4 mb-12">
-              <div className="h-px w-20 md:w-32" style={{ background: `linear-gradient(90deg, transparent, ${brandSecondary})` }} />
-              <div className="w-2 h-2 rotate-45" style={{ backgroundColor: brandSecondary }} />
-              <div className="h-px w-20 md:w-32" style={{ background: `linear-gradient(270deg, transparent, ${brandSecondary})` }} />
+              {/* Hero Stat Cards — 3-column grid */}
+              {heroStats.length > 0 && (
+                <div className="grid grid-cols-3 gap-4">
+                  {heroStats.map((stat, i) => (
+                    <div key={i} className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/15">
+                      <div className="text-[#6b7280] text-xs font-semibold uppercase tracking-wider mb-1">{stat.label}</div>
+                      <div className="text-white text-2xl md:text-3xl font-bold font-mono tabular-nums">
+                        {stat.prefix || ''}<AnimatedCounter value={typeof stat.value === 'number' ? (stat.value % 1 !== 0 ? stat.value.toFixed(2) : String(Math.round(stat.value))) : String(stat.value)} />
+                      </div>
+                      {stat.trend !== undefined && stat.trend !== 0 && (
+                        <div className={cn('text-xs font-semibold mt-1', stat.trend > 0 ? 'text-emerald-300' : 'text-red-300')}>
+                          {stat.trend > 0 ? '+' : ''}{stat.trend.toFixed(1)}% vs prev
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-
-            {/* Date Range — editable in Edit Mode */}
-            <p className="text-base md:text-lg font-medium tracking-widest uppercase" style={{ color: brandTextSecondary, opacity: 0.7 }}>
-              <InlineEdit value={dateRangeLabel} editKey="cover.dateRange" as="span" />
-            </p>
           </div>
-
-          {/* Bottom fade into next section */}
-          <div className="absolute bottom-0 left-0 right-0 h-32" style={{ background: `linear-gradient(to top, ${brandBackground}, transparent)` }} />
         </section>
 
         {/* Executive Summary — always shown in edit mode, conditional otherwise */}
@@ -2392,7 +2369,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
         <section 
           ref={(el) => sectionRefs.current['ad-overview'] = el}
           id="ad-overview"
-          className="py-16 px-8"
+          className="py-8"
         >
           <div className="max-w-6xl mx-auto">
             <DeckSectionHeader
@@ -2405,9 +2382,9 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             
             {/* Spend Distribution Chart */}
             {spendDistribution.length > 0 && (
-              <div className="deck-glass-card p-8 mb-8">
+              <div className="deck-ref-card p-8 mb-8">
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-semibold text-white">Spend Distribution</h3>
+                  <h3 className="text-xl font-semibold text-[#1a1a1a]">Spend Distribution</h3>
                 </div>
                 <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
@@ -2427,17 +2404,17 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip 
+                      <Tooltip
                         formatter={(value: number) => [`$${value.toLocaleString()}`, 'Spend']}
-                        contentStyle={{ 
-                          backgroundColor: 'rgba(20, 20, 30, 0.95)', 
-                          border: '1px solid rgba(255,255,255,0.1)', 
+                        contentStyle={{
+                          backgroundColor: '#ffffff',
+                          border: '1px solid #e5e5e0',
                           borderRadius: '12px',
-                          backdropFilter: 'blur(10px)',
-                          color: 'white',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                          color: '#1a1a1a',
                         }}
-                        labelStyle={{ color: 'white' }}
-                        itemStyle={{ color: 'white' }}
+                        labelStyle={{ color: '#1a1a1a' }}
+                        itemStyle={{ color: '#374151' }}
                       />
                     </PieChart>
                   </ResponsiveContainer>
@@ -2457,7 +2434,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   return (
                   <div 
                     key={idx}
-                    className="rounded-2xl overflow-hidden shadow-xl border border-white/10 cursor-zoom-in hover:border-white/30 transition-all group"
+                    className="rounded-2xl overflow-hidden shadow-xl border border-[#e5e5e0] cursor-zoom-in hover:border-white/30 transition-all group"
                   >
                     <ResizableImage
                       src={screenshot}
@@ -2500,7 +2477,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               <section
                 ref={(el) => sectionRefs.current[sectionId] = el}
                 id={sectionId}
-                className="py-16 px-8"
+                className="py-8"
               >
               <EnhancedPlatformSection
                   platform={platform as EnhancedPlatformData}
@@ -2514,13 +2491,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   if (tasks.length === 0) return null;
                   return (
                     <div className="max-w-6xl mx-auto mt-8">
-                      <div className="deck-glass-card p-6">
-                        <h3 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-4">✅ What We Worked On</h3>
+                      <div className="deck-ref-card p-6">
+                        <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-4">✅ What We Worked On</h3>
                         <ul className="space-y-3">
                           {tasks.map((item, i) => (
-                            <li key={i} className="flex items-start gap-3 text-white/80">
+                            <li key={i} className="flex items-start gap-3 text-[#374151]">
                               <CheckCircle className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                              <InlineEdit value={item} editKey={`tasks.${platform.key}.${i}`} as="span" className="text-white/80" />
+                              <InlineEdit value={item} editKey={`tasks.${platform.key}.${i}`} as="span" className="text-[#374151]" />
                             </li>
                           ))}
                         </ul>
@@ -2544,7 +2521,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             <section 
               ref={(el) => sectionRefs.current['google-ads'] = el}
               id="google-ads"
-              className="py-16 px-8"
+              className="py-8"
             >
               <DeckPlatformSection
                 platform="google"
@@ -2568,7 +2545,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             <section 
               ref={(el) => sectionRefs.current['meta-ads'] = el}
               id="meta-ads"
-              className="py-16 px-8"
+              className="py-8"
             >
               <DeckPlatformSection
                 platform="meta"
@@ -2594,7 +2571,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
           <section 
             ref={(el) => sectionRefs.current['sms'] = el}
             id="sms"
-            className="py-16 px-8"
+            className="py-8"
           >
             <div className="max-w-6xl mx-auto">
               <DeckSectionHeader
@@ -2645,13 +2622,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               </div>
 
               {deck.content.sms?.highlights && deck.content.sms.highlights.length > 0 && (deck.content.sms?.messagesSent || 0) > 0 && (
-                <div className="deck-glass-card p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4">Highlights</h3>
+                <div className="deck-ref-card p-6">
+                  <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Highlights</h3>
                   <ul className="space-y-3">
                     {deck.content.sms.highlights.map((highlight, idx) => (
-                      <li key={idx} className="flex items-start gap-3 text-white/80">
+                      <li key={idx} className="flex items-start gap-3 text-[#374151]">
                         <CheckCircle className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                        <InlineEdit value={highlight} editKey={`sms.highlights.${idx}`} as="span" className="text-white/80" />
+                        <InlineEdit value={highlight} editKey={`sms.highlights.${idx}`} as="span" className="text-[#374151]" />
                       </li>
                     ))}
                   </ul>
@@ -2661,7 +2638,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               {/* SMS Results Screenshots */}
               {deck.content.campaignAssets?.smsResults && deck.content.campaignAssets.smsResults.length > 0 && (
                 <div className="mt-8">
-                  <h3 className="text-lg font-semibold text-white mb-4">📊 SMS Campaign Results</h3>
+                  <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">📊 SMS Campaign Results</h3>
                   <div className="grid grid-cols-1 gap-6">
                     {deck.content.campaignAssets.smsResults.map((url, idx) => {
                       const sizeKey = `smsResults.${idx}.widthPct`;
@@ -2670,7 +2647,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                       const savedWidth = contentAny?.overrides?.[sizeKey] ? Number(contentAny.overrides[sizeKey]) : 100;
                       const savedAlign = (contentAny?.overrides?.[alignKey] as 'left' | 'center' | 'right') || 'center';
                       return (
-                      <div key={idx} className="rounded-2xl overflow-hidden shadow-xl border border-white/10 hover:border-emerald-500/40 transition-all group bg-black/30 relative">
+                      <div key={idx} className="rounded-2xl overflow-hidden shadow-xl border border-[#e5e5e0] hover:border-emerald-500/40 transition-all group bg-black/30 relative">
                         <button
                           className="deck-admin-control absolute top-2 right-2 z-10 bg-red-500/80 hover:bg-red-500 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
                           onClick={(e) => { e.stopPropagation(); deleteAsset('smsResults', idx); }}
@@ -2708,7 +2685,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               {/* SMS Campaign Screenshots */}
               {deck.content.campaignAssets?.smsCampaign && deck.content.campaignAssets.smsCampaign.length > 0 && (
                 <div className="mt-8">
-                  <h3 className="text-lg font-semibold text-white mb-4">💬 SMS Campaigns</h3>
+                  <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">💬 SMS Campaigns</h3>
                   <div className="space-y-4">
                     {deck.content.campaignAssets.smsCampaign.map((url, idx) => {
                       const sizeKey = `smsCampaign.${idx}.widthPct`;
@@ -2755,13 +2732,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               <SectionNotes editKey="sms.sectionNote" borderColor="border-emerald-500/20" />
               {/* Inline completed tasks for SMS */}
               {getTasksForSection('sms').length > 0 && (
-                <div className="deck-glass-card p-6 mt-8">
-                  <h3 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-4">✅ What We Worked On</h3>
+                <div className="deck-ref-card p-6 mt-8">
+                  <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-4">✅ What We Worked On</h3>
                   <ul className="space-y-3">
                     {getTasksForSection('sms').map((item, i) => (
-                      <li key={i} className="flex items-start gap-3 text-white/80">
+                      <li key={i} className="flex items-start gap-3 text-[#374151]">
                         <CheckCircle className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                        <InlineEdit value={item} editKey={`tasks.sms.${i}`} as="span" className="text-white/80" />
+                        <InlineEdit value={item} editKey={`tasks.sms.${i}`} as="span" className="text-[#374151]" />
                       </li>
                     ))}
                   </ul>
@@ -2778,7 +2755,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
         <section
           ref={(el) => sectionRefs.current['next-sms-campaign'] = el}
           id="next-sms-campaign"
-          className="py-16 px-8"
+          className="py-8"
         >
           <div className="max-w-6xl mx-auto">
             <DeckSectionHeader
@@ -2827,7 +2804,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 );
               })}
             </div>
-            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-white/20 hover:border-emerald-500/50 cursor-pointer transition-all text-white/60 hover:text-white">
+            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-emerald-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
               <Upload className="h-5 w-5" />
               <span>{isUploadingAsset ? 'Uploading...' : 'Upload SMS Campaign Screenshots'}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'nextSmsCampaign')} />
@@ -2845,7 +2822,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
           <section
             ref={(el) => sectionRefs.current['social-media'] = el}
             id="social-media"
-            className="py-16 px-8"
+            className="py-8"
           >
             <div className="max-w-6xl mx-auto">
               <DeckSectionHeader
@@ -2901,13 +2878,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               )}
               {/* Inline completed tasks for social media */}
               {getTasksForSection('social-media').length > 0 && (
-                <div className="deck-glass-card p-6 mt-8">
-                  <h3 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-4">✅ What We Worked On</h3>
+                <div className="deck-ref-card p-6 mt-8">
+                  <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-4">✅ What We Worked On</h3>
                   <ul className="space-y-3">
                     {getTasksForSection('social-media').map((item, i) => (
-                      <li key={i} className="flex items-start gap-3 text-white/80">
+                      <li key={i} className="flex items-start gap-3 text-[#374151]">
                         <CheckCircle className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                        <InlineEdit value={item} editKey={`tasks.social-media.${i}`} as="span" className="text-white/80" />
+                        <InlineEdit value={item} editKey={`tasks.social-media.${i}`} as="span" className="text-[#374151]" />
                       </li>
                     ))}
                   </ul>
@@ -2925,7 +2902,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
           <section 
             ref={(el) => sectionRefs.current['email'] = el}
             id="email"
-            className="py-16 px-8"
+            className="py-8"
           >
             <div className="max-w-6xl mx-auto">
               <DeckSectionHeader
@@ -2976,12 +2953,12 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               </div>
 
               {deck.content.email?.campaigns && deck.content.email.campaigns.length > 0 && (
-                <div className="deck-glass-card p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4">Top Campaigns</h3>
+                <div className="deck-ref-card p-6">
+                  <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Top Campaigns</h3>
                   <div className="space-y-3">
                     {deck.content.email.campaigns.slice(0, 5).map((campaign, idx) => (
                       <div key={idx} className="flex items-center justify-between bg-white/5 rounded-xl p-4">
-                        <span className="text-white font-medium">{campaign.name}</span>
+                        <span className="text-[#1a1a1a] font-medium">{campaign.name}</span>
                         <div className="flex gap-4 text-sm">
                           <span className="text-purple-400">{campaign.opens} opens</span>
                           <span className="text-blue-400">{campaign.clicks} clicks</span>
@@ -2995,7 +2972,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               {/* Email Designs Screenshots */}
               {deck.content.campaignAssets?.emailDesigns && deck.content.campaignAssets.emailDesigns.length > 0 && (
                 <div className="mt-8">
-                  <h3 className="text-lg font-semibold text-white mb-4">🎨 Email Designs</h3>
+                  <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">🎨 Email Designs</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {deck.content.campaignAssets.emailDesigns.map((url, idx) => {
                       const caption = deck.content.assetCaptions?.emailDesigns?.[idx];
@@ -3034,7 +3011,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                             onClick={() => setExpandedScreenshot(url)}
                           />
                           {caption && (
-                            <p className="text-white/60 text-sm text-center mt-2">{caption}</p>
+                            <p className="text-[#6b7280] text-sm text-center mt-2">{caption}</p>
                           )}
                         </div>
                       );
@@ -3046,7 +3023,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               {/* Email Results Screenshots */}
               {deck.content.campaignAssets?.emailResults && deck.content.campaignAssets.emailResults.length > 0 && (
                 <div className="mt-8">
-                  <h3 className="text-lg font-semibold text-white mb-4">📊 Email Campaign Results</h3>
+                  <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">📊 Email Campaign Results</h3>
                   <div className="space-y-6">
                     {deck.content.campaignAssets.emailResults.map((url, idx) => {
                       const caption = deck.content.assetCaptions?.emailResults?.[idx];
@@ -3086,7 +3063,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                             onClick={() => setExpandedScreenshot(url)}
                           />
                           {caption && (
-                            <p className="text-white/60 text-sm text-center mt-2">{caption}</p>
+                            <p className="text-[#6b7280] text-sm text-center mt-2">{caption}</p>
                           )}
                           {/* Optional note under each email result image */}
                           {(() => {
@@ -3099,7 +3076,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                                   value={noteValue || 'Add a note for this image…'}
                                   editKey={noteKey}
                                   as="p"
-                                  className="text-white/60 text-sm text-center italic"
+                                  className="text-[#6b7280] text-sm text-center italic"
                                   multiline
                                 />
                               </div>
@@ -3115,13 +3092,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               <SectionNotes editKey="email.sectionNote" borderColor="border-purple-500/20" />
               {/* Inline completed tasks for Email */}
               {getTasksForSection('email').length > 0 && (
-                <div className="deck-glass-card p-6 mt-8">
-                  <h3 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-4">✅ What We Worked On</h3>
+                <div className="deck-ref-card p-6 mt-8">
+                  <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-4">✅ What We Worked On</h3>
                   <ul className="space-y-3">
                     {getTasksForSection('email').map((item, i) => (
-                      <li key={i} className="flex items-start gap-3 text-white/80">
+                      <li key={i} className="flex items-start gap-3 text-[#374151]">
                         <CheckCircle className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                        <InlineEdit value={item} editKey={`tasks.email.${i}`} as="span" className="text-white/80" />
+                        <InlineEdit value={item} editKey={`tasks.email.${i}`} as="span" className="text-[#374151]" />
                       </li>
                     ))}
                   </ul>
@@ -3138,7 +3115,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
         <section
           ref={(el) => sectionRefs.current['next-email-campaign'] = el}
           id="next-email-campaign"
-          className="py-16 px-8"
+          className="py-8"
         >
           <div className="max-w-6xl mx-auto">
             <DeckSectionHeader
@@ -3150,13 +3127,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
 
             {/* Subject Line & Preview Text Options */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-                <h3 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-4">📧 Subject Line Options</h3>
+              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-[#e5e5e0]">
+                <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-4">📧 Subject Line Options</h3>
                 {isAdminMode ? (
                   <textarea
                     defaultValue={(deck.content.nextEmailDetails?.subjectLines || []).join('\n')}
                     placeholder="Enter subject line options (one per line)..."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white/80 text-sm placeholder:text-white/30 focus:outline-none focus:border-purple-500/50 min-h-[120px] resize-none"
+                    className="w-full bg-white/5 border border-[#e5e5e0] rounded-xl p-3 text-[#374151] text-sm placeholder:text-white/30 focus:outline-none focus:border-purple-500/50 min-h-[120px] resize-none"
                     onBlur={async (e) => {
                       const lines = e.target.value.split('\n').filter(l => l.trim());
                       const updated = { ...deck.content, nextEmailDetails: { ...deck.content.nextEmailDetails, subjectLines: lines.length > 0 ? lines : undefined } };
@@ -3175,19 +3152,19 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     {deck.content.nextEmailDetails!.subjectLines!.map((line, idx) => (
                       <li key={idx} className="flex items-start gap-3">
                         <span className="flex-shrink-0 w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center text-xs font-bold">{idx + 1}</span>
-                        <span className="text-white/90 text-sm">{line}</span>
+                        <span className="text-[#1a1a1a] text-sm">{line}</span>
                       </li>
                     ))}
                   </ul>
                 ) : null}
               </div>
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-                <h3 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-4">👁️ Preview Text Options</h3>
+              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-[#e5e5e0]">
+                <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-4">👁️ Preview Text Options</h3>
                 {isAdminMode ? (
                   <textarea
                     defaultValue={(deck.content.nextEmailDetails?.previewTexts || []).join('\n')}
                     placeholder="Enter preview text options (one per line)..."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white/80 text-sm placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50 min-h-[120px] resize-none"
+                    className="w-full bg-white/5 border border-[#e5e5e0] rounded-xl p-3 text-[#374151] text-sm placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50 min-h-[120px] resize-none"
                     onBlur={async (e) => {
                       const lines = e.target.value.split('\n').filter(l => l.trim());
                       const updated = { ...deck.content, nextEmailDetails: { ...deck.content.nextEmailDetails, previewTexts: lines.length > 0 ? lines : undefined } };
@@ -3206,7 +3183,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     {deck.content.nextEmailDetails!.previewTexts!.map((text, idx) => (
                       <li key={idx} className="flex items-start gap-3">
                         <span className="flex-shrink-0 w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-xs font-bold">{idx + 1}</span>
-                        <span className="text-white/70 text-sm">{text}</span>
+                        <span className="text-[#4b5563] text-sm">{text}</span>
                       </li>
                     ))}
                   </ul>
@@ -3254,7 +3231,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 );
               })}
             </div>
-            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-white/20 hover:border-purple-500/50 cursor-pointer transition-all text-white/60 hover:text-white">
+            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-purple-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
               <Upload className="h-5 w-5" />
               <span>{isUploadingAsset ? 'Uploading...' : 'Upload Email Campaign Screenshots'}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'nextEmailCampaign')} />
@@ -3273,7 +3250,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
           <section 
             ref={(el) => sectionRefs.current['workflows'] = el}
             id="workflows"
-            className="py-16 px-8"
+            className="py-8"
           >
             <div className="max-w-6xl mx-auto">
               <DeckSectionHeader
@@ -3285,23 +3262,23 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {isNonZero(deck.content.workflows?.activeCount) && (
-                  <div className="deck-glass-card p-8 text-center">
+                  <div className="deck-ref-card p-8 text-center">
                     <Zap className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
-                    <div className="text-5xl font-bold text-white mb-2">
+                    <div className="text-5xl font-bold text-[#1a1a1a] mb-2">
                       <AnimatedCounter value={String(deck.content.workflows?.activeCount || 0)} />
                     </div>
-                    <div className="text-white/60 text-xl">Active Workflows</div>
+                    <div className="text-[#6b7280] text-xl">Active Workflows</div>
                   </div>
                 )}
                 
                 {deck.content.workflows?.newAutomations && deck.content.workflows.newAutomations.length > 0 && (
-                  <div className="deck-glass-card p-6">
-                    <h3 className="text-lg font-semibold text-white mb-4">New Automations Added</h3>
+                  <div className="deck-ref-card p-6">
+                    <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">New Automations Added</h3>
                     <div className="space-y-3">
                       {deck.content.workflows.newAutomations.map((item, idx) => (
                         <div key={idx} className="flex items-center gap-3 bg-white/5 rounded-lg p-4">
                           <Zap className="h-5 w-5 text-yellow-500" />
-                          <span className="text-white">{item}</span>
+                          <span className="text-[#1a1a1a]">{item}</span>
                         </div>
                       ))}
                     </div>
@@ -3309,13 +3286,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 )}
               {/* Inline completed tasks for CRM/Workflows */}
               {getTasksForSection('workflows').length > 0 && (
-                <div className="deck-glass-card p-6 mt-8">
-                  <h3 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-4">✅ What We Worked On</h3>
+                <div className="deck-ref-card p-6 mt-8">
+                  <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-4">✅ What We Worked On</h3>
                   <ul className="space-y-3">
                     {getTasksForSection('workflows').map((item, i) => (
-                      <li key={i} className="flex items-start gap-3 text-white/80">
+                      <li key={i} className="flex items-start gap-3 text-[#374151]">
                         <CheckCircle className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                        <InlineEdit value={item} editKey={`tasks.workflows.${i}`} as="span" className="text-white/80" />
+                        <InlineEdit value={item} editKey={`tasks.workflows.${i}`} as="span" className="text-[#374151]" />
                       </li>
                     ))}
                   </ul>
@@ -3335,7 +3312,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     const savedAlign = (contentAny?.overrides?.[alignKey] as 'left' | 'center' | 'right') || 'center';
                     return (
                       <div key={idx} className="space-y-2">
-                        <div className="relative group deck-glass-card p-3 overflow-hidden">
+                        <div className="relative group deck-ref-card p-3 overflow-hidden">
                           <ResizableImage
                             src={url}
                             alt={`Workflow screenshot ${idx + 1}`}
@@ -3363,7 +3340,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                             value={savedNote || 'Add a note…'}
                             editKey={noteKey}
                             as="p"
-                            className={`text-sm ${savedNote ? 'text-white/70' : 'text-white/30 italic'}`}
+                            className={`text-sm ${savedNote ? 'text-[#4b5563]' : 'text-white/30 italic'}`}
                           />
                         )}
                       </div>
@@ -3385,7 +3362,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
           <section 
             ref={(el) => sectionRefs.current['appointments'] = el}
             id="appointments"
-            className="py-16 px-8"
+            className="py-8"
           >
             <div className="max-w-6xl mx-auto">
               <DeckSectionHeader
@@ -3443,7 +3420,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
           <section 
             ref={(el) => sectionRefs.current['calls'] = el}
             id="calls"
-            className="py-16 px-8"
+            className="py-8"
           >
             <div className="max-w-6xl mx-auto">
               <DeckSectionHeader
@@ -3501,7 +3478,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
           <section 
             ref={(el) => sectionRefs.current['forms'] = el}
             id="forms"
-            className="py-16 px-8"
+            className="py-8"
           >
             <div className="max-w-6xl mx-auto">
               <DeckSectionHeader
@@ -3544,12 +3521,12 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               </div>
 
               {deck.content.forms?.forms && deck.content.forms.forms.filter(f => f.submissions > 0).length > 0 && (
-                <div className="deck-glass-card p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4">Top Forms</h3>
+                <div className="deck-ref-card p-6">
+                  <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Top Forms</h3>
                   <div className="space-y-3">
                     {deck.content.forms.forms.filter(f => f.submissions > 0).slice(0, 5).map((form, idx) => (
                       <div key={idx} className="flex items-center justify-between bg-white/5 rounded-xl p-4">
-                        <span className="text-white font-medium">{form.name}</span>
+                        <span className="text-[#1a1a1a] font-medium">{form.name}</span>
                         <span className="text-indigo-400 font-semibold">{form.submissions} submissions</span>
                       </div>
                     ))}
@@ -3568,7 +3545,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
           <section 
             ref={(el) => sectionRefs.current['payments'] = el}
             id="payments"
-            className="py-16 px-8"
+            className="py-8"
           >
             <div className="max-w-6xl mx-auto">
               <DeckSectionHeader
@@ -3580,12 +3557,12 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {isNonZero(deck.content.payments?.totalRevenue) && (
-                  <div className="deck-glass-card p-8 text-center bg-gradient-to-br from-emerald-500/20 to-transparent border-emerald-500/30">
+                  <div className="deck-ref-card p-8 text-center bg-gradient-to-br from-emerald-500/20 to-transparent border-emerald-500/30">
                     <DollarSign className="h-12 w-12 text-emerald-500 mx-auto mb-4" />
-                    <div className="text-5xl font-bold text-white mb-2">
+                    <div className="text-5xl font-bold text-[#1a1a1a] mb-2">
                       ${(deck.content.payments?.totalRevenue || 0).toLocaleString()}
                     </div>
-                    <div className="text-white/60 text-lg">Total Revenue</div>
+                    <div className="text-[#6b7280] text-lg">Total Revenue</div>
                   </div>
                 )}
                 {isNonZero(deck.content.payments?.transactionCount) && (
@@ -3620,7 +3597,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
           <section 
             ref={(el) => sectionRefs.current['reviews'] = el}
             id="reviews"
-            className="py-16 px-8"
+            className="py-8"
           >
             <div className="max-w-6xl mx-auto">
               <DeckSectionHeader
@@ -3632,7 +3609,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 {isNonZero(deck.content.reviews?.averageRating) && (
-                  <div className="deck-glass-card p-8 text-center bg-gradient-to-br from-yellow-500/20 to-transparent border-yellow-500/30">
+                  <div className="deck-ref-card p-8 text-center bg-gradient-to-br from-yellow-500/20 to-transparent border-yellow-500/30">
                     <div className="flex items-center justify-center gap-2 mb-4">
                       {[1, 2, 3, 4, 5].map((star) => (
                         <Star 
@@ -3641,10 +3618,10 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                         />
                       ))}
                     </div>
-                    <div className="text-5xl font-bold text-white mb-2">
+                    <div className="text-5xl font-bold text-[#1a1a1a] mb-2">
                       {(deck.content.reviews?.averageRating || 0).toFixed(1)}
                     </div>
-                    <div className="text-white/60 text-lg">Average Rating</div>
+                    <div className="text-[#6b7280] text-lg">Average Rating</div>
                   </div>
                 )}
                 {isNonZero(deck.content.reviews?.total) && (
@@ -3656,8 +3633,8 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               </div>
 
               {deck.content.reviews?.recentReviews && deck.content.reviews.recentReviews.length > 0 && (
-                <div className="deck-glass-card p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4">Recent Reviews</h3>
+                <div className="deck-ref-card p-6">
+                  <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Recent Reviews</h3>
                   <div className="space-y-4">
                     {deck.content.reviews.recentReviews.slice(0, 3).map((review, idx) => (
                       <div key={idx} className="bg-white/5 rounded-xl p-4">
@@ -3665,9 +3642,9 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                           {[1, 2, 3, 4, 5].map((star) => (
                             <Star key={star} className={`h-4 w-4 ${star <= review.rating ? 'text-yellow-400 fill-yellow-400' : 'text-white/20'}`} />
                           ))}
-                          {review.source && <span className="text-xs text-white/40 ml-2">{review.source}</span>}
+                          {review.source && <span className="text-xs text-[#9ca3af] ml-2">{review.source}</span>}
                         </div>
-                        <p className="text-white/80 text-sm">{review.content}</p>
+                        <p className="text-[#374151] text-sm">{review.content}</p>
                       </div>
                     ))}
                   </div>
@@ -3685,7 +3662,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
         <section
           ref={(el) => sectionRefs.current['ad-creatives-approval'] = el}
           id="ad-creatives-approval"
-          className="py-16 px-8"
+          className="py-8"
         >
           <div className="max-w-6xl mx-auto">
             <DeckSectionHeader
@@ -3704,7 +3681,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 const savedWidth = contentAny?.overrides?.[sizeKey] ? Number(contentAny.overrides[sizeKey]) : 100;
                 const savedAlign = (contentAny?.overrides?.[alignKey] as 'left' | 'center' | 'right') || 'center';
                 return (
-                  <div key={idx} className="rounded-2xl overflow-hidden shadow-xl border border-white/10 hover:border-orange-500/40 transition-all group bg-black/30 relative">
+                  <div key={idx} className="rounded-2xl overflow-hidden shadow-xl border border-[#e5e5e0] hover:border-orange-500/40 transition-all group bg-black/30 relative">
                     <button
                       className="deck-admin-control absolute top-2 right-2 z-10 bg-red-500/80 hover:bg-red-500 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => { e.stopPropagation(); deleteAsset('adCreativeApprovals', idx); }}
@@ -3734,14 +3711,14 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     />
                     {caption && (
                       <div className="p-3">
-                        <p className="text-white/60 text-sm text-center">{caption}</p>
+                        <p className="text-[#6b7280] text-sm text-center">{caption}</p>
                       </div>
                     )}
                   </div>
                 );
               })}
             </div>
-            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-white/20 hover:border-orange-500/50 cursor-pointer transition-all text-white/60 hover:text-white">
+            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-orange-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
               <Upload className="h-5 w-5" />
               <span>{isUploadingAsset ? 'Uploading...' : 'Upload Ad Creatives'}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'adCreativeApprovals')} />
@@ -3758,7 +3735,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
         <section
           ref={(el) => sectionRefs.current['blog-seo'] = el}
           id="blog-seo"
-          className="py-16 px-8"
+          className="py-8"
         >
           <div className="max-w-6xl mx-auto">
             {(() => {
@@ -3784,7 +3761,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 const savedWidth = contentAny?.overrides?.[sizeKey] ? Number(contentAny.overrides[sizeKey]) : 100;
                 const savedAlign = (contentAny?.overrides?.[alignKey] as 'left' | 'center' | 'right') || 'center';
                 return (
-                  <div key={idx} className="rounded-2xl overflow-hidden shadow-xl border border-white/10 hover:border-cyan-500/40 transition-all group bg-black/30 relative">
+                  <div key={idx} className="rounded-2xl overflow-hidden shadow-xl border border-[#e5e5e0] hover:border-cyan-500/40 transition-all group bg-black/30 relative">
                     <button
                       className="deck-admin-control absolute top-2 right-2 z-10 bg-red-500/80 hover:bg-red-500 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => { e.stopPropagation(); deleteAsset('blogPosts', idx); }}
@@ -3814,7 +3791,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     />
                     {caption && (
                       <div className="p-3">
-                        <p className="text-white/60 text-sm text-center">{caption}</p>
+                        <p className="text-[#6b7280] text-sm text-center">{caption}</p>
                       </div>
                     )}
                   </div>
@@ -3822,7 +3799,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               })}
             </div>
             )}
-            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-white/20 hover:border-cyan-500/50 cursor-pointer transition-all text-white/60 hover:text-white">
+            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-cyan-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
               <Upload className="h-5 w-5" />
               <span>{isUploadingAsset ? 'Uploading...' : 'Upload Blog/SEO Page Screenshots'}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'blogPosts')} />
@@ -3848,17 +3825,17 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               const competitors = (seo.competitors || []).slice(0, 5);
               return (
                 <div className="mt-8 space-y-6">
-                  <h3 className="text-lg font-semibold text-white/90 flex items-center gap-2">
+                  <h3 className="text-lg font-semibold text-[#1a1a1a] flex items-center gap-2">
                     <Globe className="h-5 w-5 text-cyan-400" /> SEO Performance — {seo.domain || ''}
                   </h3>
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                     {metrics.map((m, i) => {
                       const delta = m.prev != null && m.prev > 0 ? ((m.value - m.prev) / m.prev * 100) : null;
                       return (
-                        <div key={i} className="deck-glass-card p-4 text-center">
+                        <div key={i} className="deck-ref-card p-4 text-center">
                           <span className="text-2xl">{m.icon}</span>
                           <div className="text-2xl font-bold text-white mt-1">{(m.value ?? 0).toLocaleString()}</div>
-                          <div className="text-xs text-white/50 mt-1">{m.label}</div>
+                          <div className="text-xs text-[#6b7280] mt-1">{m.label}</div>
                           {delta !== null && (
                             <div className={`text-xs mt-1 font-medium ${delta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                               {delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}% MoM
@@ -3871,20 +3848,20 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   {paidMetrics.length > 0 && (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                       {paidMetrics.map((m, i) => (
-                        <div key={i} className="deck-glass-card p-3 text-center">
+                        <div key={i} className="deck-ref-card p-3 text-center">
                           <div className="text-lg font-bold text-white">{(m.value ?? 0).toLocaleString()}</div>
-                          <div className="text-xs text-white/50">{m.label}</div>
+                          <div className="text-xs text-[#6b7280]">{m.label}</div>
                         </div>
                       ))}
                     </div>
                   )}
                   {topKeywords.length > 0 && (
-                    <div className="deck-glass-card p-5">
-                      <h4 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-3">Top Organic Keywords</h4>
+                    <div className="deck-ref-card p-5">
+                      <h4 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-3">Top Organic Keywords</h4>
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
-                            <tr className="text-white/40 text-xs uppercase">
+                            <tr className="text-[#9ca3af] text-xs uppercase">
                               <th className="text-left py-2 pr-4">Keyword</th>
                               <th className="text-center py-2 px-2">Pos</th>
                               <th className="text-center py-2 px-2">Volume</th>
@@ -3895,15 +3872,15 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                           <tbody>
                             {topKeywords.map((kw: any, i: number) => (
                               <tr key={i} className="border-t border-white/5">
-                                <td className="py-2 pr-4 text-white/80 font-medium">{kw.keyword}</td>
+                                <td className="py-2 pr-4 text-[#374151] font-medium">{kw.keyword}</td>
                                 <td className="py-2 px-2 text-center">
-                                  <span className={`inline-block min-w-[28px] rounded px-1.5 py-0.5 text-xs font-bold ${kw.position <= 3 ? 'bg-emerald-500/20 text-emerald-400' : kw.position <= 10 ? 'bg-cyan-500/20 text-cyan-400' : 'bg-white/10 text-white/60'}`}>
+                                  <span className={`inline-block min-w-[28px] rounded px-1.5 py-0.5 text-xs font-bold ${kw.position <= 3 ? 'bg-emerald-500/20 text-emerald-400' : kw.position <= 10 ? 'bg-cyan-500/20 text-cyan-400' : 'bg-white/10 text-[#6b7280]'}`}>
                                     #{kw.position}
                                   </span>
                                 </td>
-                                <td className="py-2 px-2 text-center text-white/60">{(kw.volume ?? 0).toLocaleString()}</td>
-                                <td className="py-2 px-2 text-center text-white/60">${(kw.cpc ?? 0).toFixed(2)}</td>
-                                <td className="py-2 px-2 text-center text-white/60">{(kw.trafficPercent ?? 0).toFixed(1)}%</td>
+                                <td className="py-2 px-2 text-center text-[#6b7280]">{(kw.volume ?? 0).toLocaleString()}</td>
+                                <td className="py-2 px-2 text-center text-[#6b7280]">${(kw.cpc ?? 0).toFixed(2)}</td>
+                                <td className="py-2 px-2 text-center text-[#6b7280]">{(kw.trafficPercent ?? 0).toFixed(1)}%</td>
                               </tr>
                             ))}
                           </tbody>
@@ -3912,13 +3889,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     </div>
                   )}
                   {competitors.length > 0 && (
-                    <div className="deck-glass-card p-5">
-                      <h4 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-3">Organic Competitors</h4>
+                    <div className="deck-ref-card p-5">
+                      <h4 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-3">Organic Competitors</h4>
                       <div className="space-y-2">
                         {competitors.map((c: any, i: number) => (
                           <div key={i} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-                            <span className="text-white/80 font-medium">{c.domain}</span>
-                            <div className="flex gap-4 text-xs text-white/50">
+                            <span className="text-[#374151] font-medium">{c.domain}</span>
+                            <div className="flex gap-4 text-xs text-[#6b7280]">
                               <span>{(c.commonKeywords ?? 0).toLocaleString()} common</span>
                               <span>{(c.organicTraffic ?? 0).toLocaleString()} traffic</span>
                             </div>
@@ -3931,13 +3908,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               );
             })()}
             {getTasksForSection('blog-seo').length > 0 && (
-              <div className="deck-glass-card p-6 mt-8">
-                <h3 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-4">✅ What We Worked On</h3>
+              <div className="deck-ref-card p-6 mt-8">
+                <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-4">✅ What We Worked On</h3>
                 <ul className="space-y-3">
                   {getTasksForSection('blog-seo').map((item, i) => (
-                    <li key={i} className="flex items-start gap-3 text-white/80">
+                    <li key={i} className="flex items-start gap-3 text-[#374151]">
                       <CheckCircle className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                      <InlineEdit value={item} editKey={`tasks.blog-seo.${i}`} as="span" className="text-white/80" />
+                      <InlineEdit value={item} editKey={`tasks.blog-seo.${i}`} as="span" className="text-[#374151]" />
                     </li>
                   ))}
                 </ul>
@@ -3955,7 +3932,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             <section
               ref={(el) => sectionRefs.current['website-edits'] = el}
               id="website-edits"
-              className="py-16 px-8"
+              className="py-8"
             >
               <div className="max-w-6xl mx-auto">
                 <DeckSectionHeader
@@ -3975,7 +3952,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     const savedAlign = (contentAny?.overrides?.[alignKey] as 'left' | 'center' | 'right') || 'center';
 
                     return (
-                      <div key={idx} className="rounded-2xl overflow-hidden shadow-xl border border-white/10 hover:border-purple-500/40 transition-all group bg-black/30 relative">
+                      <div key={idx} className="rounded-2xl overflow-hidden shadow-xl border border-[#e5e5e0] hover:border-purple-500/40 transition-all group bg-black/30 relative">
                         <button
                           className="deck-admin-control absolute top-2 right-2 z-10 bg-red-500/80 hover:bg-red-500 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
                           onClick={(e) => { e.stopPropagation(); deleteAsset('websiteEditsScreenshots', idx); }}
@@ -4007,7 +3984,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
 
                         {caption && (
                           <div className="p-3">
-                            <p className="text-white/60 text-sm text-center">{caption}</p>
+                            <p className="text-[#6b7280] text-sm text-center">{caption}</p>
                           </div>
                         )}
                       </div>
@@ -4015,7 +3992,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   })}
                 </div>
 
-                <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-white/20 hover:border-purple-500/50 cursor-pointer transition-all text-white/60 hover:text-white">
+                <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-purple-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
                   <Upload className="h-5 w-5" />
                   <span>{isUploadingAsset ? 'Uploading...' : 'Upload Website Edit Screenshots'}</span>
                   <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'websiteEditsScreenshots')} />
@@ -4033,7 +4010,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
         <section
           ref={(el) => sectionRefs.current['analytics-traffic'] = el}
           id="analytics-traffic"
-          className="py-16 px-8"
+          className="py-8"
         >
           <div className="max-w-6xl mx-auto">
             <DeckSectionHeader
@@ -4051,7 +4028,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 const savedWidth = contentAny?.overrides?.[sizeKey] ? Number(contentAny.overrides[sizeKey]) : 100;
                 const savedAlign = (contentAny?.overrides?.[alignKey] as 'left' | 'center' | 'right') || 'center';
                 return (
-                  <div key={idx} className="rounded-2xl overflow-hidden shadow-xl border border-white/10 hover:border-blue-500/40 transition-all group bg-black/30 relative">
+                  <div key={idx} className="rounded-2xl overflow-hidden shadow-xl border border-[#e5e5e0] hover:border-blue-500/40 transition-all group bg-black/30 relative">
                     <button
                       className="deck-admin-control absolute top-2 right-2 z-10 bg-red-500/80 hover:bg-red-500 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => { e.stopPropagation(); deleteAsset('analyticsScreenshots', idx); }}
@@ -4081,14 +4058,14 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     />
                     {caption && (
                       <div className="p-3">
-                        <p className="text-white/60 text-sm text-center">{caption}</p>
+                        <p className="text-[#6b7280] text-sm text-center">{caption}</p>
                       </div>
                     )}
                   </div>
                 );
               })}
             </div>
-            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-white/20 hover:border-blue-500/50 cursor-pointer transition-all text-white/60 hover:text-white">
+            <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-blue-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
               <Upload className="h-5 w-5" />
               <span>{isUploadingAsset ? 'Uploading...' : 'Upload Analytics Screenshots'}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'analyticsScreenshots')} />
@@ -4105,7 +4082,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             <section
               ref={(el) => sectionRefs.current['other'] = el}
               id="other"
-              className="py-16 px-8"
+              className="py-8"
             >
               <div className="max-w-6xl mx-auto">
                 <DeckSectionHeader
@@ -4125,7 +4102,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     const savedAlign = (contentAny?.overrides?.[alignKey] as 'left' | 'center' | 'right') || 'center';
 
                     return (
-                      <div key={idx} className="rounded-2xl overflow-hidden shadow-xl border border-white/10 hover:border-blue-500/40 transition-all group bg-black/30 relative">
+                      <div key={idx} className="rounded-2xl overflow-hidden shadow-xl border border-[#e5e5e0] hover:border-blue-500/40 transition-all group bg-black/30 relative">
                         <button
                           className="deck-admin-control absolute top-2 right-2 z-10 bg-red-500/80 hover:bg-red-500 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
                           onClick={(e) => { e.stopPropagation(); deleteAsset('otherScreenshots', idx); }}
@@ -4157,7 +4134,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
 
                         {caption && (
                           <div className="p-3">
-                            <p className="text-white/60 text-sm text-center">{caption}</p>
+                            <p className="text-[#6b7280] text-sm text-center">{caption}</p>
                           </div>
                         )}
                       </div>
@@ -4165,7 +4142,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   })}
                 </div>
 
-                <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-white/20 hover:border-blue-500/50 cursor-pointer transition-all text-white/60 hover:text-white">
+                <label className="deck-admin-control flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#e5e5e0] hover:border-blue-500/50 cursor-pointer transition-all text-[#6b7280] hover:text-white">
                   <Upload className="h-5 w-5" />
                   <span>{isUploadingAsset ? 'Uploading...' : 'Upload Other Screenshots'}</span>
                   <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAssetUpload(e.target.files, 'otherScreenshots')} />
@@ -4186,7 +4163,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               key={sectionId}
               ref={(el) => sectionRefs.current[sectionId] = el}
               id={sectionId}
-              className="py-16 px-8"
+              className="py-8"
             >
               <div className="max-w-6xl mx-auto">
                 <DeckSectionHeader
@@ -4196,10 +4173,10 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   brandColor={brandPrimary}
                 />
                 
-                <div className="deck-glass-card p-6">
+                <div className="deck-ref-card p-6">
                   <ul className="space-y-3">
                     {category.items.map((item, itemIdx) => (
-                      <li key={itemIdx} className="flex items-start gap-3 text-white/80">
+                      <li key={itemIdx} className="flex items-start gap-3 text-[#374151]">
                         <CheckCircle className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
                         <span>{item}</span>
                       </li>
@@ -4241,7 +4218,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
         <section 
           ref={(el) => sectionRefs.current['next-steps'] = el}
           id="next-steps"
-          className="py-16 px-8"
+          className="py-8"
         >
           <div className="max-w-6xl mx-auto">
             <DeckSectionHeader
@@ -4267,15 +4244,15 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 ))}
               </div>
             ) : (
-              <div className="deck-glass-card p-12 text-center">
+              <div className="deck-ref-card p-12 text-center">
                 <Target className="h-16 w-16 text-white/20 mx-auto mb-4" />
-                <p className="text-white/60">Action items will be generated based on your performance data.</p>
+                <p className="text-[#6b7280]">Action items will be generated based on your performance data.</p>
               </div>
             )}
 
             {deck.content.nextSteps?.focusAreas && deck.content.nextSteps.focusAreas.length > 0 && (
-              <div className="mt-8 deck-glass-card p-6">
-                <h3 className="text-lg font-semibold text-white mb-4">Focus Areas</h3>
+              <div className="mt-8 deck-ref-card p-6">
+                <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Focus Areas</h3>
                 <div className="flex flex-wrap gap-3">
                   {deck.content.nextSteps.focusAreas.map((area, idx) => (
                     <span 
@@ -4304,10 +4281,10 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               return (
                 <div className="mt-8">
                   {isEditMode ? (
-                    <div className="deck-glass-card p-6">
-                      <h3 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-3">✏️ Additional Notes</h3>
+                    <div className="deck-ref-card p-6">
+                      <h3 className="text-sm font-semibold text-[#6b7280] uppercase tracking-wider mb-3">✏️ Additional Notes</h3>
                       <textarea
-                        className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-white placeholder-white/30 focus:border-yellow-400/50 focus:outline-none focus:ring-1 focus:ring-yellow-400/30 resize-y min-h-[120px] text-sm leading-relaxed"
+                        className="w-full bg-white/5 border border-[#e5e5e0] rounded-xl p-4 text-white placeholder-white/30 focus:border-yellow-400/50 focus:outline-none focus:ring-1 focus:ring-yellow-400/30 resize-y min-h-[120px] text-sm leading-relaxed"
                         style={{ minHeight: 120 }}
                         placeholder="Add custom notes, action items, or recommendations here…"
                         defaultValue={savedNotes}
@@ -4323,9 +4300,9 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                       <p className="text-white/30 text-xs mt-2">Changes save automatically when you click away.</p>
                     </div>
                   ) : (
-                    <div className="deck-glass-card p-6">
-                      <h3 className="text-lg font-semibold text-white mb-4">Additional Notes</h3>
-                      <div className="text-white/80 text-sm leading-relaxed whitespace-pre-wrap">{savedNotes}</div>
+                    <div className="deck-ref-card p-6">
+                      <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Additional Notes</h3>
+                      <div className="text-[#374151] text-sm leading-relaxed whitespace-pre-wrap">{savedNotes}</div>
                     </div>
                   )}
                 </div>
@@ -4337,6 +4314,13 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
 
         {/* ─── Custom Sections (inserted by admin in Edit Mode) ──────────── */}
         <CustomSectionsRenderer />
+
+        {/* ─── Footer ──────────────────────────────────────────────────────── */}
+        {!isEditMode && (
+          <div className="deck-ref-footer">
+            <p>Prepared by <strong>Melleka Marketing</strong></p>
+          </div>
+        )}
 
       </main>
 

@@ -1096,3 +1096,209 @@
 .deck-present-mode .deck-admin-control {
   display: none !important;
 }
+
+/* ===== REFERENCE DECK DESIGN SYSTEM ===== */
+
+/* Page-level wrapper for reference deck design */
+.deck-ref-page {
+  background: #f5f5f0;
+  font-family: 'Outfit', 'Inter', sans-serif;
+  color: #1a1a1a;
+}
+
+/* White card — primary content container */
+.deck-ref-card {
+  background: #ffffff;
+  border: 1px solid #e5e5e0;
+  border-radius: 16px;
+  padding: 36px;
+  transition: box-shadow 0.3s ease;
+}
+
+.deck-ref-card:hover {
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+
+/* Stat card grid inside sections */
+.deck-ref-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+/* Individual stat card */
+.deck-ref-stat-card {
+  background: #f9fafb;
+  border: 1px solid #e5e5e0;
+  border-radius: 12px;
+  padding: 20px 24px;
+  transition: all 0.3s ease;
+}
+
+.deck-ref-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.deck-ref-stat-card .stat-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  line-height: 1.2;
+}
+
+.deck-ref-stat-card .stat-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+/* Table styling */
+.deck-ref-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.deck-ref-table thead th {
+  background: #f9fafb;
+  color: #6b7280;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid #e5e5e0;
+}
+
+.deck-ref-table thead th:first-child {
+  border-radius: 8px 0 0 0;
+}
+
+.deck-ref-table thead th:last-child {
+  border-radius: 0 8px 0 0;
+}
+
+.deck-ref-table tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0ec;
+  color: #1a1a1a;
+}
+
+.deck-ref-table tbody tr:hover {
+  background: #fafaf8;
+}
+
+.deck-ref-table tbody tr.total-row {
+  background: #f0f7ff;
+  font-weight: 600;
+}
+
+.deck-ref-table tbody tr.total-row td {
+  border-bottom: none;
+}
+
+/* Hero section */
+.deck-ref-hero {
+  background: linear-gradient(135deg, #6C3FA0 0%, #4A2578 50%, #2D1650 100%);
+  color: white;
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  padding: 48px;
+}
+
+.deck-ref-hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -20%;
+  width: 60%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.06) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+/* Gallery item with hover effect */
+.deck-ref-gallery-item {
+  border-radius: 12px;
+  border: 1px solid #e5e5e0;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.deck-ref-gallery-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+.deck-ref-gallery-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.deck-ref-gallery-item:hover img {
+  transform: scale(1.02);
+}
+
+/* Footer */
+.deck-ref-footer {
+  text-align: center;
+  padding: 48px 24px;
+  color: #9ca3af;
+  font-size: 0.875rem;
+  border-top: 1px solid #e5e5e0;
+  margin-top: 48px;
+}
+
+/* Priority borders for reference design */
+.deck-ref-priority-high {
+  border-left: 4px solid #ef4444;
+}
+
+.deck-ref-priority-medium {
+  border-left: 4px solid #f59e0b;
+}
+
+.deck-ref-priority-low {
+  border-left: 4px solid #22c55e;
+}
+
+/* Trend badges for reference design */
+.deck-ref-trend-up {
+  color: #059669;
+  background: #ecfdf5;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.deck-ref-trend-down {
+  color: #dc2626;
+  background: #fef2f2;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Gold accent badge */
+.deck-ref-badge-gold {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}

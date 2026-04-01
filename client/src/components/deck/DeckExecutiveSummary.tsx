@@ -1,9 +1,9 @@
 import { useState, useEffect, useContext } from 'react';
-import { 
-  Sparkles, 
-  CheckCircle, 
-  AlertTriangle, 
-  TrendingUp, 
+import {
+  Sparkles,
+  CheckCircle,
+  AlertTriangle,
+  TrendingUp,
   TrendingDown,
   Lightbulb,
   ArrowUpRight
@@ -33,7 +33,7 @@ export const DeckExecutiveSummary = ({
   keyWins = [],
   challenges = [],
   periodComparison = [],
-  brandColor = '#6366f1',
+  brandColor = '#6C3FA0',
   animateText = true,
   editKeyPrefix = 'hero',
 }: DeckExecutiveSummaryProps) => {
@@ -54,7 +54,7 @@ export const DeckExecutiveSummary = ({
       setIsAnimating(false);
       return;
     }
-    
+
     let i = 0;
     setDisplayedText('');
     setIsAnimating(true);
@@ -78,147 +78,137 @@ export const DeckExecutiveSummary = ({
 
   return (
     <div className="relative">
-      {/* Gradient border wrapper */}
-      <div className="neon-gradient-border rounded-3xl p-[1px]">
-        <div className="bg-[#0a0a1a]/90 backdrop-blur-xl rounded-3xl p-8 md:p-12">
-          {/* Header */}
-          <div className="flex items-center gap-3 mb-8">
-            <div 
-              className="p-3 rounded-xl"
-              style={{ backgroundColor: `${brandColor}20` }}
-            >
-              <Sparkles className="h-6 w-6" style={{ color: brandColor }} />
-            </div>
-            <div>
-              <h2 className="text-3xl font-bold text-white" style={{ fontFamily: "'Playfair Display', serif" }}>
-                The Story
-              </h2>
-              <p className="text-white/50 text-sm">Executive Summary</p>
-            </div>
+      {/* White card wrapper */}
+      <div className="deck-ref-card">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-6">
+          <div
+            className="p-2.5 rounded-xl"
+            style={{ backgroundColor: `${brandColor}12` }}
+          >
+            <Sparkles className="h-5 w-5" style={{ color: brandColor }} />
           </div>
-
-          {/* Main Summary */}
-          <div className="mb-10">
-            {isEditMode ? (
-              <InlineEdit
-                value={summary}
-                editKey={`${editKeyPrefix}.executiveSummary`}
-                as="p"
-                multiline
-                className="text-xl md:text-2xl text-white/90 leading-relaxed font-light"
-              />
-            ) : (
-              <p className="text-xl md:text-2xl text-white/90 leading-relaxed font-light">
-                {displayedText}
-                {isAnimating && (
-                  <span 
-                    className="inline-block w-0.5 h-6 ml-1 animate-pulse"
-                    style={{ backgroundColor: brandColor }}
-                  />
-                )}
-              </p>
-            )}
+          <div>
+            <h2 className="text-2xl font-bold text-[#1a1a1a]" style={{ fontFamily: "'Outfit', sans-serif" }}>
+              The Story
+            </h2>
+            <p className="text-[#6b7280] text-sm">Executive Summary</p>
           </div>
+        </div>
 
-          {/* Period Comparison Pills */}
-          {periodComparison.length > 0 && (
-            <div className="flex flex-wrap gap-3 mb-10">
-              {periodComparison.map((item, idx) => {
-                const change = calculateChange(item.current, item.previous);
-                const isPositive = change >= 0;
-                
-                return (
-                  <div 
-                    key={idx}
-                    className={cn(
-                      "inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium",
-                      isPositive ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
-                    )}
-                  >
-                    {isPositive ? (
-                      <TrendingUp className="h-4 w-4" />
-                    ) : (
-                      <TrendingDown className="h-4 w-4" />
-                    )}
-                    <span>{item.label}:</span>
-                    <span className="font-bold">
-                      {isPositive ? '+' : ''}{change.toFixed(1)}%
-                    </span>
-                    <span className="text-white/40 text-xs">
-                      vs prev period
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Key Wins & Challenges Grid */}
-          {(keyWins.length > 0 || challenges.length > 0 || isEditMode) && (
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Key Wins */}
-              {(keyWins.length > 0 || isEditMode) && (
-                <div className="bg-emerald-500/10 rounded-2xl p-6 border border-emerald-500/20">
-                  <div className="flex items-center gap-2 mb-4">
-                    <CheckCircle className="h-5 w-5 text-emerald-400" />
-                    <h3 className="text-lg font-semibold text-emerald-400">Key Wins</h3>
-                  </div>
-                  <ul className="space-y-3">
-                    {keyWins.map((win, idx) => (
-                      <li 
-                        key={idx}
-                        className="flex items-start gap-3 text-white/80"
-                      >
-                        <ArrowUpRight className="h-4 w-4 text-emerald-400 mt-1 flex-shrink-0" />
-                        <InlineEdit
-                          value={win}
-                          editKey={`${editKeyPrefix}.keyWins.${idx}`}
-                          as="span"
-                          className="text-white/80"
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+        {/* Main Summary */}
+        <div className="mb-8">
+          {isEditMode ? (
+            <InlineEdit
+              value={summary}
+              editKey={`${editKeyPrefix}.executiveSummary`}
+              as="p"
+              multiline
+              className="text-lg md:text-xl text-[#374151] leading-relaxed font-light"
+            />
+          ) : (
+            <p className="text-lg md:text-xl text-[#374151] leading-relaxed font-light">
+              {displayedText}
+              {isAnimating && (
+                <span
+                  className="inline-block w-0.5 h-5 ml-1 animate-pulse"
+                  style={{ backgroundColor: brandColor }}
+                />
               )}
-
-              {/* Challenges */}
-              {(challenges.length > 0 || isEditMode) && (
-                <div className="bg-amber-500/10 rounded-2xl p-6 border border-amber-500/20">
-                  <div className="flex items-center gap-2 mb-4">
-                    <AlertTriangle className="h-5 w-5 text-amber-400" />
-                    <h3 className="text-lg font-semibold text-amber-400">Areas of Focus</h3>
-                  </div>
-                  <ul className="space-y-3">
-                    {challenges.map((challenge, idx) => (
-                      <li 
-                        key={idx}
-                        className="flex items-start gap-3 text-white/80"
-                      >
-                        <Lightbulb className="h-4 w-4 text-amber-400 mt-1 flex-shrink-0" />
-                        <InlineEdit
-                          value={challenge}
-                          editKey={`${editKeyPrefix}.challenges.${idx}`}
-                          as="span"
-                          className="text-white/80"
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
+            </p>
           )}
         </div>
-      </div>
 
-      {/* Decorative glow */}
-      <div 
-        className="absolute -inset-4 -z-10 opacity-30 blur-3xl"
-        style={{
-          background: `linear-gradient(135deg, ${brandColor}20 0%, ${brandColor}10 100%)`,
-        }}
-      />
+        {/* Period Comparison Pills */}
+        {periodComparison.length > 0 && (
+          <div className="flex flex-wrap gap-3 mb-8">
+            {periodComparison.map((item, idx) => {
+              const change = calculateChange(item.current, item.previous);
+              const isPositive = change >= 0;
+
+              return (
+                <div
+                  key={idx}
+                  className={cn(
+                    "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium",
+                    isPositive ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+                  )}
+                >
+                  {isPositive ? (
+                    <TrendingUp className="h-3.5 w-3.5" />
+                  ) : (
+                    <TrendingDown className="h-3.5 w-3.5" />
+                  )}
+                  <span>{item.label}:</span>
+                  <span className="font-bold">
+                    {isPositive ? '+' : ''}{change.toFixed(1)}%
+                  </span>
+                  <span className="text-[#9ca3af] text-xs">
+                    vs prev period
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Key Wins & Challenges Grid */}
+        {(keyWins.length > 0 || challenges.length > 0 || isEditMode) && (
+          <div className="grid md:grid-cols-2 gap-5">
+            {/* Key Wins */}
+            {(keyWins.length > 0 || isEditMode) && (
+              <div className="bg-emerald-50 rounded-2xl p-5 border border-emerald-100">
+                <div className="flex items-center gap-2 mb-4">
+                  <CheckCircle className="h-5 w-5 text-emerald-600" />
+                  <h3 className="text-base font-semibold text-emerald-700">Key Wins</h3>
+                </div>
+                <ul className="space-y-2.5">
+                  {keyWins.map((win, idx) => (
+                    <li
+                      key={idx}
+                      className="flex items-start gap-2.5 text-[#374151]"
+                    >
+                      <ArrowUpRight className="h-4 w-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                      <InlineEdit
+                        value={win}
+                        editKey={`${editKeyPrefix}.keyWins.${idx}`}
+                        as="span"
+                        className="text-[#374151] text-sm"
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Challenges */}
+            {(challenges.length > 0 || isEditMode) && (
+              <div className="bg-amber-50 rounded-2xl p-5 border border-amber-100">
+                <div className="flex items-center gap-2 mb-4">
+                  <AlertTriangle className="h-5 w-5 text-amber-600" />
+                  <h3 className="text-base font-semibold text-amber-700">Areas of Focus</h3>
+                </div>
+                <ul className="space-y-2.5">
+                  {challenges.map((challenge, idx) => (
+                    <li
+                      key={idx}
+                      className="flex items-start gap-2.5 text-[#374151]"
+                    >
+                      <Lightbulb className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                      <InlineEdit
+                        value={challenge}
+                        editKey={`${editKeyPrefix}.challenges.${idx}`}
+                        as="span"
+                        className="text-[#374151] text-sm"
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

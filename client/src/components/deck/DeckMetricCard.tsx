@@ -36,10 +36,10 @@ export interface DeckMetricCardProps {
 }
 
 const performanceColors: Record<PerformanceLevel, { bg: string; text: string; border: string }> = {
-  excellent: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30' },
-  good: { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30' },
-  average: { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30' },
-  needs_attention: { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30' },
+  excellent: { bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200' },
+  good: { bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200' },
+  average: { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200' },
+  needs_attention: { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200' },
 };
 
 // ─── Inline editable metric value ────────────────────────────────────────────
@@ -96,7 +96,7 @@ function EditableMetricValue({
 
   if (!isEditMode) {
     return (
-      <div className={cn('font-bold text-white tabular-nums mb-3', valueSizeClass)}>
+      <div className={cn('font-bold text-[#1a1a1a] font-mono tabular-nums mb-1', valueSizeClass)}>
         {prefix}<AnimatedCounter value={displayValue} />{suffix}
       </div>
     );
@@ -104,23 +104,23 @@ function EditableMetricValue({
 
   if (editing) {
     return (
-      <div className="mb-3 space-y-1">
+      <div className="mb-1 space-y-1">
         <div className="flex items-center gap-1.5">
-          <span className="text-white/50 text-sm">{prefix}</span>
+          <span className="text-[#6b7280] text-sm">{prefix}</span>
           <input
             ref={inputRef}
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={onKey}
             className={cn(
-              'bg-black/60 border border-yellow-400/80 rounded px-2 py-0.5 outline-none',
-              'focus:border-yellow-400 text-white tabular-nums font-bold w-full',
+              'bg-white border-2 border-yellow-400 rounded px-2 py-0.5 outline-none',
+              'focus:border-yellow-500 text-[#1a1a1a] tabular-nums font-bold font-mono w-full',
               valueSizeClass
             )}
             style={{ maxWidth: '160px' }}
             inputMode="decimal"
           />
-          <span className="text-white/50 text-sm">{suffix}</span>
+          <span className="text-[#6b7280] text-sm">{suffix}</span>
         </div>
         <div className="flex gap-1">
           <button
@@ -146,7 +146,7 @@ function EditableMetricValue({
   return (
     <div
       className={cn(
-        'group/val relative font-bold text-white tabular-nums mb-3 cursor-text inline-flex items-baseline gap-1',
+        'group/val relative font-bold text-[#1a1a1a] font-mono tabular-nums mb-1 cursor-text inline-flex items-baseline gap-1',
         valueSizeClass,
         isEdited && 'outline outline-2 outline-yellow-400/50 rounded px-1'
       )}
@@ -154,7 +154,7 @@ function EditableMetricValue({
       title="Click to edit"
     >
       {prefix}{displayValue}{suffix}
-      <Pencil className="inline-block ml-1 w-3 h-3 text-yellow-400 opacity-0 group-hover/val:opacity-100 transition-opacity align-middle self-center" />
+      <Pencil className="inline-block ml-1 w-3 h-3 text-yellow-500 opacity-0 group-hover/val:opacity-100 transition-opacity align-middle self-center" />
     </div>
   );
 }
@@ -178,14 +178,14 @@ export const DeckMetricCard = ({
 }: DeckMetricCardProps) => {
   const sizeClasses = {
     sm: 'p-4',
-    md: 'p-6',
-    lg: 'p-8',
+    md: 'p-5',
+    lg: 'p-6',
   };
 
   const valueSizeClasses = {
-    sm: 'text-2xl',
-    md: 'text-3xl md:text-4xl',
-    lg: 'text-4xl md:text-5xl',
+    sm: 'text-xl',
+    md: 'text-2xl md:text-3xl',
+    lg: 'text-3xl md:text-4xl',
   };
 
   const perf = performanceLevel ? performanceColors[performanceLevel] : null;
@@ -200,8 +200,7 @@ export const DeckMetricCard = ({
     <TooltipProvider>
       <div
         className={cn(
-          'group relative bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10',
-          'hover:border-white/20 transition-all duration-300 hover:transform hover:scale-[1.02]',
+          'deck-ref-stat-card group relative',
           sizeClasses[size],
           perf && perf.border
         )}
@@ -210,7 +209,7 @@ export const DeckMetricCard = ({
         {perf && (
           <div
             className={cn(
-              'absolute top-0 left-0 right-0 h-1 rounded-t-2xl',
+              'absolute top-0 left-0 right-0 h-1 rounded-t-xl',
               performanceLevel === 'excellent' && 'bg-gradient-to-r from-emerald-500 to-emerald-400',
               performanceLevel === 'good' && 'bg-gradient-to-r from-blue-500 to-blue-400',
               performanceLevel === 'average' && 'bg-gradient-to-r from-amber-500 to-amber-400',
@@ -220,17 +219,17 @@ export const DeckMetricCard = ({
         )}
 
         {/* Top row: Icon and tooltip */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2.5">
             {IconComponent && (
               <div
-                className="p-2 rounded-lg"
-                style={{ backgroundColor: color ? `${color}20` : 'rgba(255,255,255,0.1)' }}
+                className="p-1.5 rounded-lg"
+                style={{ backgroundColor: color ? `${color}15` : '#f3f4f6' }}
               >
-                <IconComponent className="h-5 w-5" style={{ color: color || 'white' }} />
+                <IconComponent className="h-4 w-4" style={{ color: color || '#6b7280' }} />
               </div>
             )}
-            <span className="text-white/60 uppercase text-xs tracking-widest font-medium">
+            <span className="stat-label">
               {label}
             </span>
           </div>
@@ -238,13 +237,13 @@ export const DeckMetricCard = ({
           {tooltip && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <button className="text-white/30 hover:text-white/60 transition-colors">
-                  <Info className="h-4 w-4" />
+                <button className="text-[#9ca3af] hover:text-[#6b7280] transition-colors">
+                  <Info className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent
                 side="top"
-                className="bg-[#1a1a2e] border-white/10 text-white max-w-xs"
+                className="bg-white border border-[#e5e5e0] text-[#1a1a1a] max-w-xs shadow-lg"
               >
                 <p>{tooltip}</p>
               </TooltipContent>
@@ -263,7 +262,7 @@ export const DeckMetricCard = ({
             valueSizeClass={valueSizeClasses[size]}
           />
         ) : (
-          <div className={cn('font-bold text-white tabular-nums mb-3', valueSizeClasses[size])}>
+          <div className={cn('stat-value mb-1', valueSizeClasses[size])}>
             {prefix}
             {animate ? (
               <AnimatedCounter value={displayValue} />
@@ -275,14 +274,14 @@ export const DeckMetricCard = ({
         )}
 
         {/* Bottom row: Trend and benchmark */}
-        <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center justify-between flex-wrap gap-2 mt-2">
           {trend !== undefined && (
             <div
               className={cn(
-                'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
-                trend > 0 && 'bg-emerald-500/20 text-emerald-400',
-                trend < 0 && 'bg-red-500/20 text-red-400',
-                trend === 0 && 'bg-white/10 text-white/60'
+                'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold',
+                trend > 0 && 'deck-ref-trend-up',
+                trend < 0 && 'deck-ref-trend-down',
+                trend === 0 && 'bg-gray-100 text-gray-500'
               )}
             >
               {trend > 0 && <TrendingUp className="h-3 w-3" />}
@@ -295,9 +294,9 @@ export const DeckMetricCard = ({
           {benchmark && (
             <div
               className={cn(
-                'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
-                benchmarkStatus === 'above' && 'bg-emerald-500/10 text-emerald-400/80',
-                benchmarkStatus === 'below' && 'bg-amber-500/10 text-amber-400/80'
+                'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                benchmarkStatus === 'above' && 'bg-emerald-50 text-emerald-600',
+                benchmarkStatus === 'below' && 'bg-amber-50 text-amber-600'
               )}
             >
               {benchmarkStatus === 'above' ? '↑' : '↓'} {benchmark.label}
@@ -307,12 +306,12 @@ export const DeckMetricCard = ({
 
         {/* Mini sparkline */}
         {sparklineData && sparklineData.length > 2 && (
-          <div className="mt-4 h-8">
+          <div className="mt-3 h-8">
             <svg className="w-full h-full" preserveAspectRatio="none">
               <defs>
                 <linearGradient id={`sparkline-${label}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={color || '#6366f1'} stopOpacity="0.3" />
-                  <stop offset="100%" stopColor={color || '#6366f1'} stopOpacity="0" />
+                  <stop offset="0%" stopColor={color || '#6C3FA0'} stopOpacity="0.2" />
+                  <stop offset="100%" stopColor={color || '#6C3FA0'} stopOpacity="0" />
                 </linearGradient>
               </defs>
               <path
@@ -322,7 +321,7 @@ export const DeckMetricCard = ({
               <path
                 d={generateSparklinePath(sparklineData, false)}
                 fill="none"
-                stroke={color || '#6366f1'}
+                stroke={color || '#6C3FA0'}
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -330,14 +329,6 @@ export const DeckMetricCard = ({
             </svg>
           </div>
         )}
-
-        {/* Hover glow effect */}
-        <div
-          className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10 blur-xl"
-          style={{
-            background: color ? `${color}20` : 'rgba(99, 102, 241, 0.1)',
-          }}
-        />
       </div>
     </TooltipProvider>
   );

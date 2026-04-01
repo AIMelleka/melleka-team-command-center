@@ -1,9 +1,9 @@
 import { ReactNode } from 'react';
-import { 
-  AlertCircle, 
-  ArrowRight, 
-  Zap, 
-  Clock, 
+import {
+  AlertCircle,
+  ArrowRight,
+  Zap,
+  Clock,
   Target,
   TrendingUp,
   Megaphone,
@@ -34,24 +34,27 @@ interface DeckRecommendationCardProps {
   editKeyPrefix?: string;
 }
 
-const priorityConfig: Record<Priority, { bg: string; text: string; border: string; label: string }> = {
-  high: { 
-    bg: 'bg-red-500/20', 
-    text: 'text-red-400', 
-    border: 'border-red-500/30',
-    label: 'High Priority'
+const priorityConfig: Record<Priority, { bg: string; text: string; border: string; label: string; refClass: string }> = {
+  high: {
+    bg: 'bg-red-50',
+    text: 'text-red-600',
+    border: 'border-red-200',
+    label: 'High Priority',
+    refClass: 'deck-ref-priority-high',
   },
-  medium: { 
-    bg: 'bg-amber-500/20', 
-    text: 'text-amber-400', 
-    border: 'border-amber-500/30',
-    label: 'Medium Priority'
+  medium: {
+    bg: 'bg-amber-50',
+    text: 'text-amber-600',
+    border: 'border-amber-200',
+    label: 'Medium Priority',
+    refClass: 'deck-ref-priority-medium',
   },
-  low: { 
-    bg: 'bg-emerald-500/20', 
-    text: 'text-emerald-400', 
-    border: 'border-emerald-500/30',
-    label: 'Low Priority'
+  low: {
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-600',
+    border: 'border-emerald-200',
+    label: 'Low Priority',
+    refClass: 'deck-ref-priority-low',
   },
 };
 
@@ -78,7 +81,7 @@ export const DeckRecommendationCard = ({
   effort,
   isQuickWin = false,
   urgentDeadline,
-  brandPrimary = '#6366f1',
+  brandPrimary = '#6C3FA0',
   expanded = false,
   onToggle,
   editKeyPrefix,
@@ -90,49 +93,38 @@ export const DeckRecommendationCard = ({
   const descKey = editKeyPrefix ? `${editKeyPrefix}.description` : undefined;
 
   return (
-    <div 
+    <div
       className={cn(
-        "group relative rounded-2xl border overflow-hidden transition-all duration-300",
-        "hover:transform hover:scale-[1.01]",
-        config.border,
-        "bg-white/5 backdrop-blur-xl"
+        "group relative bg-white rounded-2xl border border-[#e5e5e0] overflow-hidden transition-all duration-300",
+        "hover:shadow-md",
+        config.refClass,
       )}
     >
-      {/* Priority stripe */}
-      <div 
-        className={cn(
-          "absolute left-0 top-0 bottom-0 w-1",
-          priority === 'high' && 'bg-gradient-to-b from-red-500 to-red-600',
-          priority === 'medium' && 'bg-gradient-to-b from-amber-500 to-amber-600',
-          priority === 'low' && 'bg-gradient-to-b from-emerald-500 to-emerald-600'
-        )}
-      />
-
-      <div className="p-5 pl-6">
+      <div className="p-5 pl-7">
         {/* Top row: Badges */}
         <div className="flex items-center flex-wrap gap-2 mb-3">
           <span className={cn(
-            "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium",
+            "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold",
             config.bg, config.text
           )}>
             <AlertCircle className="h-3 w-3" />
             {config.label}
           </span>
 
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-white/10 text-white/70">
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-[#6b7280]">
             {categoryIcons[category]}
             {category.charAt(0).toUpperCase() + category.slice(1)}
           </span>
 
           {isQuickWin && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-500/20 text-purple-400">
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-600">
               <Zap className="h-3 w-3" />
               Quick Win
             </span>
           )}
 
           {urgentDeadline && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-50 text-red-600 border border-red-100">
               <Clock className="h-3 w-3" />
               Due: {urgentDeadline}
             </span>
@@ -146,11 +138,11 @@ export const DeckRecommendationCard = ({
               value={title}
               editKey={titleKey}
               as="h4"
-              className="text-lg font-semibold text-white"
+              className="text-base font-semibold text-[#1a1a1a]"
             />
           </div>
         ) : (
-          <h4 className="text-lg font-semibold text-white mb-2 group-hover:text-white/90 transition-colors">
+          <h4 className="text-base font-semibold text-[#1a1a1a] mb-2">
             {title}
           </h4>
         )}
@@ -164,11 +156,11 @@ export const DeckRecommendationCard = ({
                 editKey={descKey}
                 as="p"
                 multiline
-                className="text-white/60 text-sm leading-relaxed"
+                className="text-[#6b7280] text-sm leading-relaxed"
               />
             </div>
           ) : (
-            <p className="text-white/60 text-sm leading-relaxed mb-4">
+            <p className="text-[#6b7280] text-sm leading-relaxed mb-4">
               {description}
             </p>
           )
@@ -177,16 +169,16 @@ export const DeckRecommendationCard = ({
         {/* Impact and Effort */}
         <div className="flex items-center gap-4 flex-wrap">
           {impact && (
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-emerald-400" />
-              <span className="text-sm text-emerald-400 font-medium">{impact}</span>
+            <div className="flex items-center gap-1.5">
+              <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
+              <span className="text-sm text-emerald-600 font-medium">{impact}</span>
             </div>
           )}
-          
+
           {effort && (
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-white/40" />
-              <span className="text-sm text-white/50">
+            <div className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 text-[#9ca3af]" />
+              <span className="text-sm text-[#6b7280]">
                 Est. effort: {effortLabels[effort]}
               </span>
             </div>
@@ -195,9 +187,9 @@ export const DeckRecommendationCard = ({
 
         {/* Expand button */}
         {(description || expanded) && onToggle && (
-          <button 
+          <button
             onClick={onToggle}
-            className="mt-4 inline-flex items-center gap-1 text-sm font-medium transition-colors"
+            className="mt-3 inline-flex items-center gap-1 text-sm font-medium transition-colors"
             style={{ color: brandPrimary }}
           >
             {expanded ? 'Show less' : 'View details'}
@@ -208,18 +200,6 @@ export const DeckRecommendationCard = ({
           </button>
         )}
       </div>
-
-      {/* Hover glow */}
-      <div 
-        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10 blur-2xl"
-        style={{
-          background: priority === 'high' 
-            ? 'radial-gradient(circle at center, rgba(239, 68, 68, 0.1) 0%, transparent 70%)'
-            : priority === 'medium'
-            ? 'radial-gradient(circle at center, rgba(245, 158, 11, 0.1) 0%, transparent 70%)'
-            : 'radial-gradient(circle at center, rgba(34, 197, 94, 0.1) 0%, transparent 70%)',
-        }}
-      />
     </div>
   );
 };

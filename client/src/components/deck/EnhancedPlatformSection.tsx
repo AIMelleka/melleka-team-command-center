@@ -107,7 +107,7 @@ function AddMetricButton({ ekp, color }: { ekp: string; color: string }) {
       {/* Add Metric button */}
       <button
         onClick={() => setOpen(true)}
-        className="flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-white/20 hover:border-yellow-400/50 hover:bg-yellow-400/5 transition-all duration-200 p-6 text-white/40 hover:text-yellow-300 min-h-[120px]"
+        className="flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#e5e5e0] hover:border-yellow-500/50 hover:bg-yellow-50 transition-all duration-200 p-6 text-[#9ca3af] hover:text-yellow-300 min-h-[120px]"
         title="Add custom metric"
       >
         <Plus className="w-6 h-6" />
@@ -123,8 +123,8 @@ function AddMetricButton({ ekp, color }: { ekp: string; color: string }) {
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-white font-semibold text-lg">Add Custom Metric</h3>
-              <button onClick={() => setOpen(false)} className="text-white/40 hover:text-white transition-colors">
+              <h3 className="text-[#1a1a1a] font-semibold text-lg">Add Custom Metric</h3>
+              <button onClick={() => setOpen(false)} className="text-[#9ca3af] hover:text-[#1a1a1a] transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -132,26 +132,26 @@ function AddMetricButton({ ekp, color }: { ekp: string; color: string }) {
             <div className="space-y-4">
               {/* Label */}
               <div>
-                <label className="text-white/50 text-xs uppercase tracking-wide mb-1.5 block">Metric Label *</label>
+                <label className="text-[#6b7280] text-xs uppercase tracking-wide mb-1.5 block">Metric Label *</label>
                 <input
                   ref={labelRef}
                   value={label}
                   onChange={e => setLabel(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && save()}
                   placeholder="e.g. ROAS, Revenue, Reach"
-                  className="w-full bg-white/5 border border-white/20 rounded-xl px-3 py-2.5 text-white placeholder:text-white/20 outline-none focus:border-yellow-400/60 text-sm"
+                  className="w-full bg-[#f9fafb] border border-[#e5e5e0] rounded-xl px-3 py-2.5 text-[#1a1a1a] placeholder:text-[#e5e7eb] outline-none focus:border-yellow-400/60 text-sm"
                 />
               </div>
 
               {/* Value */}
               <div>
-                <label className="text-white/50 text-xs uppercase tracking-wide mb-1.5 block">Value *</label>
+                <label className="text-[#6b7280] text-xs uppercase tracking-wide mb-1.5 block">Value *</label>
                 <input
                   value={value}
                   onChange={e => setValue(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && save()}
                   placeholder="e.g. 4.2 or 12500"
-                  className="w-full bg-white/5 border border-white/20 rounded-xl px-3 py-2.5 text-white placeholder:text-white/20 outline-none focus:border-yellow-400/60 text-sm"
+                  className="w-full bg-[#f9fafb] border border-[#e5e5e0] rounded-xl px-3 py-2.5 text-[#1a1a1a] placeholder:text-[#e5e7eb] outline-none focus:border-yellow-400/60 text-sm"
                   inputMode="decimal"
                 />
               </div>
@@ -159,33 +159,33 @@ function AddMetricButton({ ekp, color }: { ekp: string; color: string }) {
               {/* Prefix / Suffix row */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-white/50 text-xs uppercase tracking-wide mb-1.5 block">Prefix</label>
+                  <label className="text-[#6b7280] text-xs uppercase tracking-wide mb-1.5 block">Prefix</label>
                   <input
                     value={prefix}
                     onChange={e => setPrefix(e.target.value)}
                     placeholder="e.g. $"
-                    className="w-full bg-white/5 border border-white/20 rounded-xl px-3 py-2.5 text-white placeholder:text-white/20 outline-none focus:border-yellow-400/60 text-sm"
+                    className="w-full bg-[#f9fafb] border border-[#e5e5e0] rounded-xl px-3 py-2.5 text-[#1a1a1a] placeholder:text-[#e5e7eb] outline-none focus:border-yellow-400/60 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="text-white/50 text-xs uppercase tracking-wide mb-1.5 block">Suffix</label>
+                  <label className="text-[#6b7280] text-xs uppercase tracking-wide mb-1.5 block">Suffix</label>
                   <input
                     value={suffix}
                     onChange={e => setSuffix(e.target.value)}
                     placeholder="e.g. %  or x"
-                    className="w-full bg-white/5 border border-white/20 rounded-xl px-3 py-2.5 text-white placeholder:text-white/20 outline-none focus:border-yellow-400/60 text-sm"
+                    className="w-full bg-[#f9fafb] border border-[#e5e5e0] rounded-xl px-3 py-2.5 text-[#1a1a1a] placeholder:text-[#e5e7eb] outline-none focus:border-yellow-400/60 text-sm"
                   />
                 </div>
               </div>
 
               {/* Preview */}
               {(label || value) && (
-                <div className="rounded-xl bg-white/5 border border-white/10 p-3 text-center">
-                  <p className="text-white/40 text-[10px] uppercase tracking-wide mb-1">Preview</p>
-                  <p className="text-white text-2xl font-bold tabular-nums">
+                <div className="rounded-xl bg-[#f9fafb] border border-[#e5e5e0] p-3 text-center">
+                  <p className="text-[#9ca3af] text-[10px] uppercase tracking-wide mb-1">Preview</p>
+                  <p className="text-[#1a1a1a] text-2xl font-bold tabular-nums">
                     {prefix}{value || '0'}{suffix}
                   </p>
-                  <p className="text-white/50 text-xs mt-0.5">{label || 'Metric Label'}</p>
+                  <p className="text-[#6b7280] text-xs mt-0.5">{label || 'Metric Label'}</p>
                 </div>
               )}
             </div>
@@ -193,7 +193,7 @@ function AddMetricButton({ ekp, color }: { ekp: string; color: string }) {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setOpen(false)}
-                className="flex-1 py-2.5 rounded-xl border border-white/20 text-white/60 hover:text-white hover:border-white/40 transition-colors text-sm"
+                className="flex-1 py-2.5 rounded-xl border border-[#e5e5e0] text-[#6b7280] hover:text-[#1a1a1a] hover:border-white/40 transition-colors text-sm"
               >
                 Cancel
               </button>
@@ -262,8 +262,8 @@ function CreativeImage({ imageUrl, originalUrl, adName, color, onClickFullRes }:
     return (
       <div className="w-full h-32 flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${color}20, ${color}05)` }}>
         <div className="flex flex-col items-center gap-2">
-          <ImageIcon className="h-8 w-8 text-white/20" />
-          <span className="text-white/30 text-xs">{adName || 'Ad Creative'}</span>
+          <ImageIcon className="h-8 w-8 text-[#e5e7eb]" />
+          <span className="text-[#d1d5db] text-xs">{adName || 'Ad Creative'}</span>
         </div>
       </div>
     );
@@ -466,20 +466,20 @@ export const EnhancedPlatformSection = ({
             <IconComponent className="h-8 w-8" style={{ color }} />
           </div>
           <div>
-            <h2 className="text-3xl md:text-4xl font-bold text-white" style={{ fontFamily: "'Playfair Display', serif" }}>
+            <h2 className="text-3xl md:text-4xl font-bold text-[#1a1a1a]" style={{ fontFamily: "'Outfit', sans-serif" }}>
               <InlineEdit
                 value={platform.label}
                 editKey={`${ekp}.label`}
                 as="span"
-                className="text-3xl md:text-4xl font-bold text-white"
-                style={{ fontFamily: "'Playfair Display', serif" }}
+                className="text-3xl md:text-4xl font-bold text-[#1a1a1a]"
+                style={{ fontFamily: "'Outfit', sans-serif" }}
               />
             </h2>
             {platform.accountName && (
-              <p className="text-white/40 text-sm mt-1">{platform.accountName}{dateRange ? ` · ${dateRange}` : ''}</p>
+              <p className="text-[#9ca3af] text-sm mt-1">{platform.accountName}{dateRange ? ` · ${dateRange}` : ''}</p>
             )}
             {!platform.accountName && dateRange && (
-              <p className="text-white/40 text-sm mt-1">{dateRange}</p>
+              <p className="text-[#9ca3af] text-sm mt-1">{dateRange}</p>
             )}
             <div className="h-1 w-24 mt-2 rounded-full" style={{ background: `linear-gradient(90deg, ${color}, ${color}80)` }} />
           </div>
@@ -496,8 +496,8 @@ export const EnhancedPlatformSection = ({
             className={cn(
               "px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all",
               activeTab === tab.key
-                ? "text-white shadow-lg"
-                : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
+                ? "text-white shadow-lg"  /* active tab keeps white text on colored bg */
+                : "bg-[#f9fafb] text-[#6b7280] hover:bg-gray-100 hover:text-[#1a1a1a]"
             )}
             style={activeTab === tab.key ? { background: `linear-gradient(135deg, ${color}, ${color}cc)` } : {}}
           >
@@ -555,8 +555,8 @@ export const EnhancedPlatformSection = ({
           <div className="grid lg:grid-cols-2 gap-6">
             {/* Conversion Funnel */}
             {funnelData.length >= 2 && (
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-                <h3 className="text-lg font-semibold text-white mb-4">Conversion Funnel</h3>
+              <div className="bg-white rounded-2xl p-6 border border-[#e5e5e0]">
+                <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Conversion Funnel</h3>
                 <div className="space-y-3">
                   {funnelData.map((stage, idx) => {
                     const maxVal = funnelData[0].value;
@@ -567,15 +567,15 @@ export const EnhancedPlatformSection = ({
                     return (
                       <div key={stage.name}>
                         <div className="flex justify-between text-sm mb-1">
-                          <span className="text-white/80">{stage.name}</span>
+                          <span className="text-[#374151]">{stage.name}</span>
                           <div className="flex items-center gap-2">
-                            <span className="text-white font-semibold">{stage.value.toLocaleString()}</span>
+                            <span className="text-[#1a1a1a] font-semibold">{stage.value.toLocaleString()}</span>
                             {dropOff && (
                               <span className="text-red-400/80 text-xs">-{dropOff}%</span>
                             )}
                           </div>
                         </div>
-                        <div className="h-8 bg-white/5 rounded-lg overflow-hidden">
+                        <div className="h-8 bg-[#f9fafb] rounded-lg overflow-hidden">
                           <div
                             className="h-full rounded-lg transition-all duration-1000"
                             style={{ width: `${pct}%`, background: stage.fill, opacity: 1 - idx * 0.15 }}
@@ -586,9 +586,9 @@ export const EnhancedPlatformSection = ({
                   })}
                   {/* Conversion rate callout */}
                   {platform.clicks > 0 && platform.conversions > 0 && (
-                    <div className="mt-4 p-3 rounded-xl border border-white/10 bg-white/5 text-center">
-                      <span className="text-white/50 text-xs">Click-to-Conversion Rate</span>
-                      <p className="text-2xl font-bold text-white">
+                    <div className="mt-4 p-3 rounded-xl border border-[#e5e5e0] bg-[#f9fafb] text-center">
+                      <span className="text-[#6b7280] text-xs">Click-to-Conversion Rate</span>
+                      <p className="text-2xl font-bold text-[#1a1a1a]">
                         {((platform.conversions / platform.clicks) * 100).toFixed(2)}%
                       </p>
                     </div>
@@ -656,8 +656,8 @@ export const EnhancedPlatformSection = ({
 
           {/* Period Comparison Bar Chart */}
           {platform.changes && Object.values(platform.changes).some(v => v !== null) && (
-            <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-              <h3 className="text-lg font-semibold text-white mb-4">Period-over-Period Changes</h3>
+            <div className="bg-white rounded-2xl p-6 border border-[#e5e5e0]">
+              <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Period-over-Period Changes</h3>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 {Object.entries(platform.changes)
                   .filter(([_, v]) => v !== null)
@@ -667,8 +667,8 @@ export const EnhancedPlatformSection = ({
                     const isCostMetric = key === 'cpc' || key === 'cpa';
                     const isGood = isCostMetric ? !isPositive : isPositive;
                     return (
-                      <div key={key} className="text-center p-3 rounded-xl bg-white/5">
-                        <div className="text-white/50 text-xs uppercase tracking-wider mb-1">{key}</div>
+                      <div key={key} className="text-center p-3 rounded-xl bg-[#f9fafb]">
+                        <div className="text-[#6b7280] text-xs uppercase tracking-wider mb-1">{key}</div>
                         <div className={cn(
                           "text-xl font-bold flex items-center justify-center gap-1",
                           isGood ? "text-emerald-400" : "text-red-400"
@@ -688,63 +688,63 @@ export const EnhancedPlatformSection = ({
       {/* ===== CAMPAIGNS TAB ===== */}
       {activeTab === 'campaigns' && platform.campaigns && (
         <div className="space-y-4">
-          <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
+          <div className="bg-white rounded-2xl border border-[#e5e5e0] overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left text-white/60 font-medium p-4">Campaign</th>
-                    <th className="text-right text-white/60 font-medium p-4">Spend</th>
-                    <th className="text-right text-white/60 font-medium p-4">Clicks</th>
+                  <tr className="border-b border-[#e5e5e0]">
+                    <th className="text-left text-[#6b7280] font-medium p-4">Campaign</th>
+                    <th className="text-right text-[#6b7280] font-medium p-4">Spend</th>
+                    <th className="text-right text-[#6b7280] font-medium p-4">Clicks</th>
                     {hasBreakdown ? (
                       <>
-                        <th className="text-right text-white/60 font-medium p-4">Leads</th>
-                        <th className="text-right text-white/60 font-medium p-4">Purchases</th>
+                        <th className="text-right text-[#6b7280] font-medium p-4">Leads</th>
+                        <th className="text-right text-[#6b7280] font-medium p-4">Purchases</th>
                       </>
                     ) : (
-                      <th className="text-right text-white/60 font-medium p-4">Conv.</th>
+                      <th className="text-right text-[#6b7280] font-medium p-4">Conv.</th>
                     )}
-                    <th className="text-right text-white/60 font-medium p-4">CTR</th>
-                    <th className="text-right text-white/60 font-medium p-4">CPC</th>
-                    <th className="text-right text-white/60 font-medium p-4">CPA</th>
+                    <th className="text-right text-[#6b7280] font-medium p-4">CTR</th>
+                    <th className="text-right text-[#6b7280] font-medium p-4">CPC</th>
+                    <th className="text-right text-[#6b7280] font-medium p-4">CPA</th>
                   </tr>
                 </thead>
                 <tbody>
                   {platform.campaigns.sort((a, b) => b.spend - a.spend).map((campaign, idx) => {
                     const c = campaign as any;
                     return (
-                    <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                    <tr key={idx} className="border-b border-white/5 hover:bg-[#f9fafb] transition-colors">
                       <td className="p-4">
-                        <div className="text-white font-medium max-w-[220px] truncate">{campaign.name}</div>
+                        <div className="text-[#1a1a1a] font-medium max-w-[220px] truncate">{campaign.name}</div>
                       </td>
-                      <td className="text-right text-white/80 p-4">${campaign.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                      <td className="text-right text-white/80 p-4">{campaign.clicks.toLocaleString()}</td>
+                      <td className="text-right text-[#374151] p-4">${campaign.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                      <td className="text-right text-[#374151] p-4">{campaign.clicks.toLocaleString()}</td>
                       {hasBreakdown ? (
                         <>
                           <td className="text-right p-4">
-                            <span className={cn("font-semibold", (c.leads || 0) > 0 ? "text-emerald-400" : "text-white/40")}>
+                            <span className={cn("font-semibold", (c.leads || 0) > 0 ? "text-emerald-400" : "text-[#9ca3af]")}>
                               {c.leads || 0}
                             </span>
                           </td>
                           <td className="text-right p-4">
-                            <span className={cn("font-semibold", (c.purchases || 0) > 0 ? "text-amber-400" : "text-white/40")}>
+                            <span className={cn("font-semibold", (c.purchases || 0) > 0 ? "text-amber-400" : "text-[#9ca3af]")}>
                               {c.purchases || 0}
                             </span>
                           </td>
                         </>
                       ) : (
                         <td className="text-right p-4">
-                          <span className={cn("font-semibold", campaign.conversions > 0 ? "text-emerald-400" : "text-white/40")}>
+                          <span className={cn("font-semibold", campaign.conversions > 0 ? "text-emerald-400" : "text-[#9ca3af]")}>
                             {campaign.conversions}
                           </span>
                         </td>
                       )}
-                      <td className="text-right text-white/80 p-4">{campaign.ctr.toFixed(2)}%</td>
-                      <td className="text-right text-white/80 p-4">${campaign.cpc.toFixed(2)}</td>
+                      <td className="text-right text-[#374151] p-4">{campaign.ctr.toFixed(2)}%</td>
+                      <td className="text-right text-[#374151] p-4">${campaign.cpc.toFixed(2)}</td>
                       <td className="text-right p-4">
                         <span className={cn(
                           "font-semibold",
-                          campaign.cpa > 0 && campaign.cpa < 50 ? "text-emerald-400" : campaign.cpa > 100 ? "text-red-400" : "text-white/80"
+                          campaign.cpa > 0 && campaign.cpa < 50 ? "text-emerald-400" : campaign.cpa > 100 ? "text-red-400" : "text-[#374151]"
                         )}>
                           {campaign.cpa > 0 ? `$${campaign.cpa.toFixed(2)}` : '—'}
                         </span>
@@ -759,8 +759,8 @@ export const EnhancedPlatformSection = ({
 
           {/* Campaign spend distribution chart */}
           {platform.campaigns.length > 1 && (
-            <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-              <h3 className="text-lg font-semibold text-white mb-4">Spend by Campaign</h3>
+            <div className="bg-white rounded-2xl p-6 border border-[#e5e5e0]">
+              <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Spend by Campaign</h3>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={platform.campaigns.sort((a, b) => b.spend - a.spend).slice(0, 8)} layout="vertical">
@@ -768,7 +768,7 @@ export const EnhancedPlatformSection = ({
                     <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={140} tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 11 }} />
                     <Tooltip
                       formatter={(value: number) => [`$${value.toLocaleString()}`, 'Spend']}
-                      contentStyle={{ backgroundColor: 'rgba(20, 20, 30, 0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                      contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e0', borderRadius: '12px', color: '#1a1a1a', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
                       labelStyle={{ color: 'white' }}
                     />
                     <Bar dataKey="spend" radius={[0, 6, 6, 0]} fill={color}>
@@ -785,8 +785,8 @@ export const EnhancedPlatformSection = ({
           {/* Clicks + Conversions by Campaign */}
           {platform.campaigns.length > 1 && (
             <div className="grid lg:grid-cols-2 gap-6">
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-                <h3 className="text-lg font-semibold text-white mb-4">Clicks by Campaign</h3>
+              <div className="bg-white rounded-2xl p-6 border border-[#e5e5e0]">
+                <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Clicks by Campaign</h3>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={platform.campaigns.sort((a, b) => b.clicks - a.clicks).slice(0, 8)} layout="vertical">
@@ -794,7 +794,7 @@ export const EnhancedPlatformSection = ({
                       <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={140} tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 11 }} />
                       <Tooltip
                         formatter={(value: number) => [value.toLocaleString(), 'Clicks']}
-                        contentStyle={{ backgroundColor: 'rgba(20, 20, 30, 0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                        contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e0', borderRadius: '12px', color: '#1a1a1a', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
                         labelStyle={{ color: 'white' }}
                       />
                       <Bar dataKey="clicks" radius={[0, 6, 6, 0]} fill="#F59E0B">
@@ -806,8 +806,8 @@ export const EnhancedPlatformSection = ({
                   </ResponsiveContainer>
                 </div>
               </div>
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-                <h3 className="text-lg font-semibold text-white mb-4">Conversions by Campaign</h3>
+              <div className="bg-white rounded-2xl p-6 border border-[#e5e5e0]">
+                <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Conversions by Campaign</h3>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={platform.campaigns.sort((a, b) => b.conversions - a.conversions).slice(0, 8)} layout="vertical">
@@ -815,7 +815,7 @@ export const EnhancedPlatformSection = ({
                       <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={140} tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 11 }} />
                       <Tooltip
                         formatter={(value: number) => [value.toLocaleString(), 'Conversions']}
-                        contentStyle={{ backgroundColor: 'rgba(20, 20, 30, 0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                        contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e0', borderRadius: '12px', color: '#1a1a1a', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
                         labelStyle={{ color: 'white' }}
                       />
                       <Bar dataKey="conversions" radius={[0, 6, 6, 0]} fill="#10B981">
@@ -836,34 +836,34 @@ export const EnhancedPlatformSection = ({
       {activeTab === 'keywords' && platform.keywords && (
         <div className="space-y-6">
           {/* Keyword Performance Table */}
-          <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
+          <div className="bg-white rounded-2xl border border-[#e5e5e0] overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left text-white/60 font-medium p-4">#</th>
-                    <th className="text-left text-white/60 font-medium p-4">Search Keyword</th>
-                    <th className="text-right text-white/60 font-medium p-4">Impressions</th>
-                    <th className="text-right text-white/60 font-medium p-4">Clicks</th>
-                    <th className="text-right text-white/60 font-medium p-4">CTR</th>
-                    <th className="text-right text-white/60 font-medium p-4">Conv.</th>
-                    <th className="text-right text-white/60 font-medium p-4">Avg. CPC</th>
+                  <tr className="border-b border-[#e5e5e0]">
+                    <th className="text-left text-[#6b7280] font-medium p-4">#</th>
+                    <th className="text-left text-[#6b7280] font-medium p-4">Search Keyword</th>
+                    <th className="text-right text-[#6b7280] font-medium p-4">Impressions</th>
+                    <th className="text-right text-[#6b7280] font-medium p-4">Clicks</th>
+                    <th className="text-right text-[#6b7280] font-medium p-4">CTR</th>
+                    <th className="text-right text-[#6b7280] font-medium p-4">Conv.</th>
+                    <th className="text-right text-[#6b7280] font-medium p-4">Avg. CPC</th>
                   </tr>
                 </thead>
                 <tbody>
                   {platform.keywords.map((kw, idx) => (
-                    <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                      <td className="p-4 text-white/40">{idx + 1}.</td>
-                      <td className="p-4 text-white font-medium">{kw.keyword}</td>
-                      <td className="text-right text-white/80 p-4">{kw.impressions.toLocaleString()}</td>
-                      <td className="text-right text-white/80 p-4">{kw.clicks.toLocaleString()}</td>
-                      <td className="text-right text-white/80 p-4">{kw.ctr.toFixed(2)}%</td>
+                    <tr key={idx} className="border-b border-white/5 hover:bg-[#f9fafb] transition-colors">
+                      <td className="p-4 text-[#9ca3af]">{idx + 1}.</td>
+                      <td className="p-4 text-[#1a1a1a] font-medium">{kw.keyword}</td>
+                      <td className="text-right text-[#374151] p-4">{kw.impressions.toLocaleString()}</td>
+                      <td className="text-right text-[#374151] p-4">{kw.clicks.toLocaleString()}</td>
+                      <td className="text-right text-[#374151] p-4">{kw.ctr.toFixed(2)}%</td>
                       <td className="text-right p-4">
-                        <span className={cn("font-semibold", kw.conversions > 0 ? "text-emerald-400" : "text-white/40")}>
+                        <span className={cn("font-semibold", kw.conversions > 0 ? "text-emerald-400" : "text-[#9ca3af]")}>
                           {kw.conversions}
                         </span>
                       </td>
-                      <td className="text-right text-white/80 p-4">${kw.cpc.toFixed(2)}</td>
+                      <td className="text-right text-[#374151] p-4">${kw.cpc.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -873,8 +873,8 @@ export const EnhancedPlatformSection = ({
 
           {/* Keyword Impressions Chart */}
           {platform.keywords.length > 1 && (
-            <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-              <h3 className="text-lg font-semibold text-white mb-4">Keyword Impressions</h3>
+            <div className="bg-white rounded-2xl p-6 border border-[#e5e5e0]">
+              <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Keyword Impressions</h3>
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={platform.keywords.slice(0, 10)} layout="vertical">
@@ -882,7 +882,7 @@ export const EnhancedPlatformSection = ({
                     <YAxis type="category" dataKey="keyword" axisLine={false} tickLine={false} width={180} tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 11 }} />
                     <Tooltip
                       formatter={(value: number) => [value.toLocaleString(), 'Impressions']}
-                      contentStyle={{ backgroundColor: 'rgba(20, 20, 30, 0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                      contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e0', borderRadius: '12px', color: '#1a1a1a', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
                       labelStyle={{ color: 'white' }}
                     />
                     <Bar dataKey="impressions" radius={[0, 6, 6, 0]} fill={color}>
@@ -899,8 +899,8 @@ export const EnhancedPlatformSection = ({
           {/* Keyword Clicks + CTR side by side */}
           {platform.keywords.length > 1 && (
             <div className="grid lg:grid-cols-2 gap-6">
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-                <h3 className="text-lg font-semibold text-white mb-4">Clicks by Keyword</h3>
+              <div className="bg-white rounded-2xl p-6 border border-[#e5e5e0]">
+                <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">Clicks by Keyword</h3>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={platform.keywords.sort((a, b) => b.clicks - a.clicks).slice(0, 8)} layout="vertical">
@@ -908,7 +908,7 @@ export const EnhancedPlatformSection = ({
                       <YAxis type="category" dataKey="keyword" axisLine={false} tickLine={false} width={160} tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 11 }} />
                       <Tooltip
                         formatter={(value: number) => [value.toLocaleString(), 'Clicks']}
-                        contentStyle={{ backgroundColor: 'rgba(20, 20, 30, 0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                        contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e0', borderRadius: '12px', color: '#1a1a1a', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
                         labelStyle={{ color: 'white' }}
                       />
                       <Bar dataKey="clicks" radius={[0, 6, 6, 0]} fill="#F59E0B" />
@@ -916,8 +916,8 @@ export const EnhancedPlatformSection = ({
                   </ResponsiveContainer>
                 </div>
               </div>
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-                <h3 className="text-lg font-semibold text-white mb-4">CTR by Keyword</h3>
+              <div className="bg-white rounded-2xl p-6 border border-[#e5e5e0]">
+                <h3 className="text-lg font-semibold text-[#1a1a1a] mb-4">CTR by Keyword</h3>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={platform.keywords.sort((a, b) => b.ctr - a.ctr).slice(0, 8)} layout="vertical">
@@ -925,7 +925,7 @@ export const EnhancedPlatformSection = ({
                       <YAxis type="category" dataKey="keyword" axisLine={false} tickLine={false} width={160} tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 11 }} />
                       <Tooltip
                         formatter={(value: number) => [`${value.toFixed(2)}%`, 'CTR']}
-                        contentStyle={{ backgroundColor: 'rgba(20, 20, 30, 0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                        contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e0', borderRadius: '12px', color: '#1a1a1a', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
                         labelStyle={{ color: 'white' }}
                       />
                       <Bar dataKey="ctr" radius={[0, 6, 6, 0]} fill="#8B5CF6" />
@@ -944,7 +944,7 @@ export const EnhancedPlatformSection = ({
           {platform.topContent.map((creative, ci) => {
             const fullResUrl = creative.imageUrl ? getFullResImageUrl(creative.imageUrl) : '';
             return (
-              <div key={ci} className="deck-glass-card overflow-hidden group hover:border-white/20 transition-all">
+              <div key={ci} className="deck-glass-card overflow-hidden group hover:border-[#e5e5e0] transition-all">
                 <div className="relative">
                   <CreativeImage
                     imageUrl={fullResUrl}
@@ -958,32 +958,32 @@ export const EnhancedPlatformSection = ({
                   </div>
                 </div>
                 <div className="p-5">
-                  <p className="text-white font-semibold text-sm truncate mb-1">{creative.adName}</p>
-                  <p className="text-white/40 text-xs truncate mb-4">{creative.campaignName}</p>
+                  <p className="text-[#1a1a1a] font-semibold text-sm truncate mb-1">{creative.adName}</p>
+                  <p className="text-[#9ca3af] text-xs truncate mb-4">{creative.campaignName}</p>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-white/5 rounded-lg p-2 text-center">
-                      <span className="text-white/50 text-xs block">Impr.</span>
-                      <span className="text-white font-bold text-sm">{creative.impressions.toLocaleString()}</span>
+                    <div className="bg-[#f9fafb] rounded-lg p-2 text-center">
+                      <span className="text-[#6b7280] text-xs block">Impr.</span>
+                      <span className="text-[#1a1a1a] font-bold text-sm">{creative.impressions.toLocaleString()}</span>
                     </div>
-                    <div className="bg-white/5 rounded-lg p-2 text-center">
-                      <span className="text-white/50 text-xs block">Clicks</span>
-                      <span className="text-white font-bold text-sm">{creative.clicks.toLocaleString()}</span>
+                    <div className="bg-[#f9fafb] rounded-lg p-2 text-center">
+                      <span className="text-[#6b7280] text-xs block">Clicks</span>
+                      <span className="text-[#1a1a1a] font-bold text-sm">{creative.clicks.toLocaleString()}</span>
                     </div>
-                    <div className="bg-white/5 rounded-lg p-2 text-center">
-                      <span className="text-white/50 text-xs block">CTR</span>
-                      <span className="text-white font-bold text-sm">{creative.ctr.toFixed(2)}%</span>
+                    <div className="bg-[#f9fafb] rounded-lg p-2 text-center">
+                      <span className="text-[#6b7280] text-xs block">CTR</span>
+                      <span className="text-[#1a1a1a] font-bold text-sm">{creative.ctr.toFixed(2)}%</span>
                     </div>
-                    <div className="bg-white/5 rounded-lg p-2 text-center">
-                      <span className="text-white/50 text-xs block">CPC</span>
-                      <span className="text-white font-bold text-sm">${creative.cpc.toFixed(2)}</span>
+                    <div className="bg-[#f9fafb] rounded-lg p-2 text-center">
+                      <span className="text-[#6b7280] text-xs block">CPC</span>
+                      <span className="text-[#1a1a1a] font-bold text-sm">${creative.cpc.toFixed(2)}</span>
                     </div>
-                    <div className="bg-white/5 rounded-lg p-2 text-center">
-                      <span className="text-white/50 text-xs block">Spend</span>
-                      <span className="text-white font-bold text-sm">${creative.cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                    <div className="bg-[#f9fafb] rounded-lg p-2 text-center">
+                      <span className="text-[#6b7280] text-xs block">Spend</span>
+                      <span className="text-[#1a1a1a] font-bold text-sm">${creative.cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                     </div>
-                    <div className="bg-white/5 rounded-lg p-2 text-center">
-                      <span className="text-white/50 text-xs block">Conv.</span>
-                      <span className={cn("font-bold text-sm", creative.conversions > 0 ? "text-emerald-400" : "text-white/40")}>
+                    <div className="bg-[#f9fafb] rounded-lg p-2 text-center">
+                      <span className="text-[#6b7280] text-xs block">Conv.</span>
+                      <span className={cn("font-bold text-sm", creative.conversions > 0 ? "text-emerald-400" : "text-[#9ca3af]")}>
                         {creative.conversions}
                       </span>
                     </div>
@@ -1008,13 +1008,13 @@ export const EnhancedPlatformSection = ({
                 <Lightbulb className="h-6 w-6" style={{ color }} />
               </div>
               <div className="flex-1">
-                <h3 className="text-white font-bold text-xl mb-2">Key Insight</h3>
+                <h3 className="text-[#1a1a1a] font-bold text-xl mb-2">Key Insight</h3>
                 <InlineEdit
                   value={platform.gameplan.keyInsight}
                   editKey={`${ekp}.gameplan.keyInsight`}
                   as="p"
                   multiline
-                  className="text-white/80 text-lg leading-relaxed"
+                  className="text-[#374151] text-lg leading-relaxed"
                 />
               </div>
             </div>
@@ -1022,13 +1022,13 @@ export const EnhancedPlatformSection = ({
 
           {/* Strategy Summary */}
           <div className="deck-glass-card p-6">
-            <h3 className="text-white font-semibold text-lg mb-3">Strategy Summary</h3>
+            <h3 className="text-[#1a1a1a] font-semibold text-lg mb-3">Strategy Summary</h3>
             <InlineEdit
               value={platform.gameplan.summary}
               editKey={`${ekp}.gameplan.summary`}
               as="p"
               multiline
-              className="text-white/70 leading-relaxed"
+              className="text-[#4b5563] leading-relaxed"
             />
           </div>
 
@@ -1037,14 +1037,14 @@ export const EnhancedPlatformSection = ({
             <div className="deck-glass-card p-6">
               <div className="flex items-center gap-2 mb-4">
                 <DollarSign className="h-5 w-5" style={{ color }} />
-                <h3 className="text-white font-semibold">Budget Recommendation</h3>
+                <h3 className="text-[#1a1a1a] font-semibold">Budget Recommendation</h3>
               </div>
               <InlineEdit
                 value={platform.gameplan.budgetRecommendation}
                 editKey={`${ekp}.gameplan.budgetRecommendation`}
                 as="p"
                 multiline
-                className="text-white/70"
+                className="text-[#4b5563]"
               />
             </div>
 
@@ -1052,11 +1052,11 @@ export const EnhancedPlatformSection = ({
             <div className="deck-glass-card p-6">
               <div className="flex items-center gap-2 mb-4">
                 <Zap className="h-5 w-5" style={{ color }} />
-                <h3 className="text-white font-semibold">A/B Testing Roadmap</h3>
+                <h3 className="text-[#1a1a1a] font-semibold">A/B Testing Roadmap</h3>
               </div>
               <ul className="space-y-2">
                 {platform.gameplan.abTests.map((test, idx) => (
-                  <li key={idx} className="flex items-start gap-2 text-white/70">
+                  <li key={idx} className="flex items-start gap-2 text-[#4b5563]">
                     <span className="text-xs font-bold mt-1 px-1.5 py-0.5 rounded flex-shrink-0" style={{ backgroundColor: `${color}30`, color }}>
                       T{idx + 1}
                     </span>
@@ -1064,7 +1064,7 @@ export const EnhancedPlatformSection = ({
                       value={test}
                       editKey={`${ekp}.gameplan.abTests.${idx}`}
                       as="span"
-                      className="text-white/70"
+                      className="text-[#4b5563]"
                     />
                   </li>
                 ))}
@@ -1076,11 +1076,11 @@ export const EnhancedPlatformSection = ({
           <div className="deck-glass-card p-6">
             <div className="flex items-center gap-2 mb-4">
               <ArrowRight className="h-5 w-5" style={{ color }} />
-              <h3 className="text-white font-semibold">Next Steps</h3>
+              <h3 className="text-[#1a1a1a] font-semibold">Next Steps</h3>
             </div>
             <div className="grid md:grid-cols-2 gap-3">
               {platform.gameplan.nextSteps.map((step, idx) => (
-                <div key={idx} className="flex items-start gap-3 bg-white/5 rounded-xl p-4">
+                <div key={idx} className="flex items-start gap-3 bg-[#f9fafb] rounded-xl p-4">
                   <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-bold" style={{ backgroundColor: `${color}20`, color }}>
                     {idx + 1}
                   </div>
@@ -1088,7 +1088,7 @@ export const EnhancedPlatformSection = ({
                     value={step}
                     editKey={`${ekp}.gameplan.nextSteps.${idx}`}
                     as="span"
-                    className="text-white/80"
+                    className="text-[#374151]"
                   />
                 </div>
               ))}
