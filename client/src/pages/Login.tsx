@@ -146,12 +146,11 @@ const Login = () => {
     }
 
     setResetLoading(true);
-    const { data, error } = await supabase.functions.invoke('reset-password', {
-      body: { password: newPassword },
-    });
+    // Use updateUser directly — recovery session from verifyOtp allows password updates at AAL1
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
 
-    if (error || !data?.success) {
-      toast.error('Failed to update password', { description: error?.message || data?.error });
+    if (error) {
+      toast.error('Failed to update password', { description: error.message });
       setResetLoading(false);
       return;
     }
