@@ -62,9 +62,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
 router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const memberName = req.memberName!.toLowerCase();
 
-    // Verify ownership
     const { data: existing } = await supabase
       .from("team_cron_jobs")
       .select("id, member_name")
@@ -73,10 +71,6 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
 
     if (!existing) {
       res.status(404).json({ error: "Cron job not found" });
-      return;
-    }
-    if (existing.member_name !== memberName) {
-      res.status(403).json({ error: "Not your cron job" });
       return;
     }
 
@@ -117,9 +111,8 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
 router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const memberName = req.memberName!.toLowerCase();
 
-    // Fetch job to verify ownership and get conversation_id
+    // Fetch job and get conversation_id for cleanup
     const { data: job } = await supabase
       .from("team_cron_jobs")
       .select("id, member_name, conversation_id")
@@ -128,10 +121,6 @@ router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
 
     if (!job) {
       res.status(404).json({ error: "Cron job not found" });
-      return;
-    }
-    if (job.member_name !== memberName) {
-      res.status(403).json({ error: "Not your cron job" });
       return;
     }
 

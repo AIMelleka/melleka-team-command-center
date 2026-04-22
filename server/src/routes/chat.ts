@@ -21,11 +21,15 @@ const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp
 
 router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, res) => {
   const memberName = req.memberName!;
-  const { message, conversationId, websiteProjectId } = req.body as {
+  const { message, conversationId, websiteProjectId, commercialProjectId, model } = req.body as {
     message: string;
     conversationId?: string;
     websiteProjectId?: string;
+    commercialProjectId?: string;
+    model?: string;
   };
+  const lowTokenMode = req.body.lowTokenMode === true || req.body.lowTokenMode === "true";
+
   // mentionedClients may come as JSON string (FormData) or array (JSON body)
   let mentionedClients: string[] | undefined;
   const rawMentions = req.body.mentionedClients;
@@ -318,6 +322,42 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       }
     }
 
+    // Inject commercial maker context if a project is active
+    if (commercialProjectId) {
+      const { data: cp, error: cpErr } = await supabase
+        .from("commercial_projects")
+        .select("id, name, status, config, voiceover_url, render_url")
+        .eq("id", commercialProjectId)
+        .single();
+
+      if (cpErr) {
+        console.error(`[chat] Failed to load commercial project ${commercialProjectId}:`, cpErr.message);
+      }
+
+      if (cp) {
+        const { data: cpScenes } = await supabase
+          .from("commercial_scenes")
+          .select("id, scene_order, scene_type, duration_frames, props")
+          .eq("project_id", commercialProjectId)
+          .order("scene_order", { ascending: true });
+
+        const config = cp.config as any;
+        const sceneList = (cpScenes ?? []).map((s: any) =>
+          `  [${s.scene_order}] ${s.scene_type} (${s.duration_frames}f/${(s.duration_frames/30).toFixed(1)}s) id:${s.id}`
+        ).join("\n");
+
+        const prefix = `[Commercial Maker Context — project: "${cp.name}", project_id: ${cp.id}, status: ${cp.status}, theme: primary=${config.theme?.primary} accent=${config.theme?.accent}, voiceover: ${cp.voiceover_url ? "yes" : "no"}, render: ${cp.render_url ? "rendered" : "not rendered"}]\n[Scenes (${cpScenes?.length || 0}):\n${sceneList || "  none yet"}]\n[Scene Type Catalog: hook(brandName,tagline,taglineHighlight), feature_showcase(title,subtitle,screenshot1), mega_prompt(promptText,tasks[]), dual_screenshot(title,screenshot1,screenshot2), badges(title,subtitle,screenshot,badges[]), stats(title,features[],stats[]), cta(brandName,headline,buttonText,url), text_only(headline,subtext)]\n[Duration: 90f=3s, 150f=5s, 180f=6s, 240f=8s. Default 150.]\n`;
+
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg?.role === "user") {
+          if (typeof lastMsg.content === "string") {
+            lastMsg.content = prefix + lastMsg.content;
+          }
+        }
+        console.log(`[chat] Injected commercial maker context for project ${cp.name}`);
+      }
+    }
+
     // For the current message: if there are images, replace the last user message
     // content with multi-block content (image blocks + text) for Claude vision
     if (imageBlocks.length > 0 && messages.length > 0) {
@@ -338,7 +378,7 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
     console.log(`[chat] ${memberName} | starting streamChat with ${messages.length} messages`);
     const fullResponse = await streamChat(memberName, messages, res, (event) => {
       pushEvent(convId!, event as any);
-    }, convId);
+    }, convId, lowTokenMode, model);
     console.log(`[chat] ${memberName} | streamChat done, response length=${fullResponse.length}, disconnected=${clientDisconnected}`);
 
     // Always save assistant response (even if client disconnected mid-stream)

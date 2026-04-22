@@ -159,71 +159,104 @@ async function processOneClient(
   const dateEnd = today.toISOString().split('T')[0];
   const dateStart = new Date(today.getTime() - 14 * 86400000).toISOString().split('T')[0];
 
-  // Fetch Supermetrics data
+  // Fetch Supermetrics data (with graceful fallback)
   push(`[BULK-AD-REVIEW] Fetching data for ${clientName}...`);
-  const smRes = await fetch(`${supabaseUrl}/functions/v1/fetch-supermetrics`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
-    body: JSON.stringify({ action: 'fetch-data', dataSources: activeSources, accounts, dateStart, dateEnd }),
-  });
-  const smData = await smRes.json();
-
-  // Build context string
   let supermetricsContext = '';
-  if (smData?.success && smData?.platforms) {
-    supermetricsContext = `=== SUPERMETRICS LIVE AD DATA ===\nDate Range: ${dateStart} to ${dateEnd}\n\n`;
-    for (const [platform, platformData] of Object.entries(smData.platforms as Record<string, any>)) {
-      const pd = platformData as any;
-      const s = pd.summary || {};
-      supermetricsContext += `## ${pd.label || platform}\nAccount: ${pd.accountName || 'N/A'}\n`;
-      if (s.spend > 0) supermetricsContext += `Spend: $${s.spend?.toLocaleString(undefined, { maximumFractionDigits: 2 })}\n`;
-      if (s.impressions > 0) supermetricsContext += `Impressions: ${s.impressions?.toLocaleString()}\n`;
-      if (s.clicks > 0) supermetricsContext += `Clicks: ${s.clicks?.toLocaleString()}\n`;
-      if (s.conversions > 0) supermetricsContext += `Conversions: ${s.conversions?.toLocaleString()}\n`;
-      if (s.calls > 0) supermetricsContext += `Calls: ${s.calls?.toLocaleString()}\n`;
-      if (s.ctr > 0) supermetricsContext += `CTR: ${(s.ctr * 100).toFixed(2)}%\n`;
-      if (s.cpc > 0) supermetricsContext += `CPC: $${s.cpc?.toFixed(2)}\n`;
-      if (s.cpa > 0) supermetricsContext += `CPA: $${s.cpa?.toFixed(2)}\n`;
-      if (pd.campaigns?.length > 0) {
-        supermetricsContext += `\nTop Campaigns:\n`;
-        for (const c of pd.campaigns.slice(0, 10)) {
-          supermetricsContext += `  - ${c.name}: $${c.spend?.toLocaleString(undefined, { maximumFractionDigits: 0 })} spend, ${c.conversions} conv, CPA $${c.cpa?.toFixed(2)}\n`;
+  try {
+    const smRes = await fetch(`${supabaseUrl}/functions/v1/fetch-supermetrics`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+      body: JSON.stringify({ action: 'fetch-data', dataSources: activeSources, accounts, dateStart, dateEnd }),
+    });
+    const smData = await smRes.json();
+
+    if (smData?.success && smData?.platforms) {
+      supermetricsContext = `=== SUPERMETRICS LIVE AD DATA ===\nDate Range: ${dateStart} to ${dateEnd}\n\n`;
+      for (const [platform, platformData] of Object.entries(smData.platforms as Record<string, any>)) {
+        const pd = platformData as any;
+        const s = pd.summary || {};
+        supermetricsContext += `## ${pd.label || platform}\nAccount: ${pd.accountName || 'N/A'}\n`;
+        if (s.spend > 0) supermetricsContext += `Spend: $${s.spend?.toLocaleString(undefined, { maximumFractionDigits: 2 })}\n`;
+        if (s.impressions > 0) supermetricsContext += `Impressions: ${s.impressions?.toLocaleString()}\n`;
+        if (s.clicks > 0) supermetricsContext += `Clicks: ${s.clicks?.toLocaleString()}\n`;
+        if (s.conversions > 0) supermetricsContext += `Conversions: ${s.conversions?.toLocaleString()}\n`;
+        if (s.calls > 0) supermetricsContext += `Calls: ${s.calls?.toLocaleString()}\n`;
+        if (s.ctr > 0) supermetricsContext += `CTR: ${(s.ctr * 100).toFixed(2)}%\n`;
+        if (s.cpc > 0) supermetricsContext += `CPC: $${s.cpc?.toFixed(2)}\n`;
+        if (s.cpa > 0) supermetricsContext += `CPA: $${s.cpa?.toFixed(2)}\n`;
+        if (pd.campaigns?.length > 0) {
+          supermetricsContext += `\nTop Campaigns:\n`;
+          for (const c of pd.campaigns.slice(0, 10)) {
+            supermetricsContext += `  - ${c.name}: $${c.spend?.toLocaleString(undefined, { maximumFractionDigits: 0 })} spend, ${c.conversions} conv, CPA $${c.cpa?.toFixed(2)}\n`;
+          }
         }
-      }
-      if (pd.creatives?.length > 0) {
-        supermetricsContext += `\nTop Creatives:\n`;
-        for (const cr of pd.creatives.slice(0, 10)) {
-          supermetricsContext += `  - ${cr.name || cr.adName}: ${cr.impressions || 0} imp, ${cr.clicks || 0} clicks, $${cr.spend?.toFixed(2) || '0'} spend\n`;
+        if (pd.creatives?.length > 0) {
+          supermetricsContext += `\nTop Creatives:\n`;
+          for (const cr of pd.creatives.slice(0, 10)) {
+            supermetricsContext += `  - ${cr.name || cr.adName}: ${cr.impressions || 0} imp, ${cr.clicks || 0} clicks, $${cr.spend?.toFixed(2) || '0'} spend\n`;
+          }
         }
-      }
-      if (pd.keywords?.length > 0) {
-        supermetricsContext += `\nTop Keywords:\n`;
-        for (const kw of pd.keywords.slice(0, 15)) {
-          supermetricsContext += `  - ${kw.keyword || kw.name}: ${kw.impressions || 0} imp, ${kw.clicks || 0} clicks, ${kw.conversions || 0} conv\n`;
+        if (pd.keywords?.length > 0) {
+          supermetricsContext += `\nTop Keywords:\n`;
+          for (const kw of pd.keywords.slice(0, 15)) {
+            supermetricsContext += `  - ${kw.keyword || kw.name}: ${kw.impressions || 0} imp, ${kw.clicks || 0} clicks, ${kw.conversions || 0} conv\n`;
+          }
         }
-      }
-      if (pd.daily?.length > 0) {
-        supermetricsContext += `\nDaily Trend (last 7 days):\n`;
-        for (const d of pd.daily.slice(-7)) {
-          supermetricsContext += `  ${d.date}: $${d.spend?.toFixed(0) || '0'} spend, ${d.clicks || 0} clicks, ${d.conversions || 0} conv\n`;
+        if (pd.daily?.length > 0) {
+          supermetricsContext += `\nDaily Trend (last 7 days):\n`;
+          for (const d of pd.daily.slice(-7)) {
+            supermetricsContext += `  ${d.date}: $${d.spend?.toFixed(0) || '0'} spend, ${d.clicks || 0} clicks, ${d.conversions || 0} conv\n`;
+          }
         }
+        supermetricsContext += '\n';
       }
-      supermetricsContext += '\n';
+    }
+  } catch (e) {
+    console.warn(`[BULK-AD-REVIEW] Supermetrics failed for ${clientName} (likely quota exceeded), using DB snapshots as fallback`);
+  }
+
+  // Fallback: build context from ppc_daily_snapshots if Supermetrics returned nothing useful
+  // Supermetrics may return success with platform headers but zero actual metrics (quota exceeded)
+  const hasActualMetrics = supermetricsContext.includes('Spend:') || supermetricsContext.includes('Impressions:') || supermetricsContext.includes('Clicks:');
+  if (!supermetricsContext || !hasActualMetrics) {
+    const { data: snapshots } = await supabase
+      .from('ppc_daily_snapshots')
+      .select('*')
+      .eq('client_name', clientName)
+      .gte('snapshot_date', dateStart)
+      .order('snapshot_date', { ascending: false })
+      .limit(14);
+
+    if (snapshots && snapshots.length > 0) {
+      supermetricsContext = `=== AD DATA FROM DAILY SNAPSHOTS (Supermetrics unavailable) ===\nDate Range: ${dateStart} to ${dateEnd}\n\n`;
+      for (const s of snapshots) {
+        supermetricsContext += `${s.snapshot_date} | ${s.platform}: $${s.spend?.toFixed(2)} spend, ${s.clicks || 0} clicks, ${s.conversions || 0} conv, ${s.impressions || 0} imp\n`;
+      }
+    } else {
+      push(`[BULK-AD-REVIEW] No data available for ${clientName} — skipping`);
+      return { ok: false, message: 'No ad data available (Supermetrics quota exceeded, no snapshots)' };
     }
   }
 
-  // Load previous reviews
-  const { data: prevReviews } = await supabase
-    .from('ad_review_history')
-    .select('*')
-    .eq('client_name', clientName)
-    .order('review_date', { ascending: false })
-    .limit(3);
+  // Load previous reviews — skip if using snapshot fallback to avoid carrying forward
+  // stale "data blackout" narratives from when Supermetrics was down
+  const usingSnapshotFallback = supermetricsContext.includes('DAILY SNAPSHOTS');
+  let previousReview: any = null;
+  let historicalContext: any[] = [];
 
-  const previousReview = prevReviews?.[0] || null;
-  const historicalContext = (prevReviews || []).slice(0, 3).map((r: any) => ({
-    date: r.review_date, summary: r.summary, recommendations: r.recommendations, insights: r.insights,
-  }));
+  if (!usingSnapshotFallback) {
+    const { data: prevReviews } = await supabase
+      .from('ad_review_history')
+      .select('*')
+      .eq('client_name', clientName)
+      .order('review_date', { ascending: false })
+      .limit(3);
+
+    previousReview = prevReviews?.[0] || null;
+    historicalContext = (prevReviews || []).slice(0, 3).map((r: any) => ({
+      date: r.review_date, summary: r.summary, recommendations: r.recommendations, insights: r.insights,
+    }));
+  }
 
   // Run AI analysis
   push(`[BULK-AD-REVIEW] Running AI analysis for ${clientName}...`);

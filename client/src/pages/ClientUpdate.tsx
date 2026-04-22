@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Users, Loader2, Copy, Check, Sparkles, Database, CheckCircle2, AlertCircle, Settings2, ChevronDown, ChevronUp, Save, Calendar, RefreshCw, Send, Plus } from 'lucide-react';
+import { ArrowLeft, Users, Loader2, Copy, Check, Sparkles, Database, CheckCircle2, AlertCircle, Settings2, ChevronDown, ChevronUp, Save, Calendar, RefreshCw, Send, Plus, Eye, Pencil, Globe, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ import ReactMarkdown from 'react-markdown';
 import {
   streamMessage,
   ensureTeamMember,
+  publishClientUpdate,
   type SSEEvent,
 } from '@/lib/chatApi';
 import { ToolCallBlock } from '@/components/chat/ToolCallBlock';
@@ -55,6 +56,67 @@ function extractDatabaseId(input: string): string {
 
 let nextMsgId = 0;
 function uid() { return `cu-msg-${++nextMsgId}`; }
+
+const HTML_START_MARKER = '<!-- CLIENT_UPDATE_HTML_START -->';
+const HTML_END_MARKER = '<!-- CLIENT_UPDATE_HTML_END -->';
+
+function extractHtmlFromMessages(msgs: UIMessage[]): string | null {
+  const allText = msgs
+    .filter(m => m.role === 'assistant')
+    .flatMap(m => m.parts.filter(p => p.type === 'text').map(p => p.content || ''))
+    .join('');
+
+  // Method 1: Look for explicit markers
+  const endIdx = allText.lastIndexOf(HTML_END_MARKER);
+  if (endIdx !== -1) {
+    const startIdx = allText.lastIndexOf(HTML_START_MARKER, endIdx);
+    if (startIdx !== -1) {
+      return allText.slice(startIdx + HTML_START_MARKER.length, endIdx).trim();
+    }
+  }
+
+  // Method 2: Look for a raw HTML document in the text (non-greedy to avoid over-matching)
+  const docTypeMatch = allText.match(/<!DOCTYPE html[\s\S]*?<\/html>/i);
+  if (docTypeMatch) return docTypeMatch[0].trim();
+
+  const htmlTagMatch = allText.match(/<html[\s\S]*?<\/html>/i);
+  if (htmlTagMatch) return htmlTagMatch[0].trim();
+
+  // Method 3: Check code blocks — AI might wrap HTML in ```html ... ```
+  const codeBlockMatch = allText.match(/```html\s*\n([\s\S]*?)```/);
+  if (codeBlockMatch && codeBlockMatch[1].includes('<html')) {
+    return codeBlockMatch[1].trim();
+  }
+
+  return null;
+}
+
+function stripHtmlBlock(text: string): string {
+  let result = text;
+  // Strip explicit markers
+  let sIdx = result.indexOf(HTML_START_MARKER);
+  while (sIdx !== -1) {
+    const eIdx = result.indexOf(HTML_END_MARKER, sIdx);
+    if (eIdx !== -1) {
+      result = result.slice(0, sIdx) + result.slice(eIdx + HTML_END_MARKER.length);
+    } else {
+      result = result.slice(0, sIdx);
+      break;
+    }
+    sIdx = result.indexOf(HTML_START_MARKER);
+  }
+  // Strip complete raw HTML documents (non-greedy)
+  result = result.replace(/<!DOCTYPE html[\s\S]*?<\/html>/gi, '');
+  result = result.replace(/<html[\s\S]*?<\/html>/gi, '');
+  // Strip partial HTML during streaming (no closing </html> yet)
+  result = result.replace(/<!DOCTYPE html[\s\S]*$/gi, '');
+  result = result.replace(/<html[\s>][\s\S]*$/gi, '');
+  // Strip complete ```html code blocks containing full HTML
+  result = result.replace(/```html\s*\n[\s\S]*?```/g, '');
+  // Strip partial ```html code blocks during streaming (no closing ``` yet)
+  result = result.replace(/```html\s*\n[\s\S]*$/g, '');
+  return result;
+}
 
 // Default Notion database ID
 const LEGACY_NOTION_DATABASE_ID = 'bf762858-67b7-49ca-992d-fdfc8c43d7fa';
@@ -118,6 +180,16 @@ const ClientUpdate = () => {
   const [followUpInput, setFollowUpInput] = useState('');
   const [copied, setCopied] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+
+  // HTML preview/edit/publish state
+  const [htmlContent, setHtmlContent] = useState<string | null>(null);
+  const [iframeSrcDoc, setIframeSrcDoc] = useState<string | null>(null);
+  const iframeDirtyRef = useRef(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  const [urlCopied, setUrlCopied] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const abortRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const retryCountRef = useRef(0);
@@ -134,6 +206,19 @@ const ClientUpdate = () => {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Extract HTML from messages when streaming completes
+  // Only auto-extract if there's no existing htmlContent (don't overwrite user edits)
+  useEffect(() => {
+    if (isStreaming) return;
+    if (htmlContent) return; // user already has content (extracted or edited) — don't overwrite
+    const extracted = extractHtmlFromMessages(messages);
+    if (extracted) {
+      setHtmlContent(extracted);
+      setIframeSrcDoc(extracted);
+      iframeDirtyRef.current = false;
+    }
+  }, [isStreaming, messages, htmlContent]);
 
   // ── Settings handlers ──────────────────────────────
 
@@ -199,6 +284,14 @@ const ClientUpdate = () => {
   // ── SSE event handler ─────────────────────────────
 
   const handleSSEEvent = useCallback((event: SSEEvent) => {
+    // Capture HTML content from write_file tool calls (server sends this when AI writes an .html file)
+    if (event.type === 'html_content' && event.content) {
+      setHtmlContent(event.content);
+      setIframeSrcDoc(event.content);
+      iframeDirtyRef.current = false;
+      return;
+    }
+
     setMessages(prev => {
       const msgs = [...prev];
       const last = msgs[msgs.length - 1];
@@ -366,7 +459,7 @@ const ClientUpdate = () => {
       `3. Pull Google Ads performance AND change history for the date range`,
       `4. Pull Meta Ads performance AND change history/activities for the date range`,
       `5. Check social media posts (Facebook page and/or Ayrshare profile)`,
-      `6. Build and deploy a branded HTML update page (use the client-update-template.html as the base)`,
+      `6. Build a branded HTML update page and save it using write_file (do NOT deploy or call deploy_site — the user will review and publish from the UI). Do NOT output the HTML code in the chat text.`,
       `7. Output the plain text summary in chat`,
       ``,
       `Follow the CLIENT UPDATE BOT rules from your system prompt exactly. Do not skip ANY data source.`,
@@ -383,6 +476,12 @@ const ClientUpdate = () => {
     lastMessageRef.current = message;
     setCopied(false);
     setReconnecting(false);
+    setHtmlContent(null);
+    setIframeSrcDoc(null);
+    iframeDirtyRef.current = false;
+    setIsEditing(false);
+    setPublishedUrl(null);
+    setIsPublishing(false);
 
     const userMsg: UIMessage = {
       id: uid(),
@@ -410,6 +509,8 @@ const ClientUpdate = () => {
     setFollowUpInput('');
     lastMessageRef.current = text;
     retryCountRef.current = 0;
+    // Reset publish state so new HTML from follow-up doesn't show stale URL
+    setPublishedUrl(null);
 
     const userMsg: UIMessage = {
       id: uid(),
@@ -428,6 +529,87 @@ const ClientUpdate = () => {
     startStream(text, conversationId);
   };
 
+  // ── Editable iframe helpers ─────────────────────────
+
+  /** Read the current (possibly edited) HTML from the iframe.
+   *  Uses cloneNode so the live DOM (with editing UI) stays intact. */
+  const getIframeHtml = useCallback((): string | null => {
+    const iframe = iframeRef.current;
+    const doc = iframe?.contentDocument;
+    if (!doc?.documentElement) return null;
+    // Clone the DOM to strip editing artifacts without affecting the live editor
+    const clone = doc.documentElement.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.cu-delete-btn').forEach(el => el.remove());
+    const editStyle = clone.querySelector('#cu-edit-styles');
+    if (editStyle) editStyle.remove();
+    const body = clone.querySelector('body');
+    if (body) {
+      body.removeAttribute('contenteditable');
+      body.style.removeProperty('cursor');
+    }
+    return '<!DOCTYPE html>\n' + clone.outerHTML;
+  }, []);
+
+  /** Sync iframe edits back into htmlContent state */
+  const syncIframeToState = useCallback(() => {
+    const edited = getIframeHtml();
+    if (edited) {
+      setHtmlContent(edited);
+      // Don't update iframeSrcDoc here — that would reload the iframe and lose designMode
+    }
+  }, [getIframeHtml]);
+
+  /** Toggle between visual editor and source view */
+  const handleToggleSource = useCallback(() => {
+    if (!isEditing) {
+      // Switching TO source view — save iframe edits first
+      syncIframeToState();
+    } else {
+      // Switching FROM source back to visual — push source edits to iframe
+      setIframeSrcDoc(htmlContent);
+      iframeDirtyRef.current = false;
+    }
+    setIsEditing(prev => !prev);
+  }, [isEditing, syncIframeToState, htmlContent]);
+
+  // ── Publish to live link ────────────────────────────
+
+  const handlePublish = async () => {
+    if (!clientName.trim()) return;
+    // Read latest HTML: from iframe if in visual mode, from state if in source mode
+    let finalHtml: string | null;
+    if (isEditing) {
+      finalHtml = htmlContent;
+    } else {
+      finalHtml = getIframeHtml() || htmlContent;
+    }
+    if (!finalHtml) {
+      toast({ title: 'No HTML content to publish', variant: 'destructive' });
+      return;
+    }
+    setIsPublishing(true);
+    try {
+      const slug = clientName.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
+      const result = await publishClientUpdate(finalHtml, slug);
+      setPublishedUrl(result.url);
+      setHtmlContent(finalHtml); // sync state with what was published
+      iframeDirtyRef.current = false;
+      toast({ title: 'Published successfully!' });
+    } catch (err: any) {
+      toast({ title: err.message || 'Publish failed', variant: 'destructive' });
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handleCopyUrl = async () => {
+    if (!publishedUrl) return;
+    await navigator.clipboard.writeText(publishedUrl);
+    setUrlCopied(true);
+    toast({ title: 'URL copied to clipboard!' });
+    setTimeout(() => setUrlCopied(false), 2000);
+  };
+
   // ── New update ─────────────────────────────────────
 
   const handleNewUpdate = () => {
@@ -436,8 +618,15 @@ const ClientUpdate = () => {
     }
     setMessages([]);
     setConversationId(null);
+    lastConvIdRef.current = null;
     setIsStreaming(false);
     setCopied(false);
+    setHtmlContent(null);
+    setIframeSrcDoc(null);
+    iframeDirtyRef.current = false;
+    setIsEditing(false);
+    setPublishedUrl(null);
+    setIsPublishing(false);
     setClientName('');
     inputRef.current?.focus();
   };
@@ -449,8 +638,9 @@ const ClientUpdate = () => {
       .filter(m => m.role === 'assistant')
       .flatMap(m => m.parts.filter(p => p.type === 'text').map(p => p.content || ''))
       .join('');
-    if (!allText.trim()) return;
-    await navigator.clipboard.writeText(allText);
+    const cleanText = stripHtmlBlock(allText);
+    if (!cleanText.trim()) return;
+    await navigator.clipboard.writeText(cleanText);
     setCopied(true);
     toast({ title: 'Copied to clipboard!' });
     setTimeout(() => setCopied(false), 2000);
@@ -698,9 +888,12 @@ const ClientUpdate = () => {
                   <div key={msg.id}>
                     {msg.parts.map((part, i) => {
                       if (part.type === 'text' && part.content) {
+                        // Strip out any HTML update block from markdown rendering
+                        const displayContent = stripHtmlBlock(part.content);
+                        if (!displayContent.trim()) return null;
                         return (
                           <div key={i} className="prose prose-sm max-w-none dark:prose-invert">
-                            <ReactMarkdown>{part.content}</ReactMarkdown>
+                            <ReactMarkdown>{displayContent}</ReactMarkdown>
                           </div>
                         );
                       }
@@ -733,6 +926,232 @@ const ClientUpdate = () => {
                   </div>
                 ))}
                 <div ref={messagesEndRef} />
+              </div>
+            )}
+
+            {/* Publish panel — visible whenever there's output (stays during streaming) */}
+            {hasOutput && (
+              <div className="mt-6 pt-4 border-t space-y-4">
+                {/* Published URL banner */}
+                {publishedUrl && (
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/10 border border-primary/20">
+                    <Globe className="h-5 w-5 text-primary shrink-0" />
+                    <a
+                      href={publishedUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-medium text-primary hover:underline truncate flex-1"
+                    >
+                      {publishedUrl}
+                    </a>
+                    <Button variant="outline" size="sm" onClick={handleCopyUrl}>
+                      {urlCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                    </Button>
+                    <a href={publishedUrl} target="_blank" rel="noopener noreferrer">
+                      <Button variant="outline" size="sm">
+                        <ExternalLink className="h-3 w-3" />
+                      </Button>
+                    </a>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-2">
+                  {htmlContent !== null && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleToggleSource}
+                    >
+                      {isEditing ? (
+                        <><Eye className="mr-1 h-4 w-4" />Visual Editor</>
+                      ) : (
+                        <><Pencil className="mr-1 h-4 w-4" />View Source</>
+                      )}
+                    </Button>
+                  )}
+                  {htmlContent === null && !publishedUrl && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setHtmlContent(''); setIsEditing(true); }}
+                    >
+                      <Pencil className="mr-1 h-4 w-4" />Paste HTML
+                    </Button>
+                  )}
+                  <Button
+                    onClick={handlePublish}
+                    disabled={isPublishing || !htmlContent || isStreaming}
+                    size="sm"
+                    className="bg-primary"
+                  >
+                    {isPublishing ? (
+                      <><Loader2 className="mr-1 h-4 w-4 animate-spin" />Publishing...</>
+                    ) : publishedUrl ? (
+                      <><Globe className="mr-1 h-4 w-4" />Re-publish</>
+                    ) : (
+                      <><Globe className="mr-1 h-4 w-4" />Publish to Live Link</>
+                    )}
+                  </Button>
+                </div>
+
+                {htmlContent && !isEditing && (
+                  <p className="text-xs text-muted-foreground">
+                    Click directly on the page below to edit text, delete sections, or make changes. Then click "Publish to Live Link".
+                  </p>
+                )}
+
+                {/* Source editor (raw HTML) */}
+                {htmlContent !== null && isEditing ? (
+                  <Textarea
+                    value={htmlContent}
+                    onChange={(e) => setHtmlContent(e.target.value)}
+                    placeholder="Paste your HTML here..."
+                    className="font-mono text-xs min-h-[400px]"
+                  />
+                ) : htmlContent ? (
+                  /* Visual editor: editable iframe — NO sandbox so designMode works */
+                  <div
+                    className="border-2 border-dashed border-primary/30 rounded-lg overflow-hidden bg-white"
+                    onClick={() => {
+                      // Clicking the container focuses the iframe for editing
+                      const iframe = iframeRef.current;
+                      if (iframe?.contentWindow) {
+                        iframe.contentWindow.focus();
+                      }
+                      if (iframe?.contentDocument?.body) {
+                        iframe.contentDocument.body.focus();
+                      }
+                    }}
+                  >
+                    <iframe
+                      ref={iframeRef}
+                      srcDoc={iframeSrcDoc || htmlContent}
+                      className="w-full border-0"
+                      style={{ minHeight: '600px' }}
+                      title="Client Update Preview"
+                      onLoad={() => {
+                        const iframe = iframeRef.current;
+                        if (!iframe?.contentDocument) return;
+                        const doc = iframe.contentDocument;
+
+                        // Auto-resize
+                        const height = doc.body?.scrollHeight || 600;
+                        iframe.style.height = `${Math.max(600, height + 32)}px`;
+
+                        // Enable editing — use BOTH designMode and contentEditable for
+                        // maximum browser compatibility. Some browsers ignore one or the other.
+                        const enableEditing = () => {
+                          try { doc.designMode = 'on'; } catch (_) { /* some browsers throw */ }
+                          if (doc.body) {
+                            doc.body.contentEditable = 'true';
+                            doc.body.style.cursor = 'text';
+                          }
+                        };
+
+                        // Set immediately + retry after delays (some browsers need settling time)
+                        enableEditing();
+                        setTimeout(enableEditing, 50);
+                        setTimeout(enableEditing, 200);
+                        setTimeout(enableEditing, 500);
+
+                        // -- Inject delete buttons so users can remove elements --
+                        if (!doc.getElementById('cu-edit-styles')) {
+                          const editStyle = doc.createElement('style');
+                          editStyle.id = 'cu-edit-styles';
+                          editStyle.textContent = `
+                            li, .section, .stat-card { position: relative !important; }
+                            .cu-delete-btn {
+                              position: absolute;
+                              right: 6px;
+                              top: 50%;
+                              transform: translateY(-50%);
+                              width: 22px;
+                              height: 22px;
+                              border-radius: 50%;
+                              background: rgba(233, 69, 96, 0.9);
+                              color: white;
+                              display: none;
+                              align-items: center;
+                              justify-content: center;
+                              cursor: pointer;
+                              font-size: 15px;
+                              font-weight: bold;
+                              line-height: 22px;
+                              text-align: center;
+                              user-select: none;
+                              -webkit-user-select: none;
+                              z-index: 999;
+                              box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+                            }
+                            .cu-delete-btn:hover {
+                              background: #c0392b;
+                              transform: translateY(-50%) scale(1.15);
+                            }
+                            .section > .cu-delete-btn {
+                              top: 14px;
+                              right: 14px;
+                              transform: none;
+                              width: 26px;
+                              height: 26px;
+                              font-size: 17px;
+                              line-height: 26px;
+                              opacity: 0.35;
+                              transition: opacity 0.15s;
+                            }
+                            .section > .cu-delete-btn:hover {
+                              opacity: 1;
+                              transform: scale(1.15);
+                            }
+                            .section:hover > .cu-delete-btn { display: flex; }
+                            .stat-card > .cu-delete-btn {
+                              top: 6px;
+                              right: 6px;
+                              transform: none;
+                              width: 18px;
+                              height: 18px;
+                              font-size: 12px;
+                              line-height: 18px;
+                              opacity: 0.35;
+                              transition: opacity 0.15s;
+                            }
+                            .stat-card > .cu-delete-btn:hover {
+                              opacity: 1;
+                              transform: scale(1.15);
+                            }
+                            .stat-card:hover > .cu-delete-btn { display: flex; }
+                            li:hover > .cu-delete-btn { display: flex; }
+                          `;
+                          doc.head.appendChild(editStyle);
+                        }
+
+                        const addDeleteBtn = (el: Element) => {
+                          if (el.querySelector(':scope > .cu-delete-btn')) return;
+                          const btn = doc.createElement('span');
+                          btn.className = 'cu-delete-btn';
+                          btn.textContent = '\u00d7';
+                          btn.setAttribute('contenteditable', 'false');
+                          btn.addEventListener('mousedown', (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            el.remove();
+                            iframeDirtyRef.current = true;
+                          });
+                          el.appendChild(btn);
+                        };
+
+                        doc.querySelectorAll('li').forEach(addDeleteBtn);
+                        doc.querySelectorAll('.section').forEach(addDeleteBtn);
+                        doc.querySelectorAll('.stat-card').forEach(addDeleteBtn);
+
+                        // Track user edits to prevent external overwrites
+                        doc.addEventListener('input', () => {
+                          iframeDirtyRef.current = true;
+                        });
+                      }}
+                    />
+                  </div>
+                ) : null}
               </div>
             )}
 

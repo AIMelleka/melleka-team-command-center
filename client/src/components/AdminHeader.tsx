@@ -11,7 +11,6 @@ import {
   Bot,
   Mail,
   Users,
-  Activity,
   Presentation,
   Settings,
   LogOut,
@@ -26,6 +25,7 @@ import {
   ClipboardList,
   BookOpen,
   Video,
+  Film,
 } from 'lucide-react';
 import teamPitLogo from '@/assets/team-pit-logo.png';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -42,7 +42,6 @@ import { useState } from 'react';
 const navItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/', label: 'Home', icon: Home },
   { path: '/super-agent-dashboard', label: 'Agent Dashboard', icon: Bot },
-  { path: '/client-health', label: 'Command Center', icon: Activity },
   { path: '/daily-reports', label: 'Daily Reports', icon: BarChart3 },
   { path: '/proposal-builder', label: 'Proposal Builder', icon: FileText },
   { path: '/deck-builder', label: 'Deck Builder', icon: Presentation },
@@ -56,6 +55,7 @@ const navItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/meeting-queen', label: 'Meeting Queen', icon: Crown },
   { path: '/onboarding-bot', label: 'Onboarding Bot', icon: ClipboardList },
   { path: '/cron-jobs', label: 'Cron Jobs', icon: Timer },
+  { path: '/commercial-maker', label: 'Commercial Maker', icon: Film },
   { path: '/websites', label: 'Website Builder', icon: Globe },
   { path: '/client-settings', label: 'Clients', icon: Building2 },
   { path: '/admin', label: 'Admin Settings', icon: Settings },

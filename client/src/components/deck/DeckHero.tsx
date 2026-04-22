@@ -168,10 +168,13 @@ export const DeckHero = ({
               filter: `drop-shadow(0 0 30px ${brandPrimary}60)`,
             }}
           >
-            <img 
-              src={clientLogo} 
-              alt={clientName} 
+            <img
+              src={clientLogo}
+              alt={clientName}
               className="h-24 md:h-36 lg:h-44 w-auto object-contain"
+              crossOrigin="anonymous"
+              referrerPolicy="no-referrer"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
           </div>
         ) : (

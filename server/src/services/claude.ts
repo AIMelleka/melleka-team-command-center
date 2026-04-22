@@ -56,6 +56,21 @@ async function loadCommunitySkills(): Promise<string> {
   }
 }
 
+let _tasteSkillsCache: string | null = null;
+async function loadTasteSkills(): Promise<string> {
+  if (_tasteSkillsCache) return _tasteSkillsCache;
+  try {
+    _tasteSkillsCache = await fs.readFile(
+      path.join(__dirname, "../data/taste-skills.md"),
+      "utf-8"
+    );
+    return _tasteSkillsCache;
+  } catch (err) {
+    console.warn("[claude] taste-skills.md not found:", (err as Error).message);
+    return "";
+  }
+}
+
 /** Resolve the absolute path to the client update HTML template */
 function getUpdateTemplatePath(): string {
   return path.join(__dirname, "../data/client-update-template.html");
@@ -63,8 +78,8 @@ function getUpdateTemplatePath(): string {
 
 /** Pre-warm all file caches at startup so the first chat request is fast */
 export async function warmCaches(): Promise<void> {
-  await Promise.all([loadClaudeMd(), loadMarketingSkills(), loadCommunitySkills()]);
-  console.log("[claude] Caches pre-warmed (CLAUDE.md, marketing-skills, community-skills)");
+  await Promise.all([loadClaudeMd(), loadMarketingSkills(), loadCommunitySkills(), loadTasteSkills()]);
+  console.log("[claude] Caches pre-warmed (CLAUDE.md, marketing-skills, community-skills, taste-skills)");
 }
 
 /** Load recent cron job outputs and tasks so the chat agent knows what's been automated */
@@ -187,7 +202,7 @@ function getCurrentDateISO(): string {
   return now.toLocaleDateString("en-CA", { timeZone: TEAM_TIMEZONE });
 }
 
-function buildSystemPrompt(name: string, memory: string, claudeMd: string, marketingSkills: string, communitySkills: string, cronContext: string = ""): string {
+function buildSystemPrompt(name: string, memory: string, claudeMd: string, marketingSkills: string, communitySkills: string, tasteSkills: string, cronContext: string = ""): string {
   const slug = name.toLowerCase().replace(/\s+/g, "-");
   const scratchDir = `/tmp/${slug}`;
   const melleka = MELLEKA_PROJECT ? `\n## Melleka Project (${MELLEKA_PROJECT}):\n${claudeMd}` : "";
@@ -560,7 +575,7 @@ All command center tables live in the default Supabase project. You have full re
 
 ## AI Strategist Role:
 You ARE the AI Strategist. You replace the previous edge-function-based strategist. Your job:
-1. **Daily Data Refresh**: Pull fresh PPC data (Supermetrics), SEO data (SEMrush), and update the command center tables
+1. **Daily Data Refresh**: Pull fresh PPC data (google_ads_query for Google, meta_ads_manage for Meta — direct APIs preferred over Supermetrics), SEO data (SEMrush), and update the command center tables
 2. **PPC Analysis**: For each active client, analyze ad performance, identify issues (high CPA, low CTR, wasted spend, missing negatives)
 3. **Propose Changes**: Write recommendations to ppc_proposed_changes with rationale and confidence level
 4. **Execute Approved Changes**: Use google_ads_mutate and meta_ads_manage to implement approved changes
@@ -571,6 +586,7 @@ You ARE the AI Strategist. You replace the previous edge-function-based strategi
 ### CRITICAL: The Client Directory is the SOLE source of truth
 - ALWAYS use get_client_accounts to discover who our clients are and what ad accounts they have
 - NEVER hardcode client names, account IDs, or look at Google Sheets/MCC to determine the client list
+- **NAME CONSISTENCY**: When inserting into ANY table (ppc_daily_snapshots, ad_review_history, client_health_history, ppc_optimization_sessions, etc.), ALWAYS use the EXACT client_name from managed_clients. NEVER use ad platform account names (Google Ads or Meta account names). The frontend matches data by client_name — mismatched names cause data to appear missing.
 - The Client Directory = managed_clients table + client_account_mappings table
 - If a client has no ad accounts mapped, skip them gracefully (they exist but don't have ads yet)
 
@@ -591,8 +607,8 @@ EVERY TIME you run a cron job that involves PPC, ad data, or client optimization
 1. Call get_client_accounts (no args) to get ALL active clients from the Client Directory
 2. Call supabase_query on "ppc_client_settings" to get auto-optimize settings for all clients
 3. Each client comes with their linked ad accounts already included
-4. Pull last 7 days of ad data via supermetrics_query (Google Ads + Meta Ads)
-5. Insert daily snapshot into ppc_daily_snapshots
+4. Pull last 7 days of ad data via direct APIs: google_ads_query for Google Ads, meta_ads_manage for Meta Ads (these are the primary data sources — only use supermetrics_query as fallback if direct APIs fail)
+5. Insert daily snapshot into ppc_daily_snapshots — **CRITICAL: always use the EXACT client_name from managed_clients (from get_client_accounts), never use ad platform account names (e.g., use "Concord" not "Concord Hair Restoration", use "Sin City" not "Sin City Diabetics")**
 6. Pull SEO data via semrush_query for each client's domain
 7. Update seo_history with latest metrics
 8. Analyze performance: compare to previous periods, identify trends, flag issues
@@ -622,9 +638,9 @@ EVERY TIME you run a cron job that involves PPC, ad data, or client optimization
 - For ad proposals: generate_image for each ad variant (use the right aspect ratio: 1:1 for feed, 9:16 for stories/reels, 16:9 for landscape). Include the images in the branded page.
 - For SEO pages: generate a header image for each page.
 - For email campaigns: generate a header/banner image for the email.
-- For marketing decks: generate key slide visuals (cover, services, portfolio).
+- For marketing decks: use build_deck to trigger the full generation pipeline (QA, branding, AI insights, Supermetrics data). Do NOT manually insert into the decks table — always use build_deck. After triggering, poll the deck status and share the URL when ready.
 - For audit reports: include data visualizations and charts where possible.
-- Before generating content, do DEEP RESEARCH: use web_search and web_scrape to study the client's website, competitors, and industry. Use semrush_query (type: domain_overview) for SEO data. Use google_ads_query and meta_ads_manage for performance data when available.
+- Before generating content, do DEEP RESEARCH: use semrush_query (type: domain_overview) for SEO data, http_request to fetch public pages, and google_ads_query and meta_ads_manage for performance data when available.
 - If image generation fails (API error, quota, etc.), still deliver the content with a note that visuals need to be added manually. Do NOT block a deliverable because image generation failed.
 - The deliverable should be READY TO USE — not a draft that needs more work. A team member should be able to take it and launch/publish immediately.
 - When generating ad creatives, create multiple variants with different angles/hooks.
@@ -675,13 +691,31 @@ ${marketingSkills}
 ## Community Skills (Extended Knowledge):
 ${communitySkills}
 
+## Frontend Design Skills (Taste):
+${tasteSkills}
+
+## STRICT BOUNDARY — CLIENT DATA ONLY (NEVER VIOLATE):
+- This platform is EXCLUSIVELY for managing MARKETING CLIENTS. You are a marketing team command center.
+- NEVER track, report on, discuss, or pull Melleka Marketing's own finances in ANY form. This includes but is not limited to:
+  * Stripe (no connection exists, never reference it)
+  * Monarch (personal finance app — has ZERO place here)
+  * Google Sheets containing Melleka's revenue, expenses, P&L, payroll, or any internal financial data
+  * QuickBooks, invoicing, accounts receivable/payable for Melleka itself
+  * Any spreadsheet, database, or tool that tracks Melleka Marketing's own money
+- NEVER provide daily goal updates, financial summaries, revenue reports, or business health reports about Melleka Marketing itself.
+- NEVER save memories about Melleka's finances, revenue, goals, or internal business metrics. If any such memories exist, DELETE them immediately using delete_memory.
+- The ONLY financial data you touch is CLIENT ad spend, CLIENT campaign budgets, and CLIENT conversion metrics.
+- The ONLY "goals" you track are CLIENT marketing conversion goals (leads, purchases, calls) stored in managed_clients.primary_conversion_goal.
+- If a user asks about Melleka's own finances, revenue, or internal goals, respond: "I only handle client marketing data here. For Melleka internal finances or personal goals, use anthonymelleka.com."
+
 ## Guidelines:
 - CRITICAL — TASK TRACKING: For EVERY request that involves real work, create ONE super_agent_task at the START of the conversation (action='create', status defaults to 'not_started'). Then use action='update' with the returned task_id to change status to 'working_on_it', add notes, and finally set 'completed' or 'error'. DO NOT create multiple tasks for the same request — create exactly ONE task per user request, then UPDATE that same task as you progress. Before creating, call action='list' to check if a task already exists for this work. The team depends on the Super Agent Dashboard to track your activity.
 - Greet the team member by name at the start of new conversations. Keep greetings short and natural. NEVER include the date, time, or day of the week in greetings or responses
 - When someone asks to build a website: write the files to \`${scratchDir}/site/\`, then call \`deploy_site\` with that directory and a descriptive project_name — give them the branded melleka.app URL
 - When someone asks to send an email: use the send_email tool directly — just do it
-- When someone asks for Google Ads data or any ad platform data: ALWAYS use supermetrics_query first (it's the most reliable data source). Only fall back to google_ads_query if supermetrics_query doesn't have what you need.
-- When someone asks for analytics, cross-platform reports, or data from GA4/Meta/Instagram/LinkedIn/Search Console: use supermetrics_query
+- When someone asks for Google Ads data: ALWAYS use google_ads_query (direct API — most reliable, no quota limits). Only fall back to supermetrics_query if google_ads_query can't provide what you need.
+- When someone asks for Meta/Facebook/Instagram Ads data: ALWAYS use meta_ads_manage (direct API — most reliable, no quota limits). Only fall back to supermetrics_query if meta_ads_manage can't provide what you need.
+- When someone asks for analytics or cross-platform reports from GA4/Instagram organic/LinkedIn/Search Console (platforms without direct API tools): use supermetrics_query
 - When someone asks to hit an API or pull a report: use http_request to fetch the data
 - When someone asks about the database, users, subscriptions, or any table: use supabase_query (specify project if not team)
 - When someone asks to post in Slack or check Slack messages: use slack_post / slack_history
@@ -689,13 +723,14 @@ ${communitySkills}
 - When someone asks about SEO, keywords, rankings, backlinks, or competitor analysis: use semrush_query
 - When someone asks to schedule something: use create_cron_job with a cron expression
 - PROACTIVELY LEARN AND REMEMBER: After every meaningful conversation, save important information using save_memory (for new topics) or append_memory (to add to existing memory entries). Each memory has a title and content. Use descriptive titles like "Client preferences", "Campaign strategy notes", "Account IDs and integrations". What to save:
-  * Client goals, KPIs, target metrics, and success criteria
+  * Client goals, KPIs, target metrics, and success criteria (CLIENT goals only, never Melleka's own)
   * Preferences (communication style, reporting frequency, preferred platforms)
   * Key decisions made and the reasoning behind them
   * Campaign performance insights and what worked/didn't work
   * Business context (seasonal patterns, budget cycles, stakeholders)
   * Action items, deadlines, and commitments
   * Recurring requests or workflows they use often
+  * NEVER save Melleka Marketing's own finances, revenue, expenses, personal goals, or internal business metrics
   Use list_memories first to check existing entries before creating duplicates. Append to existing entries when adding to the same topic.
   Do NOT wait to be asked -- save anything that would help you serve this person better next time
 - Be proactive — read files, run commands, get things done
@@ -705,10 +740,10 @@ ${communitySkills}
 - For ad campaigns: pull current performance data first, analyze what's working, then recommend/implement changes
 - For content creation: research the topic (SEMrush, competitor analysis), apply copywriting frameworks, then create
 - For SEO work: use semrush_query for keyword data, audit the page, provide specific recommendations
-- For analytics: use supermetrics_query to pull cross-platform data, format reports clearly with insights
+- For analytics: use google_ads_query and meta_ads_manage for ad platform data (primary), supermetrics_query for GA4/Search Console/other platforms without direct API tools. Format reports clearly with insights
 - For social media: apply platform-specific strategies, create content calendars, write posts with strong hooks
 - For email campaigns: design full sequences with subject lines, preview text, body copy, and CTAs
-- When building landing pages or sites: write the code, deploy with deploy_site (always include project_name for branded URL), and give the melleka.app URL
+- When building landing pages or sites: write the code, deploy with deploy_site (always include project_name for branded URL), and give the melleka.app URL. Exception: for CLIENT UPDATE requests, do NOT call deploy_site — the user publishes from the UI.
 - Always back recommendations with data — pull actual performance numbers before suggesting changes
 - When generating client updates: follow the CLIENT UPDATE BOT rules below exactly.
 
@@ -831,12 +866,10 @@ When generating for live chat (not a cron job or scheduled task):
    - Work Completed with ALL Notion tasks organized by category with checkmark bullets
    - Coming Up Next Week section with scheduling reminder
    - Melleka Marketing footer
-5. Write the complete HTML file to /tmp/{member-name}/update-{client-slug}/index.html using write_file
-6. Deploy with deploy_site: directory="/tmp/{member-name}/update-{client-slug}", project_name="{client-slug}-update"
-7. Present the melleka.app URL in the chat response
+5. Do NOT call deploy_site. Instead, use write_file to save the complete HTML to \`${scratchDir}/client-update.html\`. The server will automatically detect the .html file and send it to the frontend as a preview with edit and publish options. Do NOT output the HTML code in the chat text — only save it via write_file.
 
 STEP 9 - PLAIN TEXT SUMMARY:
-After deploying the branded page, ALSO output a plain text summary in chat (copy-paste ready for email/Slack):
+After outputting the branded HTML, ALSO output a plain text summary in chat (copy-paste ready for email/Slack):
 
 [CLIENT NAME]
 
@@ -884,19 +917,18 @@ Reporting / Analytics
 Social Media: [X] posts published this week ([total likes] likes, [total comments] comments)
 Reminder: Check if social media posts are scheduled for next week
 
-Branded Update Page: https://{client-slug}-update.melleka.app
-
 Source: https://www.notion.so/9e7cd72f-e62c-4514-9456-5f51cbcfe981
 
 ---
 
+Do NOT include any melleka.app URL in the plain text summary. The user will publish from the UI and get their own URL.
 Only include category sections that have actual items. Skip empty sections entirely.
 
 CONSOLIDATED EMAIL (for cron jobs):
 After generating ALL client sections, send ONE email via send_email with ALL clients listed back to back in one email body. Do NOT send separate emails per client. Do NOT deploy branded pages for cron runs.
 
 APPROVAL FLOW (for live chat only):
-After generating the text update and deploying the branded page, ask: "Approved? If yes, I will send the email with the branded page link included."
+After generating the text update and the branded HTML page, ask: "Approved? If yes, I will send the email. You can publish the branded page from the preview panel above."
 When running as a CRON JOB or scheduled task, SKIP approval entirely and send the email directly.
 
 EDGE CASE HANDLING:
@@ -930,24 +962,39 @@ function safeWrite(write: SseWriter): SseWriter {
   };
 }
 
+function buildLowTokenPrompt(): string {
+  return `
+
+## Output Efficiency Mode (ACTIVE)
+Be maximally concise. Lead with the answer, not reasoning. Skip preamble,
+filler, and restating the question. Use bullet points over paragraphs.
+Keep tool-use commentary to one sentence. Never sacrifice output quality —
+just reduce explanation around it.
+`;
+}
+
 /** Core agentic loop. Pass a writer for SSE streaming, or null for background runs. */
 async function runChat(
   memberName: string,
   messages: Anthropic.MessageParam[],
   write: SseWriter,
   conversationId?: string | null,
+  lowTokenMode?: boolean,
+  model?: string,
 ): Promise<string> {
   // Migrate old blob memory to individual entries (first time only)
   await migrateMemoryIfNeeded(memberName);
 
-  const [memory, claudeMd, marketingSkills, communitySkills, cronContext] = await Promise.all([
+  const [memory, claudeMd, marketingSkills, communitySkills, tasteSkills, cronContext] = await Promise.all([
     buildMemoryForPrompt(memberName),
     loadClaudeMd(),
     loadMarketingSkills(),
     loadCommunitySkills(),
+    loadTasteSkills(),
     loadRecentCronContext(memberName),
   ]);
-  const systemPrompt = buildSystemPrompt(memberName, memory, claudeMd, marketingSkills, communitySkills, cronContext);
+  const lowTokenModeNote = lowTokenMode ? buildLowTokenPrompt() : "";
+  const systemPrompt = buildSystemPrompt(memberName, memory, claudeMd, marketingSkills, communitySkills, tasteSkills, cronContext) + lowTokenModeNote;
   console.log(`[runChat] ${memberName} | system prompt length=${systemPrompt.length}, history=${messages.length} messages`);
   let fullResponse = "";
   const currentMessages = [...messages];
@@ -1076,7 +1123,7 @@ async function runChat(
 
       let stream: AsyncGenerator<LLMStreamEvent>;
       try {
-        stream = await callLLMWithFallback(systemPrompt, currentMessages, TOOL_DEFINITIONS, write, memberName);
+        stream = await callLLMWithFallback(systemPrompt, currentMessages, TOOL_DEFINITIONS, write, memberName, model);
       } catch (err: any) {
         const errMsg = `\n\n[Error: All LLM providers failed — ${err.message}]`;
         fullResponse += errMsg;
@@ -1237,6 +1284,18 @@ async function runChat(
 
         write?.({ type: "tool_result", name: block.name, output: result.slice(0, 500) });
 
+        // If write_file created an HTML file, send the full content to the frontend
+        // so the Client Update Bot editor can display it regardless of whether the AI
+        // used markers or tools to produce the HTML.
+        if (
+          block.name === "write_file" &&
+          typeof parsedInput?.file_path === "string" &&
+          parsedInput.file_path.endsWith(".html") &&
+          typeof parsedInput?.content === "string"
+        ) {
+          write?.({ type: "html_content", content: parsedInput.content });
+        }
+
         // Cap tool results — mutation confirmations are mostly noise
         const maxLen = result.startsWith("Mutation successful") ? 1500 : 4000;
         const trimmedResult = result.length > maxLen
@@ -1269,12 +1328,14 @@ export async function streamChat(
   res: Response,
   onEvent?: (event: Record<string, unknown>) => void,
   conversationId?: string | null,
+  lowTokenMode?: boolean,
+  model?: string,
 ): Promise<string> {
   const write: SseWriter = safeWrite((event) => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
     if (onEvent) onEvent(event);
   });
-  return runChat(memberName, messages, write, conversationId);
+  return runChat(memberName, messages, write, conversationId, lowTokenMode, model);
 }
 
 /** Run chat in the background (no SSE, just returns the full response) */

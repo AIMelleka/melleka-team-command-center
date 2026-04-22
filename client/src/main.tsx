@@ -29,14 +29,9 @@ createRoot(document.getElementById("root")!).render(
   </React.StrictMode>
 );
 
-// Unregister any existing service worker and clear all caches
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.getRegistrations().then((registrations) => {
-    for (const r of registrations) r.unregister();
-  });
-}
-if ("caches" in window) {
-  caches.keys().then((names) => {
-    for (const name of names) caches.delete(name);
+// Clean up any service workers — we don't use them
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    for (const r of regs) r.unregister();
   });
 }

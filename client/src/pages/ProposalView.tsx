@@ -832,23 +832,27 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
   useEffect(() => {
     const fetchProposal = async () => {
       if (!slug) return;
-      const {
-        data,
-        error
-      } = await supabase.from('proposals').select('*').eq('slug', slug).maybeSingle();
-      if (error) {
-        console.error('Error fetching proposal:', error);
+      // Fetch via public server endpoint — no auth required so anyone with the link can view
+      const apiBase = import.meta.env.VITE_API_URL || 'https://api.teams.melleka.com/api';
+      try {
+        const resp = await fetch(`${apiBase}/public/proposals/${encodeURIComponent(slug)}`);
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          if (resp.status === 404) {
+            toast.error('Proposal not found');
+            navigate('/');
+          } else {
+            console.error('Error fetching proposal:', body);
+            toast.error('Failed to load proposal');
+          }
+        } else {
+          const { proposal } = await resp.json();
+          setProposal(proposal as Proposal);
+          window.scrollTo({ top: 0, behavior: 'instant' });
+        }
+      } catch (err) {
+        console.error('Error fetching proposal:', err);
         toast.error('Failed to load proposal');
-      } else if (!data) {
-        toast.error('Proposal not found');
-        navigate('/');
-      } else {
-        setProposal(data as Proposal);
-        // Ensure we're at the top after data loads
-        window.scrollTo({
-          top: 0,
-          behavior: 'instant'
-        });
       }
       setLoading(false);
     };
@@ -869,7 +873,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
     }
   }, [proposal]);
 
-  // Pre-fill SEO search with client's website URL and auto-fetch
+  // Pre-fill SEO search with client's website URL and auto-fetch (admins only)
   useEffect(() => {
     if (proposal) {
       const websiteUrl = proposal.content?.websiteUrl || proposal.content?.currentState?.domain;
@@ -878,14 +882,15 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
         if (!seoSearchDomain) {
           setSeoSearchDomain(cleanDomain);
         }
-        // Auto-fetch SEO data on load (only if not already fetched)
-        if (!liveSeoData && !isFetchingSeo) {
+        // Only auto-fetch live SEO data for authenticated admins — public viewers
+        // see the pre-saved data from proposal.content.currentState instead
+        if (isAdmin && !liveSeoData && !isFetchingSeo) {
           fetchLiveSeoData(cleanDomain);
         }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proposal?.id]);
+  }, [proposal?.id, isAdmin]);
 
   // Bulletproof scroll-spy (single source of truth): determine active section by
   // the last section whose top has crossed the header offset line.

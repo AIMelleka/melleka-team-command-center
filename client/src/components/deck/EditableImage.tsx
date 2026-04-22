@@ -1,5 +1,5 @@
 import { useRef, useState, useContext } from 'react';
-import { Upload, ImagePlus, Loader2, X, RefreshCw } from 'lucide-react';
+import { Upload, ImagePlus, Loader2, X, RefreshCw, Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { DeckEditContext } from './DeckEditContext';
@@ -19,6 +19,8 @@ interface EditableImageProps {
   style?: React.CSSProperties;
   /** Called after a successful upload with the public URL */
   onUploaded?: (url: string) => void;
+  /** Called when user wants to delete/remove the image entirely */
+  onDelete?: () => void;
 }
 
 const BUCKET = 'deck-campaign-assets';
@@ -32,6 +34,7 @@ export const EditableImage = ({
   wrapperClassName,
   style,
   onUploaded,
+  onDelete,
 }: EditableImageProps) => {
   const editCtx = useContext(DeckEditContext);
   const isEditMode = editCtx?.isEditMode ?? false;
@@ -97,7 +100,7 @@ export const EditableImage = ({
   // Non-edit mode: just render the image (or nothing if no src)
   if (!isEditMode) {
     if (!displaySrc) return null;
-    return <img src={displaySrc} alt={alt} className={className} style={style} />;
+    return <img src={displaySrc} alt={alt} className={className} style={style} crossOrigin="anonymous" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
   }
 
   return (
@@ -110,7 +113,7 @@ export const EditableImage = ({
     >
       {/* Actual image or placeholder */}
       {displaySrc ? (
-        <img src={displaySrc} alt={alt} className={className} style={style} />
+        <img src={displaySrc} alt={alt} className={className} style={style} crossOrigin="anonymous" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
       ) : (
         <div
           className={cn(
@@ -148,6 +151,15 @@ export const EditableImage = ({
                 <RefreshCw className="h-4 w-4" />
                 Replace Image
               </button>
+              {onDelete && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500 text-white text-sm font-semibold hover:bg-red-400 transition-colors shadow-lg"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Remove Logo
+                </button>
+              )}
               <span className="text-white/50 text-xs">or drag & drop a new image</span>
             </>
           )}

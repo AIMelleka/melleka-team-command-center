@@ -205,6 +205,41 @@ const DeckBuilder = () => {
   const [dateStart, setDateStart] = useState<Date>(startOfWeek(subDays(new Date(), 7)));
   const [dateEnd, setDateEnd] = useState<Date>(endOfWeek(subDays(new Date(), 7)));
 
+  // Supermetrics state (must be declared before effects that reference them)
+  const [supermetricsAccounts, setSupermetricsAccounts] = useState<Record<string, SupermetricsAccount[]>>({});
+  const [selectedAccounts, setSelectedAccounts] = useState<Record<string, string[]>>({});
+  const [isFetchingAccounts, setIsFetchingAccounts] = useState(false);
+  const [isFetchingAdData, setIsFetchingAdData] = useState(false);
+  const [adData, setAdData] = useState<Record<string, SupermetricsPlatformData> | null>(null);
+  const [seoDeckData, setSeoDeckData] = useState<SeoDeckData | null>(null);
+  const [isFetchingSeoForDeck, setIsFetchingSeoForDeck] = useState(false);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [accountSearchFilters, setAccountSearchFilters] = useState<Record<string, string>>({});
+
+  // Campaign result uploads (SMS & Email — split by sub-type)
+  const [smsResultsUploads, setSmsResultsUploads] = useState<CampaignUpload[]>([]);
+  const [smsCampaignUploads, setSmsCampaignUploads] = useState<CampaignUpload[]>([]);
+  const [emailResultsUploads, setEmailResultsUploads] = useState<CampaignUpload[]>([]);
+  const [emailDesignsUploads, setEmailDesignsUploads] = useState<CampaignUpload[]>([]);
+  // New upload sections
+  const [adCreativeUploads, setAdCreativeUploads] = useState<CampaignUpload[]>([]);
+  const [nextEmailUploads, setNextEmailUploads] = useState<CampaignUpload[]>([]);
+  const [nextSmsUploads, setNextSmsUploads] = useState<CampaignUpload[]>([]);
+  const [blogPostUploads, setBlogPostUploads] = useState<CampaignUpload[]>([]);
+  const [analyticsUploads, setAnalyticsUploads] = useState<CampaignUpload[]>([]);
+  const [socialMediaUploads, setSocialMediaUploads] = useState<CampaignUpload[]>([]);
+
+  // Task notes — raw text about completed work & client needs, categorized by AI into platform sections
+  const [taskNotes, setTaskNotes] = useState('');
+
+  // Social media accounts
+  interface SocialAccountEntry { platform: string; handle: string; url: string; }
+  const [socialAccounts, setSocialAccounts] = useState<SocialAccountEntry[]>([]);
+  const [socialProfileId, setSocialProfileId] = useState<string | null>(null);
+  const [isFetchingSocialAccounts, setIsFetchingSocialAccounts] = useState(false);
+  const [isScrapingSocial, setIsScrapingSocial] = useState(false);
+  const [socialPosts, setSocialPosts] = useState<any[] | null>(null);
+
   // Close client dropdown on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -365,41 +400,6 @@ const DeckBuilder = () => {
     setSocialAccounts(prev => prev.map((acc, i) => i === index ? { ...acc, [field]: value } : acc));
   };
 
-
-  // Supermetrics state
-  const [supermetricsAccounts, setSupermetricsAccounts] = useState<Record<string, SupermetricsAccount[]>>({});
-  const [selectedAccounts, setSelectedAccounts] = useState<Record<string, string[]>>({});
-  const [isFetchingAccounts, setIsFetchingAccounts] = useState(false);
-  const [isFetchingAdData, setIsFetchingAdData] = useState(false);
-  const [adData, setAdData] = useState<Record<string, SupermetricsPlatformData> | null>(null);
-  const [seoDeckData, setSeoDeckData] = useState<SeoDeckData | null>(null);
-  const [isFetchingSeoForDeck, setIsFetchingSeoForDeck] = useState(false);
-  const [accountsLoaded, setAccountsLoaded] = useState(false);
-  const [accountSearchFilters, setAccountSearchFilters] = useState<Record<string, string>>({});
-
-  // Campaign result uploads (SMS & Email — split by sub-type)
-  const [smsResultsUploads, setSmsResultsUploads] = useState<CampaignUpload[]>([]);
-  const [smsCampaignUploads, setSmsCampaignUploads] = useState<CampaignUpload[]>([]);
-  const [emailResultsUploads, setEmailResultsUploads] = useState<CampaignUpload[]>([]);
-  const [emailDesignsUploads, setEmailDesignsUploads] = useState<CampaignUpload[]>([]);
-  // New upload sections
-  const [adCreativeUploads, setAdCreativeUploads] = useState<CampaignUpload[]>([]);
-  const [nextEmailUploads, setNextEmailUploads] = useState<CampaignUpload[]>([]);
-  const [nextSmsUploads, setNextSmsUploads] = useState<CampaignUpload[]>([]);
-  const [blogPostUploads, setBlogPostUploads] = useState<CampaignUpload[]>([]);
-  const [analyticsUploads, setAnalyticsUploads] = useState<CampaignUpload[]>([]);
-  const [socialMediaUploads, setSocialMediaUploads] = useState<CampaignUpload[]>([]);
-
-  // Task notes — raw text about completed work & client needs, categorized by AI into platform sections
-  const [taskNotes, setTaskNotes] = useState('');
-
-  // Social media accounts
-  interface SocialAccountEntry { platform: string; handle: string; url: string; }
-  const [socialAccounts, setSocialAccounts] = useState<SocialAccountEntry[]>([]);
-  const [socialProfileId, setSocialProfileId] = useState<string | null>(null);
-  const [isFetchingSocialAccounts, setIsFetchingSocialAccounts] = useState(false);
-  const [isScrapingSocial, setIsScrapingSocial] = useState(false);
-  const [socialPosts, setSocialPosts] = useState<any[] | null>(null);
 
   const SOCIAL_PLATFORMS = [
     { value: 'instagram', label: 'Instagram', icon: '📸', placeholder: 'https://instagram.com/username' },

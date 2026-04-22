@@ -1,7 +1,7 @@
-import { ArrowLeft, Lightbulb } from 'lucide-react';
+import { ArrowLeft, Lightbulb, Loader2, CheckCircle, XCircle, AlertTriangle, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import type { ClientDailyReport, ActionableRecommendation, DeepAnalysis, Recommendation } from '@/types/dailyReports';
+import type { ClientDailyReport, ActionableRecommendation, DeepAnalysis, Recommendation, Platform } from '@/types/dailyReports';
 import { computeReportScore, aggregateKpis } from './scoring';
 import { SectionHeader } from './shared';
 import { ScoreCardSection } from './detail-sections/ScoreCardSection';
@@ -23,6 +23,8 @@ interface Props {
   onApprove: (rec: ActionableRecommendation, clientName: string, key: string) => Promise<string | null>;
   onReject: (key: string) => Promise<void>;
   onExecute: (key: string) => Promise<{ ok: boolean; error?: string }>;
+  // One-click make change
+  onMakeChange?: (rec: Recommendation, clientName: string, platforms: Platform[], key: string) => Promise<{ ok: boolean; status: string; error?: string }>;
 }
 
 const priorityOrder = ['high', 'medium', 'low'] as const;
@@ -43,6 +45,7 @@ export function ClientDetailView({
   onApprove,
   onReject,
   onExecute,
+  onMakeChange,
 }: Props) {
   const scoreData = computeReportScore(report);
   const kpis = aggregateKpis(report);
@@ -86,24 +89,46 @@ export function ClientDetailView({
           onExecute={onExecute}
         />
       ) : (
-        <ImpactRecommendationsSection recommendations={report.recommendations} />
+        <ImpactRecommendationsSection
+          recommendations={report.recommendations}
+          clientName={report.clientName}
+          platforms={report.platforms}
+          getStatus={getStatus}
+          getError={getError}
+          onMakeChange={onMakeChange}
+        />
       )}
     </div>
   );
 }
 
-/** Simple impact-tiered recs for single-day mode (no approve/execute) */
-function ImpactRecommendationsSection({ recommendations }: { recommendations: Recommendation[] }) {
+/** Impact-tiered recs for single-day mode with optional one-click "Make the change" */
+function ImpactRecommendationsSection({
+  recommendations,
+  clientName,
+  platforms,
+  getStatus,
+  getError,
+  onMakeChange,
+}: {
+  recommendations: Recommendation[];
+  clientName: string;
+  platforms: Platform[];
+  getStatus: (key: string) => RecStatus;
+  getError: (key: string) => string | undefined;
+  onMakeChange?: (rec: Recommendation, clientName: string, platforms: Platform[], key: string) => Promise<{ ok: boolean; status: string; error?: string }>;
+}) {
   if (!recommendations || recommendations.length === 0) return null;
 
-  // Group by priority
-  const groups = new Map<string, Recommendation[]>();
-  for (const rec of recommendations) {
+  // Group by priority, tracking original indices for stable keys
+  const groups = new Map<string, { recs: Recommendation[]; indices: number[] }>();
+  recommendations.forEach((rec, idx) => {
     const p = rec.priority || 'medium';
-    const list = groups.get(p) || [];
-    list.push(rec);
-    groups.set(p, list);
-  }
+    const existing = groups.get(p) || { recs: [], indices: [] };
+    existing.recs.push(rec);
+    existing.indices.push(idx);
+    groups.set(p, existing);
+  });
 
   const orderedPriorities = priorityOrder.filter(p => groups.has(p));
 
@@ -113,7 +138,7 @@ function ImpactRecommendationsSection({ recommendations }: { recommendations: Re
 
       <div className="space-y-4">
         {orderedPriorities.map(priority => {
-          const recs = groups.get(priority)!;
+          const { recs, indices } = groups.get(priority)!;
           const style = priorityStyles[priority];
 
           return (
@@ -122,28 +147,93 @@ function ImpactRecommendationsSection({ recommendations }: { recommendations: Re
                 {style.label}
               </p>
               <div className="space-y-2">
-                {recs.map((rec, i) => (
-                  <div
-                    key={i}
-                    className={`rounded-lg border p-4 ${style.borderColor} ${style.bgColor}`}
-                  >
-                    <p className="text-sm font-medium text-foreground">{rec.action}</p>
-                    {rec.expectedImpact && (
-                      <p className="text-xs text-muted-foreground mt-1">{rec.expectedImpact}</p>
-                    )}
-                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                      {rec.platform && (
-                        <Badge variant="outline" className="text-[10px]">{rec.platform}</Badge>
+                {recs.map((rec, i) => {
+                  const localKey = `mc-${clientName}-${indices[i]}`;
+                  const status = getStatus(localKey);
+                  const error = getError(localKey);
+                  const isTerminal = status === 'executed' || status === 'failed';
+                  const isExecuting = status === 'executing';
+                  const isAdvisory = status === 'approved'; // advisory results show as approved
+
+                  return (
+                    <div
+                      key={i}
+                      className={`rounded-lg border p-4 transition-opacity ${style.borderColor} ${style.bgColor} ${isTerminal ? 'opacity-60' : ''}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground">{rec.action}</p>
+                          {rec.expectedImpact && (
+                            <p className="text-xs text-muted-foreground mt-1">{rec.expectedImpact}</p>
+                          )}
+                        </div>
+                        {/* Status badges */}
+                        {status === 'executed' && (
+                          <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-500 border-emerald-500/30 shrink-0">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Executed
+                          </Badge>
+                        )}
+                        {isAdvisory && (
+                          <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-500 border-amber-500/30 shrink-0">
+                            Approved (Manual)
+                          </Badge>
+                        )}
+                        {status === 'failed' && (
+                          <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-500 border-red-500/30 shrink-0">
+                            <XCircle className="h-3 w-3 mr-1" />
+                            Failed
+                          </Badge>
+                        )}
+                        {isExecuting && (
+                          <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-500 border-blue-500/30 shrink-0">
+                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            Executing...
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Error message */}
+                      {error && status === 'failed' && (
+                        <div className="flex items-center gap-1.5 mt-2 px-2 py-1.5 rounded bg-red-500/10 border border-red-500/20">
+                          <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                          <p className="text-xs text-red-400 truncate">{error}</p>
+                        </div>
                       )}
-                      {rec.effort && (
-                        <Badge variant="outline" className="text-[10px]">{rec.effort}</Badge>
-                      )}
-                      {rec.timeline && (
-                        <Badge variant="outline" className="text-[10px]">{rec.timeline}</Badge>
+
+                      <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                        {rec.platform && (
+                          <Badge variant="outline" className="text-[10px]">{rec.platform}</Badge>
+                        )}
+                        {rec.effort && (
+                          <Badge variant="outline" className="text-[10px]">{rec.effort}</Badge>
+                        )}
+                        {rec.timeline && (
+                          <Badge variant="outline" className="text-[10px]">{rec.timeline}</Badge>
+                        )}
+                      </div>
+
+                      {/* Make the change button */}
+                      {onMakeChange && !isTerminal && !isAdvisory && (
+                        <div className="mt-3">
+                          <Button
+                            size="sm"
+                            className="h-7 px-3 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                            disabled={isExecuting}
+                            onClick={() => onMakeChange(rec, clientName, platforms, localKey)}
+                          >
+                            {isExecuting ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                            ) : (
+                              <Zap className="h-3.5 w-3.5 mr-1" />
+                            )}
+                            {isExecuting ? 'Making change...' : 'Make the change'}
+                          </Button>
+                        </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );

@@ -23,6 +23,14 @@ export function SlideRenderer({ slide, brandPrimary = '#6366f1', brandSecondary 
   const bp = brandPrimary;
   const bs = brandSecondary;
 
+  if (!slide) {
+    return (
+      <div className="w-full h-full bg-[#0a0a14] flex items-center justify-center">
+        <p className="text-white/20 text-[28px]">No slide selected</p>
+      </div>
+    );
+  }
+
   switch (slide.type) {
     case 'title':
       return <TitleSlide slide={slide} bp={bp} bs={bs} logo={clientLogo} />;
@@ -54,7 +62,7 @@ function TitleSlide({ slide, bp, bs, logo }: { slide: Slide; bp: string; bs: str
       </div>
       <div className="absolute inset-0 flex flex-col items-center justify-center text-white px-32">
         {logo && (
-          <img src={logo} alt="Logo" className="h-24 mb-12 object-contain drop-shadow-2xl" />
+          <img src={logo} alt="Logo" className="h-24 mb-12 object-contain drop-shadow-2xl" crossOrigin="anonymous" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
         )}
         <h1 className="text-[80px] font-bold leading-tight text-center tracking-tight drop-shadow-lg" style={{ fontFamily: "'Playfair Display', serif" }}>
           {slide.data.headline || slide.title}

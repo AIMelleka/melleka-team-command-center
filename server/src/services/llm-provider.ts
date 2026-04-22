@@ -397,6 +397,7 @@ async function callClaude(
   systemPrompt: string,
   messages: Anthropic.MessageParam[],
   tools: Anthropic.Tool[],
+  model?: string,
 ): Promise<AsyncGenerator<LLMStreamEvent>> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw Object.assign(new Error("ANTHROPIC_API_KEY not configured"), { status: 401 });
@@ -409,7 +410,7 @@ async function callClaude(
   try {
     const stream = await client.messages.stream(
       {
-        model: "claude-opus-4-6",
+        model: model || "claude-opus-4-6",
         max_tokens: 32768,
         system: systemPrompt,
         tools,
@@ -511,6 +512,7 @@ export async function callLLMWithFallback(
   tools: Anthropic.Tool[],
   write: SseWriter,
   memberName: string,
+  model?: string,
 ): Promise<AsyncGenerator<LLMStreamEvent>> {
   const errors: Array<{ provider: string; error: string }> = [];
 
@@ -537,7 +539,9 @@ export async function callLLMWithFallback(
       console.log(`[llm] ${memberName} | trying ${provider}...`);
 
       const callers = { claude: callClaude, gemini: callGemini, openai: callOpenAI };
-      const stream = await callers[provider](systemPrompt, messages, tools);
+      const stream = provider === "claude"
+        ? await callClaude(systemPrompt, messages, tools, model)
+        : await callers[provider](systemPrompt, messages, tools);
 
       console.log(`[llm] ${memberName} | connected to ${provider}`);
 

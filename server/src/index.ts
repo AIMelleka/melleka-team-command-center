@@ -18,6 +18,7 @@ import superAgentTasksRouter from "./routes/super-agent-tasks.js";
 import meetingRouter from "./routes/meeting.js";
 import autoOptimizeRouter from "./routes/auto-optimize.js";
 import websitesRouter from "./routes/websites.js";
+import commercialsRouter from "./routes/commercials.js";
 import deepAnalysisRouter from "./routes/deep-analysis.js";
 import recommendationsRouter from "./routes/recommendations.js";
 import uploadsRouter from "./routes/uploads.js";
@@ -146,6 +147,7 @@ app.use("/api/super-agent-tasks", superAgentTasksRouter);
 app.use("/api/meeting", meetingRouter);
 app.use("/api/auto-optimize", autoOptimizeRouter);
 app.use("/api/websites", websitesRouter);
+app.use("/api/commercials", commercialsRouter);
 app.use("/api/deep-analysis", deepAnalysisRouter);
 app.use("/api/recommendations", recommendationsRouter);
 app.use("/api/uploads", uploadsRouter);
@@ -178,10 +180,50 @@ process.on("unhandledRejection", (reason) => {
   console.error("[unhandledRejection] Server staying alive:", reason);
 });
 
+// ── Validate critical tokens on startup (non-blocking) ────────────────
+async function validateCriticalTokens() {
+  const checks: { name: string; token: string | undefined; url: string; headers: Record<string, string> }[] = [
+    {
+      name: "VERCEL_TOKEN",
+      token: process.env.VERCEL_TOKEN,
+      url: "https://api.vercel.com/v2/user",
+      headers: {},
+    },
+    {
+      name: "ANTHROPIC_API_KEY",
+      token: process.env.ANTHROPIC_API_KEY,
+      url: "https://api.anthropic.com/v1/messages",
+      headers: { "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    },
+  ];
+
+  for (const { name, token, url, headers } of checks) {
+    if (!token) {
+      console.warn(`\n⚠️  ${name} is NOT SET! Features depending on it will fail.\n`);
+      continue;
+    }
+    try {
+      const res = await fetch(url, {
+        method: name === "ANTHROPIC_API_KEY" ? "POST" : "GET",
+        headers: { Authorization: `Bearer ${token}`, ...headers },
+        ...(name === "ANTHROPIC_API_KEY" ? { body: JSON.stringify({ model: "claude-3-haiku-20240307", max_tokens: 1, messages: [{ role: "user", content: "hi" }] }) } : {}),
+      });
+      if (res.status === 401 || res.status === 403) {
+        console.warn(`\n⚠️  ${name} is INVALID/EXPIRED! Update at ${name === "VERCEL_TOKEN" ? "https://vercel.com/account/tokens" : "https://console.anthropic.com/settings/keys"}\n`);
+      } else {
+        console.log(`✓ ${name} is valid`);
+      }
+    } catch (err: any) {
+      console.warn(`⚠️  Could not validate ${name}: ${err.message}`);
+    }
+  }
+}
+
 const server = app.listen(PORT, () => {
   console.log(`Melleka Teams server running on http://localhost:${PORT}`);
   startScheduler().catch(console.error);
   warmCaches().catch(console.error);
+  validateCriticalTokens().catch(console.error);
 });
 
 // Disable server timeout for SSE connections (agentic loops can take 10+ minutes)

@@ -37,8 +37,19 @@ export async function deployToVercel(
 ): Promise<DeployResult> {
   const token = await requireSecret("VERCEL_TOKEN", "Vercel Token");
 
-  const nameFlag = projectName ? `--name "${projectName}"` : "";
-  const cmd = `vercel deploy --yes --prod --token ${token} ${nameFlag}`.trim();
+  // Link to Vercel project first (replaces deprecated --name flag)
+  if (projectName) {
+    try {
+      await execAsync(
+        `vercel link --yes --project "${projectName}" --token ${token}`,
+        { cwd: directory, timeout: 30000, env: safeEnv({ HOME: homeDir }) }
+      );
+    } catch {
+      // Project may not exist yet — vercel deploy --prod will create it
+    }
+  }
+
+  const cmd = `vercel deploy --yes --prod --token ${token}`;
   const { stdout, stderr } = await execAsync(cmd, {
     cwd: directory,
     timeout: 120000,

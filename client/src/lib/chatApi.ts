@@ -210,6 +210,8 @@ export function streamMessage(
   files?: File[],
   mentionedClients?: string[],
   onDisconnect?: () => void,
+  lowTokenMode?: boolean,
+  model?: string,
 ): () => void {
   const controller = new AbortController();
   let aborted = false;
@@ -228,13 +230,15 @@ export function streamMessage(
       if (mentionedClients && mentionedClients.length > 0) {
         formData.append("mentionedClients", JSON.stringify(mentionedClients));
       }
+      if (lowTokenMode) formData.append("lowTokenMode", "true");
+      if (model) formData.append("model", model);
       for (const file of files) {
         formData.append("files", file);
       }
       body = formData;
       fetchHeaders = await authHeadersNoContentType();
     } else {
-      body = JSON.stringify({ message, conversationId, mentionedClients });
+      body = JSON.stringify({ message, conversationId, mentionedClients, lowTokenMode, model });
       fetchHeaders = await authHeaders();
     }
 

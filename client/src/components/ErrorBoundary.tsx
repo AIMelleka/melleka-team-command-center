@@ -105,29 +105,39 @@ export const PageErrorFallback = ({
 }: {
   error?: Error | null;
   onRetry?: () => void;
-}) => (
-  <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center bg-background">
-    <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
-      <AlertTriangle className="w-8 h-8 text-destructive" />
-    </div>
-    <h3 className="text-lg font-semibold text-foreground mb-2">
-      This page ran into an error
-    </h3>
-    <p className="text-sm text-muted-foreground mb-4 max-w-md">
-      {error?.message || 'Something unexpected happened. The rest of the app still works.'}
-    </p>
-    <div className="flex gap-3">
-      {onRetry && (
-        <Button onClick={onRetry} variant="outline" size="sm">
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Try Again
+}) => {
+  const handleGoHome = () => {
+    // Use soft navigation if possible (avoids full page reload)
+    if (window.location.pathname !== '/') {
+      window.history.pushState(null, '', '/');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center bg-background">
+      <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
+        <AlertTriangle className="w-8 h-8 text-destructive" />
+      </div>
+      <h3 className="text-lg font-semibold text-foreground mb-2">
+        This page ran into an error
+      </h3>
+      <p className="text-sm text-muted-foreground mb-4 max-w-md">
+        {error?.message || 'Something unexpected happened. The rest of the app still works.'}
+      </p>
+      <div className="flex gap-3">
+        {onRetry && (
+          <Button onClick={onRetry} variant="outline" size="sm">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Try Again
+          </Button>
+        )}
+        <Button onClick={handleGoHome} variant="default" size="sm">
+          Go Home
         </Button>
-      )}
-      <Button onClick={() => window.location.href = '/'} variant="default" size="sm">
-        Go Home
-      </Button>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export default ErrorBoundary;

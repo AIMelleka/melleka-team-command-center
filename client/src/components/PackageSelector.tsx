@@ -10,7 +10,7 @@ interface PackageSelectorProps {
 
 const PackageSelector = ({ selectedPackages, primaryPackage, onSelectPackages }: PackageSelectorProps) => {
   const [showComparison, setShowComparison] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<'basic' | 'advanced' | 'premium'>('premium');
+  const [activeCategory, setActiveCategory] = useState<'advanced' | 'premium'>('premium');
 
   const handlePackageToggle = (packageId: string) => {
     const isSelected = selectedPackages.includes(packageId);
@@ -49,8 +49,7 @@ const PackageSelector = ({ selectedPackages, primaryPackage, onSelectPackages }:
 
   const comparison = getComparisonData();
 
-  const categories: Array<{ id: 'basic' | 'advanced' | 'premium'; label: string; description: string }> = [
-    { id: 'basic', label: 'Basic', description: 'Starting from $1,499/mo' },
+  const categories: Array<{ id: 'advanced' | 'premium'; label: string; description: string }> = [
     { id: 'advanced', label: 'Advanced', description: 'Starting from $4,299/mo' },
     { id: 'premium', label: 'Premium', description: 'Starting from $7,499/mo' },
   ];

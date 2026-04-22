@@ -53,8 +53,14 @@ const DeckEditor = () => {
 
         if (error) throw error;
 
-        const content = typeof data.content === 'string' ? JSON.parse(data.content) : data.content || {};
-        const brandColors = typeof data.brand_colors === 'string' ? JSON.parse(data.brand_colors) : data.brand_colors || {};
+        let content: Record<string, any> = {};
+        try {
+          content = typeof data.content === 'string' ? JSON.parse(data.content) : data.content || {};
+        } catch { content = {}; }
+        let brandColors: Record<string, any> = {};
+        try {
+          brandColors = typeof data.brand_colors === 'string' ? JSON.parse(data.brand_colors) : data.brand_colors || {};
+        } catch { brandColors = {}; }
         const screenshots = Array.isArray(data.screenshots) ? data.screenshots as string[] : [];
 
         setDeckId(data.id);
@@ -65,8 +71,8 @@ const DeckEditor = () => {
         setDateRange(`${safeFormatDate(data.date_range_start, 'MMMM d')} - ${safeFormatDate(data.date_range_end, 'MMMM d, yyyy')}`);
         setOriginalContent(content);
 
-        // Check if slides already exist in content
-        if (content.slides && Array.isArray(content.slides)) {
+        // Check if slides already exist in content (must be non-empty)
+        if (content.slides && Array.isArray(content.slides) && content.slides.length > 0) {
           setSlides(content.slides);
         } else {
           // Convert legacy content to slides
@@ -202,7 +208,7 @@ const DeckEditor = () => {
     return () => window.removeEventListener('keydown', handleKey);
   }, [activeIndex, slides.length, isPresenting]);
 
-  const activeSlide = slides[activeIndex];
+  const activeSlide = slides[activeIndex] || null;
 
   if (loading) {
     return (
@@ -301,15 +307,27 @@ const DeckEditor = () => {
           {/* Slide canvas */}
           <div className="flex-1 flex items-center justify-center p-6">
             <div className="w-full max-w-5xl aspect-video rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/10">
-              <ScaledSlide className="w-full h-full" fillContainer>
-                <SlideRenderer
-                  slide={activeSlide}
-                  brandPrimary={brandPrimary}
-                  brandSecondary={brandSecondary}
-                  clientLogo={clientLogo}
-                  animate
-                />
-              </ScaledSlide>
+              {activeSlide ? (
+                <ScaledSlide className="w-full h-full" fillContainer>
+                  <SlideRenderer
+                    slide={activeSlide}
+                    brandPrimary={brandPrimary}
+                    brandSecondary={brandSecondary}
+                    clientLogo={clientLogo}
+                    animate
+                  />
+                </ScaledSlide>
+              ) : (
+                <div className="w-full h-full bg-[#0a0a14] flex items-center justify-center">
+                  <div className="text-center space-y-4">
+                    <p className="text-white/30 text-lg">No slides yet</p>
+                    <Button variant="outline" size="sm" onClick={addBlankSlide} className="gap-2">
+                      <Plus className="w-4 h-4" />
+                      Add a slide
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

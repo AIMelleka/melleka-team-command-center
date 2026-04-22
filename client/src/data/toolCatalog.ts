@@ -30,7 +30,7 @@ export const TOOL_CATALOG: ToolDefinition[] = [
   { key: 'super-agent-dashboard', label: 'Agent Dashboard', description: 'Super agent chat and task management', icon: Bot, route: '/super-agent-dashboard', category: 'marketing' },
 
   // Analytics
-  { key: 'client-health', label: 'Client Health', description: 'Monitor client health scores and metrics', icon: Activity, route: '/client-health', category: 'analytics' },
+  // Command Center removed — focusing on Daily Reports
   { key: 'client-update', label: 'Client Update', description: 'Generate client update reports', icon: BarChart3, route: '/client-update', category: 'analytics' },
   { key: 'client-dashboard', label: 'Client Dashboard', description: 'Overview of client performance', icon: Target, route: '/client-dashboard', category: 'analytics' },
   { key: 'ppc-optimizer', label: 'PPC Optimizer', description: 'Optimize pay-per-click campaigns', icon: Target, route: '/ppc-optimizer', category: 'analytics' },

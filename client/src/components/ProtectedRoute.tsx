@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserPermissions } from '@/hooks/useUserPermissions';
@@ -11,15 +11,22 @@ import { MFA_EXEMPT_EMAILS } from '@/lib/mfaConfig';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   requireAdmin?: boolean;
+  routePath?: string; // For keep-alive pages: use this instead of location.pathname for tool access checks
 }
 
-const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRouteProps) => {
+const ProtectedRoute = ({ children, requireAdmin = false, routePath }: ProtectedRouteProps) => {
   const { user, isAdmin, isLoading, mfaEnrolled, refreshMfaStatus } = useAuth();
   const { hasToolAccess, isLoading: permLoading } = useUserPermissions();
   const navigate = useNavigate();
   const location = useLocation();
   const [timedOut, setTimedOut] = useState(false);
   const [forcingEnroll, setForcingEnroll] = useState(false);
+
+  // Once children have been rendered successfully, never unmount them for a
+  // transient loading flicker. This prevents keep-alive pages from losing
+  // all their state when auth re-checks happen (e.g., returning from a
+  // background tab triggers Supabase token refresh).
+  const hasRenderedChildrenRef = useRef(false);
 
   useEffect(() => {
     if (!isLoading) {
@@ -31,7 +38,11 @@ const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRouteProps)
     return () => window.clearTimeout(id);
   }, [isLoading]);
 
-  if (isLoading || permLoading) {
+  const stillLoading = isLoading || permLoading;
+
+  // Only show the loading spinner on the FIRST auth check.
+  // After children have rendered once, skip the spinner to preserve state.
+  if (stillLoading && !hasRenderedChildrenRef.current) {
     if (timedOut) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-background p-6">
@@ -62,13 +73,20 @@ const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRouteProps)
     );
   }
 
-  if (!user) {
+  // If still loading but children rendered before, fall through and keep them mounted.
+
+  if (!user && !stillLoading) {
     return <Navigate to="/login" replace />;
+  }
+
+  // While re-authing with children already mounted, just show children as-is
+  if (!user && stillLoading && hasRenderedChildrenRef.current) {
+    return <>{children}</>;
   }
 
   // Force MFA enrollment for all users who haven't set it up (exempt service accounts)
   const userEmail = user?.email?.toLowerCase() ?? '';
-  if (!mfaEnrolled && !MFA_EXEMPT_EMAILS.includes(userEmail)) {
+  if (user && !mfaEnrolled && !MFA_EXEMPT_EMAILS.includes(userEmail)) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
         <div className="w-full max-w-md mb-6 text-center">
@@ -87,6 +105,9 @@ const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRouteProps)
     );
   }
 
+  // Mark that we've successfully rendered children
+  hasRenderedChildrenRef.current = true;
+
   // Admins always have full access (after MFA check)
   if (isAdmin) {
     return <>{children}</>;
@@ -94,7 +115,7 @@ const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRouteProps)
 
   // For requireAdmin routes, check if user has tool-level permission or if tool is public
   if (requireAdmin) {
-    const toolKey = routeToToolKey(location.pathname);
+    const toolKey = routeToToolKey(routePath || location.pathname);
     if (toolKey) {
       const tool = TOOL_CATALOG.find(t => t.key === toolKey);
       if (tool?.publicAccess || hasToolAccess(toolKey)) {

@@ -392,11 +392,35 @@ async function runAdReview(
     throw new Error('No active ad accounts');
   }
 
-  const smData = await fetchSupermetrics(supabaseUrl, serviceKey, activeSources, accounts, dateStart, dateEnd);
-  const supermetricsContext = buildSupermetricsContext(smData, dateStart, dateEnd);
+  let supermetricsContext = '';
+  try {
+    const smData = await fetchSupermetrics(supabaseUrl, serviceKey, activeSources, accounts, dateStart, dateEnd);
+    supermetricsContext = buildSupermetricsContext(smData, dateStart, dateEnd);
+  } catch (e) {
+    console.warn(`[FLEET] Supermetrics failed for ${clientName} (likely quota exceeded), using DB snapshots as fallback`);
+  }
 
-  if (!supermetricsContext) {
-    throw new Error('No Supermetrics data returned');
+  // Fallback: build context from ppc_daily_snapshots if Supermetrics returned nothing useful
+  // Supermetrics may return success with platform headers but zero actual metrics (quota exceeded)
+  const hasActualMetrics = supermetricsContext.includes('Spend:') || supermetricsContext.includes('Impressions:') || supermetricsContext.includes('Clicks:');
+  if (!supermetricsContext || !hasActualMetrics) {
+    const { data: snapshots } = await supabase
+      .from('ppc_daily_snapshots')
+      .select('*')
+      .eq('client_name', clientName)
+      .gte('snapshot_date', dateStart)
+      .order('snapshot_date', { ascending: false })
+      .limit(14);
+
+    if (snapshots && snapshots.length > 0) {
+      supermetricsContext = `=== AD DATA FROM DAILY SNAPSHOTS (Supermetrics unavailable) ===\nDate Range: ${dateStart} to ${dateEnd}\n\n`;
+      for (const s of snapshots) {
+        supermetricsContext += `${s.snapshot_date} | ${s.platform}: $${s.spend?.toFixed(2)} spend, ${s.clicks || 0} clicks, ${s.conversions || 0} conv, ${s.impressions || 0} imp\n`;
+      }
+    } else {
+      console.warn(`[FLEET] No data available for ${clientName} ad review — skipping`);
+      return; // Skip this client's ad review gracefully
+    }
   }
 
   const { data: prevReviews } = await supabase

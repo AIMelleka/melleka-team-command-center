@@ -1,4 +1,5 @@
 client/
 .git/
 *.md
+!server/src/data/*.md
 .claude/

@@ -1,16 +1,18 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Bot, Activity, Building2 } from 'lucide-react';
+import { Home, Bot, BarChart3, Building2 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 const NAV_ITEMS = [
   { path: '/', icon: Home, label: 'Home' },
   { path: '/super-agent-dashboard', icon: Bot, label: 'Agent' },
-  { path: '/client-health', icon: Activity, label: 'Command' },
+  { path: '/daily-reports', icon: BarChart3, label: 'Reports' },
   { path: '/client-settings', icon: Building2, label: 'Clients' },
 ];
 
 // Hide bottom nav on fullscreen pages where it would overlap content
 const HIDDEN_PATHS = ['/', '/login'];
+// Hide on public-facing pages (proposals, decks) — no admin nav for clients
+const HIDDEN_PREFIXES = ['/proposal/', '/deck/'];
 
 export function MobileBottomNav() {
   const navigate = useNavigate();
@@ -19,6 +21,7 @@ export function MobileBottomNav() {
 
   if (!isMobile) return null;
   if (HIDDEN_PATHS.includes(location.pathname)) return null;
+  if (HIDDEN_PREFIXES.some((p) => location.pathname.startsWith(p))) return null;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 h-14 bg-background/95 backdrop-blur border-t border-border flex items-center justify-around px-2">

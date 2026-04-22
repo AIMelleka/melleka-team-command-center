@@ -1,44 +1,8 @@
 -- ============================================================
 -- Command Center Tables Migration
--- Recreates all Genie Hub tables in nhebotmrnxixvcvtspet
--- DROP existing tables first (rebuild from scratch)
+-- Creates all Genie Hub tables in nhebotmrnxixvcvtspet
+-- SAFE: Uses IF NOT EXISTS everywhere. NEVER drops tables or data.
 -- ============================================================
-
--- Drop tables in reverse dependency order
-DROP TABLE IF EXISTS social_media_posts CASCADE;
-DROP TABLE IF EXISTS ppc_change_results CASCADE;
-DROP TABLE IF EXISTS ppc_proposed_changes CASCADE;
-DROP TABLE IF EXISTS ppc_optimization_sessions CASCADE;
-DROP TABLE IF EXISTS ppc_daily_snapshots CASCADE;
-DROP TABLE IF EXISTS ppc_client_settings CASCADE;
-DROP TABLE IF EXISTS client_health_history CASCADE;
-DROP TABLE IF EXISTS client_ai_memory CASCADE;
-DROP TABLE IF EXISTS client_account_mappings CASCADE;
-DROP TABLE IF EXISTS ad_review_history CASCADE;
-DROP TABLE IF EXISTS seo_history CASCADE;
-DROP TABLE IF EXISTS site_audit_cache CASCADE;
-DROP TABLE IF EXISTS client_profiles CASCADE;
-DROP TABLE IF EXISTS managed_clients CASCADE;
-DROP TABLE IF EXISTS proposals CASCADE;
-DROP TABLE IF EXISTS decks CASCADE;
-DROP TABLE IF EXISTS fleet_run_jobs CASCADE;
-DROP TABLE IF EXISTS strategist_config CASCADE;
-DROP TABLE IF EXISTS strategist_knowledge_docs CASCADE;
-DROP TABLE IF EXISTS generated_images CASCADE;
-DROP TABLE IF EXISTS proposal_generation_jobs CASCADE;
-DROP TABLE IF EXISTS seo_writer_jobs CASCADE;
-DROP TABLE IF EXISTS package_definitions CASCADE;
-DROP TABLE IF EXISTS ghl_oauth_tokens CASCADE;
-DROP TABLE IF EXISTS api_usage_logs CASCADE;
-DROP TABLE IF EXISTS qa_submissions CASCADE;
-DROP TABLE IF EXISTS qa_improvement_notes CASCADE;
-DROP TABLE IF EXISTS user_roles CASCADE;
-DROP TABLE IF EXISTS user_tool_permissions CASCADE;
-DROP TABLE IF EXISTS mfa_recovery_codes CASCADE;
-
--- Drop functions that may conflict
-DROP FUNCTION IF EXISTS generate_proposal_slug() CASCADE;
-DROP FUNCTION IF EXISTS append_fleet_results(uuid, jsonb) CASCADE;
 
 -- Enum for user roles
 DO $$ BEGIN
@@ -58,7 +22,7 @@ $$ LANGUAGE plpgsql;
 -- ============================================================
 -- 1. managed_clients
 -- ============================================================
-CREATE TABLE managed_clients (
+CREATE TABLE IF NOT EXISTS managed_clients (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_name text NOT NULL UNIQUE,
   domain text,
@@ -78,7 +42,7 @@ CREATE TABLE managed_clients (
 -- ============================================================
 -- 2. client_account_mappings
 -- ============================================================
-CREATE TABLE client_account_mappings (
+CREATE TABLE IF NOT EXISTS client_account_mappings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_name text NOT NULL,
   platform text NOT NULL,
@@ -92,7 +56,7 @@ CREATE TABLE client_account_mappings (
 -- ============================================================
 -- 3. client_profiles
 -- ============================================================
-CREATE TABLE client_profiles (
+CREATE TABLE IF NOT EXISTS client_profiles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_name text NOT NULL,
   domain text,
@@ -104,13 +68,16 @@ CREATE TABLE client_profiles (
   created_by uuid
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_client_profiles_name ON client_profiles (lower(client_name));
-CREATE TRIGGER update_client_profiles_updated_at BEFORE UPDATE ON client_profiles
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_client_profiles_updated_at BEFORE UPDATE ON client_profiles
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 4. client_ai_memory
 -- ============================================================
-CREATE TABLE client_ai_memory (
+CREATE TABLE IF NOT EXISTS client_ai_memory (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_name text NOT NULL,
   memory_type text NOT NULL DEFAULT 'recommendation',
@@ -124,13 +91,16 @@ CREATE TABLE client_ai_memory (
 );
 CREATE INDEX IF NOT EXISTS idx_client_ai_memory_client ON client_ai_memory (client_name);
 CREATE INDEX IF NOT EXISTS idx_client_ai_memory_type ON client_ai_memory (client_name, memory_type);
-CREATE TRIGGER update_client_ai_memory_updated_at BEFORE UPDATE ON client_ai_memory
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_client_ai_memory_updated_at BEFORE UPDATE ON client_ai_memory
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 5. client_health_history
 -- ============================================================
-CREATE TABLE client_health_history (
+CREATE TABLE IF NOT EXISTS client_health_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_name text NOT NULL,
   recorded_date date NOT NULL DEFAULT CURRENT_DATE,
@@ -150,7 +120,7 @@ CREATE INDEX IF NOT EXISTS idx_client_health_history_client_date ON client_healt
 -- ============================================================
 -- 6. ppc_daily_snapshots
 -- ============================================================
-CREATE TABLE ppc_daily_snapshots (
+CREATE TABLE IF NOT EXISTS ppc_daily_snapshots (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_name text NOT NULL,
   platform text NOT NULL,
@@ -173,7 +143,7 @@ CREATE INDEX IF NOT EXISTS idx_ppc_snapshots_date ON ppc_daily_snapshots (snapsh
 -- ============================================================
 -- 7. ppc_optimization_sessions
 -- ============================================================
-CREATE TABLE ppc_optimization_sessions (
+CREATE TABLE IF NOT EXISTS ppc_optimization_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_name text NOT NULL,
   platform text NOT NULL,
@@ -192,7 +162,7 @@ CREATE TABLE ppc_optimization_sessions (
 -- ============================================================
 -- 8. ppc_proposed_changes
 -- ============================================================
-CREATE TABLE ppc_proposed_changes (
+CREATE TABLE IF NOT EXISTS ppc_proposed_changes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id uuid NOT NULL REFERENCES ppc_optimization_sessions(id) ON DELETE CASCADE,
   client_name text NOT NULL,
@@ -218,7 +188,7 @@ CREATE TABLE ppc_proposed_changes (
 -- ============================================================
 -- 9. ppc_change_results
 -- ============================================================
-CREATE TABLE ppc_change_results (
+CREATE TABLE IF NOT EXISTS ppc_change_results (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   change_id uuid NOT NULL REFERENCES ppc_proposed_changes(id) ON DELETE CASCADE,
   session_id uuid NOT NULL REFERENCES ppc_optimization_sessions(id) ON DELETE CASCADE,
@@ -234,7 +204,7 @@ CREATE TABLE ppc_change_results (
 -- ============================================================
 -- 10. ppc_client_settings
 -- ============================================================
-CREATE TABLE ppc_client_settings (
+CREATE TABLE IF NOT EXISTS ppc_client_settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_name text NOT NULL UNIQUE,
   auto_mode_enabled boolean NOT NULL DEFAULT false,
@@ -252,7 +222,7 @@ CREATE TABLE ppc_client_settings (
 -- ============================================================
 -- 11. ad_review_history
 -- ============================================================
-CREATE TABLE ad_review_history (
+CREATE TABLE IF NOT EXISTS ad_review_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_name text NOT NULL,
   review_date date NOT NULL DEFAULT CURRENT_DATE,
@@ -278,13 +248,16 @@ CREATE TABLE ad_review_history (
 CREATE INDEX IF NOT EXISTS idx_ad_review_history_client ON ad_review_history (client_name);
 CREATE INDEX IF NOT EXISTS idx_ad_review_history_date ON ad_review_history (review_date DESC);
 CREATE INDEX IF NOT EXISTS idx_ad_review_history_client_date ON ad_review_history (client_name, review_date DESC);
-CREATE TRIGGER update_ad_review_history_updated_at BEFORE UPDATE ON ad_review_history
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_ad_review_history_updated_at BEFORE UPDATE ON ad_review_history
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 12. seo_history
 -- ============================================================
-CREATE TABLE seo_history (
+CREATE TABLE IF NOT EXISTS seo_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_name text NOT NULL,
   domain text NOT NULL,
@@ -312,13 +285,16 @@ CREATE TABLE seo_history (
 );
 CREATE INDEX IF NOT EXISTS idx_seo_history_client_date ON seo_history (client_name, analysis_date DESC);
 CREATE INDEX IF NOT EXISTS idx_seo_history_domain ON seo_history (domain);
-CREATE TRIGGER update_seo_history_updated_at BEFORE UPDATE ON seo_history
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_seo_history_updated_at BEFORE UPDATE ON seo_history
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 13. site_audit_cache
 -- ============================================================
-CREATE TABLE site_audit_cache (
+CREATE TABLE IF NOT EXISTS site_audit_cache (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_name text NOT NULL UNIQUE,
   site_audit_url text NOT NULL,
@@ -330,13 +306,16 @@ CREATE TABLE site_audit_cache (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TRIGGER update_site_audit_cache_updated_at BEFORE UPDATE ON site_audit_cache
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_site_audit_cache_updated_at BEFORE UPDATE ON site_audit_cache
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 14. proposals
 -- ============================================================
-CREATE TABLE proposals (
+CREATE TABLE IF NOT EXISTS proposals (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title text NOT NULL,
   client_name text NOT NULL,
@@ -351,8 +330,11 @@ CREATE TABLE proposals (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TRIGGER update_proposals_updated_at BEFORE UPDATE ON proposals
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_proposals_updated_at BEFORE UPDATE ON proposals
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Slug auto-generation function
 CREATE OR REPLACE FUNCTION generate_proposal_slug()
@@ -364,13 +346,16 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-CREATE TRIGGER generate_proposal_slug_trigger BEFORE INSERT ON proposals
-  FOR EACH ROW EXECUTE FUNCTION generate_proposal_slug();
+DO $$ BEGIN
+  CREATE TRIGGER generate_proposal_slug_trigger BEFORE INSERT ON proposals
+    FOR EACH ROW EXECUTE FUNCTION generate_proposal_slug();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 15. decks
 -- ============================================================
-CREATE TABLE decks (
+CREATE TABLE IF NOT EXISTS decks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   slug text NOT NULL UNIQUE,
   client_name text NOT NULL,
@@ -387,13 +372,16 @@ CREATE TABLE decks (
 CREATE INDEX IF NOT EXISTS idx_decks_slug ON decks (slug);
 CREATE INDEX IF NOT EXISTS idx_decks_client_name ON decks (client_name);
 CREATE INDEX IF NOT EXISTS idx_decks_created_at ON decks (created_at DESC);
-CREATE TRIGGER update_decks_updated_at BEFORE UPDATE ON decks
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_decks_updated_at BEFORE UPDATE ON decks
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 16. fleet_run_jobs
 -- ============================================================
-CREATE TABLE fleet_run_jobs (
+CREATE TABLE IF NOT EXISTS fleet_run_jobs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   status text NOT NULL DEFAULT 'processing',
   progress integer NOT NULL DEFAULT 0,
@@ -407,7 +395,7 @@ CREATE TABLE fleet_run_jobs (
 -- ============================================================
 -- 17. strategist_config
 -- ============================================================
-CREATE TABLE strategist_config (
+CREATE TABLE IF NOT EXISTS strategist_config (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   config_key text NOT NULL UNIQUE,
   config_value text NOT NULL DEFAULT '',
@@ -425,7 +413,7 @@ ON CONFLICT (config_key) DO NOTHING;
 -- ============================================================
 -- 18. strategist_knowledge_docs
 -- ============================================================
-CREATE TABLE strategist_knowledge_docs (
+CREATE TABLE IF NOT EXISTS strategist_knowledge_docs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   file_name text NOT NULL,
   file_url text NOT NULL,
@@ -438,13 +426,16 @@ CREATE TABLE strategist_knowledge_docs (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TRIGGER update_strategist_knowledge_docs_updated_at BEFORE UPDATE ON strategist_knowledge_docs
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_strategist_knowledge_docs_updated_at BEFORE UPDATE ON strategist_knowledge_docs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 19. generated_images
 -- ============================================================
-CREATE TABLE generated_images (
+CREATE TABLE IF NOT EXISTS generated_images (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   created_by uuid NOT NULL,
   prompt text NOT NULL,
@@ -460,7 +451,7 @@ CREATE TABLE generated_images (
 -- ============================================================
 -- 20. social_media_posts
 -- ============================================================
-CREATE TABLE social_media_posts (
+CREATE TABLE IF NOT EXISTS social_media_posts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_profile_id uuid NOT NULL REFERENCES client_profiles(id) ON DELETE CASCADE,
   platform text NOT NULL,
@@ -487,7 +478,7 @@ CREATE INDEX IF NOT EXISTS idx_social_posts_client ON social_media_posts (client
 -- ============================================================
 -- 21. proposal_generation_jobs
 -- ============================================================
-CREATE TABLE proposal_generation_jobs (
+CREATE TABLE IF NOT EXISTS proposal_generation_jobs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   status text NOT NULL DEFAULT 'processing',
   progress integer DEFAULT 0,
@@ -501,13 +492,16 @@ CREATE TABLE proposal_generation_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_proposal_jobs_status ON proposal_generation_jobs (status);
 CREATE INDEX IF NOT EXISTS idx_proposal_jobs_created_at ON proposal_generation_jobs (created_at DESC);
-CREATE TRIGGER update_proposal_generation_jobs_updated_at BEFORE UPDATE ON proposal_generation_jobs
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_proposal_generation_jobs_updated_at BEFORE UPDATE ON proposal_generation_jobs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 22. seo_writer_jobs
 -- ============================================================
-CREATE TABLE seo_writer_jobs (
+CREATE TABLE IF NOT EXISTS seo_writer_jobs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   job_type text NOT NULL,
@@ -522,13 +516,16 @@ CREATE TABLE seo_writer_jobs (
   completed_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS idx_seo_writer_jobs_user_created_at ON seo_writer_jobs (user_id, created_at DESC);
-CREATE TRIGGER update_seo_writer_jobs_updated_at BEFORE UPDATE ON seo_writer_jobs
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_seo_writer_jobs_updated_at BEFORE UPDATE ON seo_writer_jobs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 23. package_definitions
 -- ============================================================
-CREATE TABLE package_definitions (
+CREATE TABLE IF NOT EXISTS package_definitions (
   id text PRIMARY KEY,
   name text NOT NULL,
   tier integer NOT NULL,
@@ -545,13 +542,16 @@ CREATE TABLE package_definitions (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TRIGGER update_package_definitions_updated_at BEFORE UPDATE ON package_definitions
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_package_definitions_updated_at BEFORE UPDATE ON package_definitions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 24. ghl_oauth_tokens
 -- ============================================================
-CREATE TABLE ghl_oauth_tokens (
+CREATE TABLE IF NOT EXISTS ghl_oauth_tokens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   location_id text NOT NULL UNIQUE,
   location_name text NOT NULL,
@@ -564,13 +564,16 @@ CREATE TABLE ghl_oauth_tokens (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TRIGGER update_ghl_oauth_tokens_updated_at BEFORE UPDATE ON ghl_oauth_tokens
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_ghl_oauth_tokens_updated_at BEFORE UPDATE ON ghl_oauth_tokens
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 25. api_usage_logs
 -- ============================================================
-CREATE TABLE api_usage_logs (
+CREATE TABLE IF NOT EXISTS api_usage_logs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   action text NOT NULL,
   user_id uuid,
@@ -590,7 +593,7 @@ CREATE INDEX IF NOT EXISTS idx_api_usage_logs_user_id ON api_usage_logs (user_id
 -- ============================================================
 -- 26. qa_submissions
 -- ============================================================
-CREATE TABLE qa_submissions (
+CREATE TABLE IF NOT EXISTS qa_submissions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -605,13 +608,16 @@ CREATE TABLE qa_submissions (
   error_message text,
   submitted_by uuid
 );
-CREATE TRIGGER update_qa_submissions_updated_at BEFORE UPDATE ON qa_submissions
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_qa_submissions_updated_at BEFORE UPDATE ON qa_submissions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 27. qa_improvement_notes
 -- ============================================================
-CREATE TABLE qa_improvement_notes (
+CREATE TABLE IF NOT EXISTS qa_improvement_notes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -621,13 +627,16 @@ CREATE TABLE qa_improvement_notes (
   is_active boolean DEFAULT true,
   added_by uuid
 );
-CREATE TRIGGER update_qa_improvement_notes_updated_at BEFORE UPDATE ON qa_improvement_notes
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_qa_improvement_notes_updated_at BEFORE UPDATE ON qa_improvement_notes
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 28. user_roles
 -- ============================================================
-CREATE TABLE user_roles (
+CREATE TABLE IF NOT EXISTS user_roles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   role app_role NOT NULL,
@@ -638,7 +647,7 @@ CREATE TABLE user_roles (
 -- ============================================================
 -- 29. user_tool_permissions
 -- ============================================================
-CREATE TABLE user_tool_permissions (
+CREATE TABLE IF NOT EXISTS user_tool_permissions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   tool_key text NOT NULL,
@@ -650,7 +659,7 @@ CREATE TABLE user_tool_permissions (
 -- ============================================================
 -- 30. mfa_recovery_codes
 -- ============================================================
-CREATE TABLE mfa_recovery_codes (
+CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   code_hash text NOT NULL,
@@ -659,9 +668,9 @@ CREATE TABLE mfa_recovery_codes (
 );
 
 -- ============================================================
--- Also ensure team_secrets table exists (was missing before)
+-- Also ensure team_secrets table exists
 -- ============================================================
-CREATE TABLE team_secrets (
+CREATE TABLE IF NOT EXISTS team_secrets (
   key text PRIMARY KEY,
   value text NOT NULL,
   description text,

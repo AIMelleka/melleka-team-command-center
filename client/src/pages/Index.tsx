@@ -4,7 +4,7 @@ import {
   Search, Plus, Loader2, MessageSquare, Trash2,
   PanelLeftClose, PanelLeft, ArrowRight, Check, X,
   Pencil, Brain, Bell, Square, Paperclip, FileText,
-  Activity,
+  Activity, Gauge, ChevronDown,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import AdminHeader from '@/components/AdminHeader';
@@ -38,6 +38,7 @@ import { useVoiceChat, VoiceModeToggle, MicButton } from '@/components/chat/Voic
 import { useVoicePreference } from '@/hooks/useVoicePreference';
 import { VoiceConversationOverlay } from '@/components/chat/VoiceConversationOverlay';
 import { MemoryPanel } from '@/components/MemoryPanel';
+import { useModelPreference } from '@/hooks/useModelPreference';
 
 // ── Types ────────────────────────────────────────────
 
@@ -126,6 +127,9 @@ const Index = () => {
   // Active background jobs
   const [activeJobConvIds, setActiveJobConvIds] = useState<Set<string>>(new Set());
 
+  // Low token mode
+  const [lowTokenMode, setLowTokenMode] = useState(false);
+
   // @mention state
   const [mentionedClients, setMentionedClients] = useState<string[]>([]);
   const [showMentionPopover, setShowMentionPopover] = useState(false);
@@ -147,6 +151,8 @@ const Index = () => {
   const sendMessageRef = useRef<(text?: string) => void>(() => {});
   const [showVoiceOverlay, setShowVoiceOverlay] = useState(false);
   const { voiceId } = useVoicePreference();
+  const { modelId, setModelId } = useModelPreference();
+  const [showModelPicker, setShowModelPicker] = useState(false);
   const voiceChat = useVoiceChat({
     onTranscript: (text) => sendMessageRef.current(text),
     onError: (msg) => toast.error(msg),
@@ -555,10 +561,12 @@ const Index = () => {
           });
         }
       },
+      lowTokenMode,
+      modelId,
     );
 
     abortRef.current = abort;
-  }, [input, files, isStreaming, activeConvoId, mentionedClients]);
+  }, [input, files, isStreaming, activeConvoId, mentionedClients, lowTokenMode]);
 
   sendMessageRef.current = sendMessage;
 
@@ -993,6 +1001,40 @@ const Index = () => {
           {/* Input area */}
           <div className="border-t border-border bg-background p-3 md:p-4">
             <div className="max-w-3xl mx-auto relative">
+              {/* Model selector */}
+              <div className="flex justify-end mb-1.5">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowModelPicker(!showModelPicker)}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors border border-border/50"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                    {{ 'claude-opus-4-6': 'Melleka Opus 4.6', 'claude-sonnet-4-6': 'Melleka Sonnet 4.6', 'claude-haiku-4-5-20251001': 'Melleka Haiku 4.5' }[modelId] || 'Melleka Opus 4.6'}
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                  {showModelPicker && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowModelPicker(false)} />
+                      <div className="absolute right-0 bottom-full mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[180px]">
+                        {([
+                          { id: 'claude-opus-4-6', label: 'Melleka Opus 4.6', desc: 'Most capable' },
+                          { id: 'claude-sonnet-4-6', label: 'Melleka Sonnet 4.6', desc: 'Fast & smart' },
+                          { id: 'claude-haiku-4-5-20251001', label: 'Melleka Haiku 4.5', desc: 'Fastest' },
+                        ] as const).map((m) => (
+                          <button
+                            key={m.id}
+                            onClick={() => { setModelId(m.id); setShowModelPicker(false); }}
+                            className={`w-full text-left px-3 py-1.5 text-xs hover:bg-accent flex items-center justify-between gap-3 ${modelId === m.id ? 'text-primary font-medium' : 'text-foreground'}`}
+                          >
+                            <span>{m.label}</span>
+                            <span className="text-[10px] text-muted-foreground">{m.desc}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
               {/* @mention popover */}
               <ClientMentionPopover
                 visible={showMentionPopover}
@@ -1147,9 +1189,22 @@ const Index = () => {
                   </button>
                 </div>
               </div>
-              <p className="text-[10px] text-muted-foreground text-center mt-2">
-                Powered By Melleka AI · Enter to send · Shift+Enter for new line{voiceChat.voiceEnabled ? ' · Voice mode active' : ''}
-              </p>
+              <div className="flex items-center justify-center gap-3 mt-2">
+                <button
+                  onClick={() => setLowTokenMode(prev => !prev)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${
+                    lowTokenMode
+                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 ring-1 ring-green-300 dark:ring-green-700'
+                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                  }`}
+                >
+                  <Gauge className="w-3 h-3" />
+                  {lowTokenMode ? 'Low Token' : 'Full Response'}
+                </button>
+                <p className="text-[10px] text-muted-foreground">
+                  Powered By Melleka AI · Enter to send{lowTokenMode ? ' · Concise mode' : ''}{voiceChat.voiceEnabled ? ' · Voice mode active' : ''}
+                </p>
+              </div>
             </div>
           </div>
         </div>

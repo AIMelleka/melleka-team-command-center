@@ -2,6 +2,28 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
+    {
+      "source": "/proposal/:slug",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(?i).*(facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|WhatsApp|TelegramBot|Discordbot|Applebot|Pinterest|redditbot|Embedly|Quora|iMessageBot).*"
+        }
+      ],
+      "destination": "https://api.teams.melleka.com/api/public/og/proposals/:slug"
+    },
+    {
+      "source": "/deck/:slug",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(?i).*(facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|WhatsApp|TelegramBot|Discordbot|Applebot|Pinterest|redditbot|Embedly|Quora|iMessageBot).*"
+        }
+      ],
+      "destination": "https://api.teams.melleka.com/api/public/og/decks/:slug"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

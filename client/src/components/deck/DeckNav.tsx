@@ -1,4 +1,4 @@
-import { ArrowLeft, Calendar, BarChart3, Menu, X, PanelLeftClose, PanelLeftOpen, Pencil, Check, Camera } from 'lucide-react';
+import { ArrowLeft, Calendar, BarChart3, Menu, X, PanelLeftClose, PanelLeftOpen, Pencil, Check, Camera, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useState, useRef, useContext } from 'react';
@@ -28,6 +28,7 @@ export interface DeckNavProps {
   isAdminMode?: boolean;
   isEditMode?: boolean;
   onLogoUpload?: (file: File) => void;
+  onLogoDelete?: () => void;
 }
 
 export const DeckNav = ({
@@ -47,6 +48,7 @@ export const DeckNav = ({
   isAdminMode = true,
   isEditMode = false,
   onLogoUpload,
+  onLogoDelete,
 }: DeckNavProps) => {
   const logoInputRef = useRef<HTMLInputElement>(null);
   // Consume DeckEditContext directly so nav label overrides persist without prop drilling
@@ -169,10 +171,13 @@ export const DeckNav = ({
             <>
               {clientLogo ? (
                 <div className="relative group mb-4">
-                  <img 
-                    src={clientLogo} 
+                  <img
+                    src={clientLogo}
                     alt={clientName}
                     className="h-10 w-auto object-contain"
+                    crossOrigin="anonymous"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                   />
                   {isEditMode && onLogoUpload && (
                     <>
@@ -187,13 +192,24 @@ export const DeckNav = ({
                           e.target.value = '';
                         }}
                       />
-                      <button
-                        onClick={() => logoInputRef.current?.click()}
-                        className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg"
-                        title="Change logo"
-                      >
-                        <Camera className="h-4 w-4 text-white" />
-                      </button>
+                      <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
+                        <button
+                          onClick={() => logoInputRef.current?.click()}
+                          className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+                          title="Change logo"
+                        >
+                          <Camera className="h-4 w-4 text-white" />
+                        </button>
+                        {onLogoDelete && (
+                          <button
+                            onClick={onLogoDelete}
+                            className="p-1.5 rounded-lg bg-red-500/40 hover:bg-red-500/60 transition-colors"
+                            title="Remove logo"
+                          >
+                            <Trash2 className="h-4 w-4 text-white" />
+                          </button>
+                        )}
+                      </div>
                     </>
                   )}
                 </div>
@@ -241,7 +257,7 @@ export const DeckNav = ({
           {collapsed && (
             <div className="flex justify-center">
               {clientLogo ? (
-                <img src={clientLogo} alt={clientName} className="h-8 w-8 object-contain rounded" />
+                <img src={clientLogo} alt={clientName} className="h-8 w-8 object-contain rounded" crossOrigin="anonymous" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
               ) : (
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: brandColor }}>
                   <BarChart3 className="h-5 w-5" style={{ color: textOnPrimary }} />

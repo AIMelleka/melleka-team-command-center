@@ -1465,13 +1465,44 @@ const ClientHealth = () => {
       try {
         const fourteenDaysAgo = format(subDays(new Date(), 14), 'yyyy-MM-dd');
         const todayStr = format(new Date(), 'yyyy-MM-dd');
-        const { data: allSnaps } = await supabase
+        const { data: rawSnaps } = await supabase
           .from('ppc_daily_snapshots')
           .select('*')
           .gte('snapshot_date', fourteenDaysAgo)
           .order('snapshot_date', { ascending: false });
 
-        if (!allSnaps || allSnaps.length === 0) return;
+        if (!rawSnaps || rawSnaps.length === 0) return;
+
+        // Build dynamic name alias map from managed_clients to normalize snapshot names
+        // This handles cases where ad platform names differ from managed_clients names
+        const nameAliasMap: Record<string, string> = {};
+        if (directoryEntries.size > 0) {
+          const canonicalNames = new Set<string>();
+          directoryEntries.forEach((_, key) => {
+            const entry = directoryEntries.get(key);
+            if (entry) canonicalNames.add(entry.name);
+          });
+          // For each snapshot name not in canonical set, try to find a match
+          const snapshotNames = new Set(rawSnaps.map(s => s.client_name));
+          for (const sn of snapshotNames) {
+            if (canonicalNames.has(sn)) continue; // Already matches
+            // Try partial matching: canonical name contains snapshot name or vice versa
+            for (const cn of canonicalNames) {
+              const snLower = sn.toLowerCase();
+              const cnLower = cn.toLowerCase();
+              if (cnLower.includes(snLower) || snLower.includes(cnLower)) {
+                nameAliasMap[sn] = cn;
+                break;
+              }
+            }
+          }
+        }
+
+        // Normalize snapshot client names to match managed_clients
+        const allSnaps = rawSnaps.map(s => ({
+          ...s,
+          client_name: nameAliasMap[s.client_name] || s.client_name,
+        }));
 
         // Exclude today's partial data from trend calculations
         const completedSnaps = allSnaps.filter(s => s.snapshot_date !== todayStr);
@@ -1599,7 +1630,7 @@ const ClientHealth = () => {
       } catch (e) { console.warn('[SNAPSHOTS] Failed to load:', e); }
     };
     loadSnapshots();
-  }, []);
+  }, [directoryEntries]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const handleFetchData = useCallback(() => {

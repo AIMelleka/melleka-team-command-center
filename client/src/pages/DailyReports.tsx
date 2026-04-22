@@ -148,6 +148,7 @@ export default function DailyReports() {
     approve,
     reject,
     execute,
+    makeChange,
   } = useRecommendationActions();
 
   const [activeView, setActiveView] = useState<'reports' | 'auto-updates'>('reports');
@@ -345,6 +346,7 @@ export default function DailyReports() {
                 onApprove={approve}
                 onReject={reject}
                 onExecute={execute}
+                onMakeChange={makeChange}
               />
             ) : (
               /* Level 1: Overview Grid */

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import type { ActionableRecommendation } from '@/types/dailyReports';
+import type { ActionableRecommendation, Recommendation, Platform } from '@/types/dailyReports';
 
 const API_BASE = import.meta.env.PROD
   ? (import.meta.env.VITE_API_URL || 'https://api.teams.melleka.com/api')
@@ -104,6 +104,45 @@ export function useRecommendationActions() {
     return errors.get(localKey);
   }, [errors]);
 
+  const makeChange = useCallback(async (
+    rec: Recommendation,
+    clientName: string,
+    platforms: Platform[],
+    localKey: string
+  ): Promise<{ ok: boolean; status: string; error?: string }> => {
+    setStatuses(prev => new Map(prev).set(localKey, 'executing'));
+
+    try {
+      const res = await fetch(`${API_BASE}/recommendations/make-change`, {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ recommendation: rec, clientName, platforms }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Make change failed');
+
+      setChangeIds(prev => new Map(prev).set(localKey, data.changeId));
+
+      if (data.status === 'executed') {
+        setStatuses(prev => new Map(prev).set(localKey, 'executed'));
+        return { ok: true, status: 'executed' };
+      } else if (data.status === 'advisory') {
+        setStatuses(prev => new Map(prev).set(localKey, 'approved'));
+        return { ok: true, status: 'advisory' };
+      } else {
+        // failed
+        setStatuses(prev => new Map(prev).set(localKey, 'failed'));
+        setErrors(prev => new Map(prev).set(localKey, data.error || 'Execution failed'));
+        return { ok: false, status: 'failed', error: data.error };
+      }
+    } catch (err: any) {
+      setStatuses(prev => new Map(prev).set(localKey, 'failed'));
+      setErrors(prev => new Map(prev).set(localKey, err.message));
+      return { ok: false, status: 'failed', error: err.message };
+    }
+  }, []);
+
   return {
     statuses,
     errors,
@@ -111,6 +150,7 @@ export function useRecommendationActions() {
     approve,
     reject,
     execute,
+    makeChange,
     getStatus,
     getError,
   };

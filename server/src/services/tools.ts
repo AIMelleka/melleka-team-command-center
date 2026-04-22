@@ -1097,6 +1097,46 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "build_deck",
+    description:
+      "Trigger the full deck generation pipeline for a client. This calls the generate-deck-async edge function which creates a " +
+      "performance report deck with QA validation, branding extraction, AI insights, and Supermetrics data processing. " +
+      "Returns a deckId and slug immediately — the deck generates in the background. " +
+      "Use this instead of manually inserting into the decks table. " +
+      "After calling this, poll the deck status using supabase_query on the 'decks' table filtering by the returned deckId. " +
+      "When status is 'published' or 'needs_review', the deck is ready at https://teams.melleka.com/deck/{slug}.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        clientName: {
+          type: "string",
+          description: "Client name exactly as it appears in managed_clients.",
+        },
+        dateRangeStart: {
+          type: "string",
+          description: "Start date in YYYY-MM-DD format.",
+        },
+        dateRangeEnd: {
+          type: "string",
+          description: "End date in YYYY-MM-DD format.",
+        },
+        domain: {
+          type: "string",
+          description: "Client website domain (e.g. 'example.com') for branding extraction. Optional but recommended.",
+        },
+        taskNotes: {
+          type: "string",
+          description: "Freeform notes about completed work this period. These get AI-categorized into platform sections (Google Ads, Meta, SEO, Email, SMS, etc.).",
+        },
+        supermetricsData: {
+          type: "object",
+          description: "Pre-fetched Supermetrics ad data keyed by platform (e.g. { google_ads: {...}, meta: {...} }). Optional — if not provided, the pipeline will try to fetch from Looker or directory.",
+        },
+      },
+      required: ["clientName", "dateRangeStart", "dateRangeEnd"],
+    },
+  },
+  {
     name: "generate_image",
     description:
       "Generate an image from a text description using AI. Creates images for ad creatives, social media posts, blog headers, presentations, or any visual content. " +
@@ -1971,6 +2011,103 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ["project_id", "filename"],
     },
   },
+  // ── Commercial Maker Tools ──
+  {
+    name: "commercial_create_project",
+    description: "Create a new commercial video project. Returns the project ID.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Name of the commercial project (e.g. 'TurboAgency Product Demo')" },
+        theme_primary: { type: "string", description: "Primary brand color hex (e.g. '#6366f1'). Optional." },
+        theme_accent: { type: "string", description: "Accent color hex (e.g. '#d97706'). Optional." },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "commercial_add_scene",
+    description: "Add a scene to a commercial project. Scene types: 'hook' (opening with logo+tagline), 'feature_showcase' (screenshots with title), 'mega_prompt' (typing animation+tasks), 'dual_screenshot' (two screenshots with transition), 'badges' (feature with tech badges), 'stats' (stat cards+feature list), 'cta' (closing call-to-action), 'text_only' (full-screen text). Each scene type has specific props — see the scene type documentation in context.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        project_id: { type: "string", description: "UUID of the commercial project." },
+        scene_type: { type: "string", description: "Type of scene: hook, feature_showcase, mega_prompt, dual_screenshot, badges, stats, cta, text_only." },
+        props: { type: "object", description: "Scene-specific properties. Varies by scene_type. See scene type catalog." },
+        duration_frames: { type: "number", description: "Duration in frames at 30fps. Default 150 (5s). Common: 90 (3s), 150 (5s), 180 (6s), 240 (8s)." },
+        scene_order: { type: "number", description: "Position in sequence (0-based). If omitted, appended at end." },
+      },
+      required: ["project_id", "scene_type", "props"],
+    },
+  },
+  {
+    name: "commercial_update_scene",
+    description: "Update an existing scene's properties, type, duration, or order.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        project_id: { type: "string", description: "UUID of the commercial project." },
+        scene_id: { type: "string", description: "UUID of the scene to update." },
+        scene_type: { type: "string", description: "New scene type (optional)." },
+        props: { type: "object", description: "Updated props (merged with existing)." },
+        duration_frames: { type: "number", description: "Updated duration in frames." },
+        fade_in: { type: "number", description: "Fade-in duration in frames (default 12)." },
+        fade_out: { type: "number", description: "Fade-out duration in frames (default 12)." },
+        scene_order: { type: "number", description: "New position in sequence." },
+      },
+      required: ["project_id", "scene_id"],
+    },
+  },
+  {
+    name: "commercial_remove_scene",
+    description: "Delete a scene from a commercial project.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        project_id: { type: "string", description: "UUID of the commercial project." },
+        scene_id: { type: "string", description: "UUID of the scene to delete." },
+      },
+      required: ["project_id", "scene_id"],
+    },
+  },
+  {
+    name: "commercial_reorder_scenes",
+    description: "Reorder all scenes in a commercial project. Provide scene IDs in the desired order.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        project_id: { type: "string", description: "UUID of the commercial project." },
+        scene_ids: { type: "array", items: { type: "string" }, description: "Scene UUIDs in desired order." },
+      },
+      required: ["project_id", "scene_ids"],
+    },
+  },
+  {
+    name: "commercial_update_config",
+    description: "Update project-level configuration (theme colors, fps, dimensions).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        project_id: { type: "string", description: "UUID of the commercial project." },
+        name: { type: "string", description: "Updated project name." },
+        theme_primary: { type: "string", description: "Primary color hex." },
+        theme_accent: { type: "string", description: "Accent color hex." },
+        theme_background: { type: "string", description: "Background color hex." },
+      },
+      required: ["project_id"],
+    },
+  },
+  {
+    name: "commercial_get_project",
+    description: "Fetch a commercial project with all its scenes. Use this to see current state before making changes.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        project_id: { type: "string", description: "UUID of the commercial project." },
+      },
+      required: ["project_id"],
+    },
+  },
   {
     name: "manage_uploads",
     description: "Search, list, describe, and manage uploaded files/images. Use this to find previously uploaded files, get their public URLs for embedding in reports/content/HTML, view specific images, or add descriptions/tags. Actions: 'list' (paginated with filters), 'search' (by name/description), 'view' (single upload details), 'describe' (add description + optionally assign client), 'tag' (add/remove tags), 'delete' (remove upload).",
@@ -2450,6 +2587,80 @@ export async function executeTool(
           return "(deploy completed — provide project_name for a branded URL)";
         }
         const result = await deployToVercel(dir, projectName, tmpDir);
+
+        // Record in website_projects + pages so the site appears in the dashboard
+        try {
+          const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+          const db = await getSupabaseClient();
+          // Upsert by slug — update if re-deploying the same project
+          const { data: existing } = await db
+            .from("website_projects")
+            .select("id")
+            .eq("slug", slug)
+            .maybeSingle();
+
+          let projectId: string;
+          if (existing) {
+            projectId = existing.id;
+            await db.from("website_projects").update({
+              status: "published",
+              branded_url: result.brandedUrl,
+              vercel_deployment_url: result.vercelUrl,
+              vercel_project_id: slug,
+              last_deployed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }).eq("id", existing.id);
+          } else {
+            const { data: inserted } = await db.from("website_projects").insert({
+              member_name: memberName,
+              name: projectName,
+              slug,
+              status: "published",
+              branded_url: result.brandedUrl,
+              vercel_deployment_url: result.vercelUrl,
+              vercel_project_id: slug,
+              last_deployed_at: new Date().toISOString(),
+            }).select("id").single();
+            projectId = inserted!.id;
+          }
+
+          // Save deployed HTML files as website_pages
+          const htmlFiles = await fs.readdir(dir).catch(() => [] as string[]);
+          for (let i = 0; i < htmlFiles.length; i++) {
+            const fname = htmlFiles[i];
+            if (!fname.endsWith(".html")) continue;
+            const htmlContent = await fs.readFile(`${dir}/${fname}`, "utf-8").catch(() => "");
+            if (!htmlContent) continue;
+            const titleMatch = htmlContent.match(/<title[^>]*>(.*?)<\/title>/is);
+            const pageTitle = titleMatch?.[1]?.trim()?.slice(0, 200) || fname.replace(".html", "");
+            // Upsert page by project_id + filename
+            const { data: existingPage } = await db
+              .from("website_pages")
+              .select("id")
+              .eq("project_id", projectId)
+              .eq("filename", fname)
+              .maybeSingle();
+            if (existingPage) {
+              await db.from("website_pages").update({
+                html_content: htmlContent,
+                title: pageTitle,
+                updated_at: new Date().toISOString(),
+              }).eq("id", existingPage.id);
+            } else {
+              await db.from("website_pages").insert({
+                project_id: projectId,
+                filename: fname,
+                title: pageTitle,
+                html_content: htmlContent,
+                is_homepage: fname === "index.html",
+                sort_order: i,
+              });
+            }
+          }
+        } catch (dbErr: any) {
+          console.warn("[deploy_site] Failed to record in website_projects:", dbErr.message);
+        }
+
         if (result.domainOk) {
           return `Live at: https://${result.brandedUrl}`;
         }
@@ -2967,6 +3178,59 @@ export async function executeTool(
           if (!resp.ok) return `Error saving deliverable: ${JSON.stringify(data)}`;
           const newId = Array.isArray(data) ? data[0]?.id : data?.id;
           return `Deliverable saved with ID: ${newId}`;
+        }
+      }
+
+      case "build_deck": {
+        const supabaseUrl = process.env.SUPABASE_URL;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        if (!supabaseUrl || !supabaseKey) return "Error: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not configured.";
+
+        const deckClientName = toolInput.clientName as string;
+        const deckDateStart = toolInput.dateRangeStart as string;
+        const deckDateEnd = toolInput.dateRangeEnd as string;
+        const deckDomain = toolInput.domain as string | undefined;
+        const deckTaskNotes = toolInput.taskNotes as string | undefined;
+        const deckSupermetricsData = toolInput.supermetricsData as Record<string, unknown> | undefined;
+
+        if (!deckClientName || !deckDateStart || !deckDateEnd) {
+          return "Error: clientName, dateRangeStart, and dateRangeEnd are all required.";
+        }
+
+        try {
+          const resp = await fetch(`${supabaseUrl}/functions/v1/generate-deck-async`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${supabaseKey}`,
+            },
+            body: JSON.stringify({
+              clientName: deckClientName,
+              dateRangeStart: deckDateStart,
+              dateRangeEnd: deckDateEnd,
+              domain: deckDomain,
+              taskNotes: deckTaskNotes,
+              supermetricsData: deckSupermetricsData,
+            }),
+          });
+
+          const result = await resp.json();
+          if (!resp.ok || !result.success) {
+            return `Error triggering deck generation: ${result.error || resp.statusText}`;
+          }
+
+          return (
+            `Deck generation started!\n` +
+            `- Deck ID: ${result.deckId}\n` +
+            `- Slug: ${result.slug}\n` +
+            `- Status: generating (background)\n` +
+            `- View URL (when ready): https://teams.melleka.com/deck/${result.slug}\n\n` +
+            `The deck is building in the background. Poll the status with:\n` +
+            `supabase_query({ table: "decks", select: "status, content->progress, content->progressMessage, content->error", filters: [{ column: "id", op: "eq", value: "${result.deckId}" }] })\n\n` +
+            `When status is "published" or "needs_review", the deck is ready.`
+          );
+        } catch (err) {
+          return `Error calling generate-deck-async: ${err instanceof Error ? err.message : String(err)}`;
         }
       }
 
@@ -5400,6 +5664,227 @@ export async function executeTool(
           default:
             return `Unknown manage_uploads action "${action}". Available: list, search, view, describe, tag, delete.`;
         }
+      }
+
+      // ── Commercial Maker Tool Cases ──
+
+      case "commercial_create_project": {
+        const client = await getSupabaseClient();
+        const name = toolInput.name as string;
+        if (!name) return "Error: name is required.";
+
+        const config: any = {
+          fps: 30,
+          width: 1080,
+          height: 1920,
+          theme: {
+            primary: (toolInput.theme_primary as string) || "#6366f1",
+            accent: (toolInput.theme_accent as string) || "#d97706",
+            background: "#ffffff",
+          },
+        };
+
+        const { data, error } = await client
+          .from("commercial_projects")
+          .insert({
+            member_name: memberName.toLowerCase(),
+            name,
+            config,
+          })
+          .select("id, name")
+          .single();
+
+        if (error) return `Error creating project: ${error.message}`;
+        return `Commercial project created!\nproject_id: ${data.id}\nname: ${data.name}\n\nNow add scenes using commercial_add_scene.`;
+      }
+
+      case "commercial_add_scene": {
+        const client = await getSupabaseClient();
+        const projectId = toolInput.project_id as string;
+        const sceneType = toolInput.scene_type as string;
+        const props = toolInput.props as Record<string, unknown>;
+        if (!projectId || !sceneType || !props) return "Error: project_id, scene_type, and props are required.";
+
+        const durationFrames = (toolInput.duration_frames as number) || 150;
+
+        // Determine scene_order
+        let sceneOrder = toolInput.scene_order as number | undefined;
+        if (sceneOrder === undefined) {
+          const { data: existing } = await client
+            .from("commercial_scenes")
+            .select("scene_order")
+            .eq("project_id", projectId)
+            .order("scene_order", { ascending: false })
+            .limit(1);
+          sceneOrder = existing && existing.length > 0 ? existing[0].scene_order + 1 : 0;
+        }
+
+        const { data, error } = await client
+          .from("commercial_scenes")
+          .insert({
+            project_id: projectId,
+            scene_type: sceneType,
+            props,
+            duration_frames: durationFrames,
+            scene_order: sceneOrder,
+          })
+          .select("id, scene_order, scene_type")
+          .single();
+
+        if (error) return `Error adding scene: ${error.message}`;
+
+        // Update project timestamp
+        await client.from("commercial_projects")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", projectId);
+
+        return `Scene added!\nscene_id: ${data.id}\ntype: ${data.scene_type}\norder: ${data.scene_order}\nduration: ${durationFrames} frames (${(durationFrames / 30).toFixed(1)}s)`;
+      }
+
+      case "commercial_update_scene": {
+        const client = await getSupabaseClient();
+        const projectId = toolInput.project_id as string;
+        const sceneId = toolInput.scene_id as string;
+        if (!projectId || !sceneId) return "Error: project_id and scene_id are required.";
+
+        const updates: any = { updated_at: new Date().toISOString() };
+        if (toolInput.scene_type) updates.scene_type = toolInput.scene_type;
+        if (toolInput.duration_frames) updates.duration_frames = toolInput.duration_frames;
+        if (toolInput.fade_in !== undefined) updates.fade_in = toolInput.fade_in;
+        if (toolInput.fade_out !== undefined) updates.fade_out = toolInput.fade_out;
+        if (toolInput.scene_order !== undefined) updates.scene_order = toolInput.scene_order;
+
+        // Merge props with existing
+        if (toolInput.props) {
+          const { data: existing } = await client
+            .from("commercial_scenes")
+            .select("props")
+            .eq("id", sceneId)
+            .single();
+          updates.props = { ...(existing?.props as any || {}), ...(toolInput.props as any) };
+        }
+
+        const { error } = await client
+          .from("commercial_scenes")
+          .update(updates)
+          .eq("id", sceneId)
+          .eq("project_id", projectId);
+
+        if (error) return `Error updating scene: ${error.message}`;
+
+        await client.from("commercial_projects")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", projectId);
+
+        return `Scene ${sceneId} updated successfully.`;
+      }
+
+      case "commercial_remove_scene": {
+        const client = await getSupabaseClient();
+        const projectId = toolInput.project_id as string;
+        const sceneId = toolInput.scene_id as string;
+        if (!projectId || !sceneId) return "Error: project_id and scene_id are required.";
+
+        const { error } = await client
+          .from("commercial_scenes")
+          .delete()
+          .eq("id", sceneId)
+          .eq("project_id", projectId);
+
+        if (error) return `Error removing scene: ${error.message}`;
+
+        await client.from("commercial_projects")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", projectId);
+
+        return `Scene ${sceneId} removed.`;
+      }
+
+      case "commercial_reorder_scenes": {
+        const client = await getSupabaseClient();
+        const projectId = toolInput.project_id as string;
+        const sceneIds = toolInput.scene_ids as string[];
+        if (!projectId || !sceneIds?.length) return "Error: project_id and scene_ids are required.";
+
+        for (let i = 0; i < sceneIds.length; i++) {
+          await client
+            .from("commercial_scenes")
+            .update({ scene_order: i, updated_at: new Date().toISOString() })
+            .eq("id", sceneIds[i])
+            .eq("project_id", projectId);
+        }
+
+        await client.from("commercial_projects")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", projectId);
+
+        return `Scenes reordered: ${sceneIds.length} scenes updated.`;
+      }
+
+      case "commercial_update_config": {
+        const client = await getSupabaseClient();
+        const projectId = toolInput.project_id as string;
+        if (!projectId) return "Error: project_id is required.";
+
+        const { data: existing } = await client
+          .from("commercial_projects")
+          .select("config, name")
+          .eq("id", projectId)
+          .single();
+
+        if (!existing) return "Project not found.";
+
+        const config = existing.config as any;
+        if (toolInput.theme_primary) config.theme.primary = toolInput.theme_primary;
+        if (toolInput.theme_accent) config.theme.accent = toolInput.theme_accent;
+        if (toolInput.theme_background) config.theme.background = toolInput.theme_background;
+
+        const updates: any = { config, updated_at: new Date().toISOString() };
+        if (toolInput.name) updates.name = toolInput.name;
+
+        const { error } = await client
+          .from("commercial_projects")
+          .update(updates)
+          .eq("id", projectId);
+
+        if (error) return `Error updating config: ${error.message}`;
+        return `Project config updated. Theme: primary=${config.theme.primary}, accent=${config.theme.accent}${toolInput.name ? `, name="${toolInput.name}"` : ""}`;
+      }
+
+      case "commercial_get_project": {
+        const client = await getSupabaseClient();
+        const projectId = toolInput.project_id as string;
+        if (!projectId) return "Error: project_id is required.";
+
+        const { data: proj, error: projErr } = await client
+          .from("commercial_projects")
+          .select("*")
+          .eq("id", projectId)
+          .single();
+
+        if (projErr || !proj) return `Project not found: ${projErr?.message || "no data"}`;
+
+        const { data: scenes } = await client
+          .from("commercial_scenes")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("scene_order", { ascending: true });
+
+        const config = proj.config as any;
+        let result = `Commercial Project: "${proj.name}"\n`;
+        result += `project_id: ${proj.id}\n`;
+        result += `status: ${proj.status}\n`;
+        result += `theme: primary=${config.theme?.primary}, accent=${config.theme?.accent}\n`;
+        result += `voiceover: ${proj.voiceover_url ? "yes" : "no"}\n`;
+        result += `render: ${proj.render_url || "not rendered"}\n\n`;
+        result += `Scenes (${scenes?.length || 0}):\n`;
+
+        for (const s of scenes || []) {
+          result += `  [${s.scene_order}] ${s.scene_type} | ${s.duration_frames}f (${(s.duration_frames / 30).toFixed(1)}s) | id: ${s.id}\n`;
+          result += `       props: ${JSON.stringify(s.props).slice(0, 200)}\n`;
+        }
+
+        return result;
       }
 
       // ── GoHighLevel (GHL) Tool Cases ──

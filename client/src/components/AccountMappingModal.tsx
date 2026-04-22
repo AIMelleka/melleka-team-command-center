@@ -60,6 +60,14 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
   const [metaPages, setMetaPages] = useState<MetaPage[]>([]);
   const [metaPagesLoading, setMetaPagesLoading] = useState(false);
 
+  // Google Ads accounts (from direct API, bypasses Supermetrics)
+  const [googleAdsAccounts, setGoogleAdsAccounts] = useState<SupermetricsAccount[]>([]);
+  const [googleAdsLoading, setGoogleAdsLoading] = useState(false);
+
+  // Meta Ads accounts (from direct API, Supermetrics as fallback)
+  const [metaAdsAccounts, setMetaAdsAccounts] = useState<SupermetricsAccount[]>([]);
+  const [metaAdsLoading, setMetaAdsLoading] = useState(false);
+
   // GHL locations (from agency-level API)
   const [ghlLocations, setGhlLocations] = useState<{ id: string; name: string }[]>([]);
   const [ghlLoading, setGhlLoading] = useState(false);
@@ -107,6 +115,48 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
         }
       } catch { /* Meta pages unavailable */ }
       setMetaPagesLoading(false);
+    })();
+  }, []);
+
+  // Fetch Google Ads accounts directly (bypasses Supermetrics)
+  useEffect(() => {
+    (async () => {
+      setGoogleAdsLoading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) {
+          const resp = await fetch(`${API_URL}/google-ads/accounts`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (resp.ok) {
+            const json = await resp.json();
+            if (json?.accounts) setGoogleAdsAccounts(json.accounts);
+          }
+        }
+      } catch { /* Google Ads API unavailable */ }
+      setGoogleAdsLoading(false);
+    })();
+  }, []);
+
+  // Fetch Meta Ads accounts directly (Supermetrics as fallback)
+  useEffect(() => {
+    (async () => {
+      setMetaAdsLoading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) {
+          const resp = await fetch(`${API_URL}/meta-ads/accounts`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (resp.ok) {
+            const json = await resp.json();
+            if (json?.accounts?.length) setMetaAdsAccounts(json.accounts);
+          }
+        }
+      } catch { /* Meta Ads API unavailable, will fall back to Supermetrics */ }
+      setMetaAdsLoading(false);
     })();
   }, []);
 
@@ -161,11 +211,18 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     return [];
   };
 
-  // Get available accounts for a platform from Supermetrics
+  // Get available accounts for a platform (direct API first, Supermetrics as fallback)
   const getAccountsForPlatform = (platformKey: string): SupermetricsAccount[] => {
+    // Google Ads: always use direct API
+    if (platformKey === 'google_ads') return googleAdsAccounts;
+    // Meta Ads: direct API first, Supermetrics as fallback
+    if (platformKey === 'meta_ads') {
+      if (metaAdsAccounts.length > 0) return metaAdsAccounts;
+      return smAccounts['FA'] || smAccounts['meta_ads'] || [];
+    }
     const platform = PLATFORMS.find(p => p.key === platformKey);
     if (!platform) return [];
-    // Try the Supermetrics key first (AW, FA, etc.), then fall back to platform key
+    // Other platforms: Supermetrics
     return smAccounts[platform.smKey] || smAccounts[platformKey] || [];
   };
 
@@ -288,8 +345,11 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     onClose();
   };
 
-  // Check if there are any accounts available (Supermetrics, Meta, GHL, or manual platforms)
-  const hasAnyAccounts = PLATFORMS.some(p => p.manual || (p as any).source === 'meta' || (p as any).source === 'ghl' || getAccountsForPlatform(p.key).length > 0);
+  // Platforms with direct API sources (always show, never hide)
+  const DIRECT_API_PLATFORMS = new Set(['google_ads', 'meta_ads']);
+
+  // Check if there are any accounts available (direct API, Supermetrics, Meta, GHL, or manual platforms)
+  const hasAnyAccounts = PLATFORMS.some(p => p.manual || DIRECT_API_PLATFORMS.has(p.key) || (p as any).source === 'meta' || (p as any).source === 'ghl' || getAccountsForPlatform(p.key).length > 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={handleClose}>
@@ -343,8 +403,9 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
               const isGhl = source === 'ghl';
               const isMeta = source === 'meta';
 
-              // Skip non-manual, non-source platforms with no available accounts and no existing mappings
-              if (!platform.manual && !hasSource && accounts.length === 0 && currentMappings.length === 0) return null;
+              // Skip platforms with no available accounts and no existing mappings
+              // (but always show platforms with direct API sources like Google Ads and Meta Ads)
+              if (!platform.manual && !hasSource && !DIRECT_API_PLATFORMS.has(platform.key) && accounts.length === 0 && currentMappings.length === 0) return null;
 
               return (
                 <div key={platform.key} className="rounded-lg border border-border overflow-hidden">
@@ -437,27 +498,42 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
                     ) : !isMulti ? (
                       /* Single account mode — one dropdown that replaces */
                       <div>
-                        <select
-                          value={currentMappings[0]?.account_id || ''}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val) replaceMapping(platform.key, val);
-                          }}
-                          disabled={isSaving || accounts.length === 0}
-                          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer"
-                          style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23888\' stroke-width=\'2\'%3E%3Cpath d=\'m6 9 6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
-                        >
-                          <option value="">Select {platform.label} account...</option>
-                          {accounts.map(acc => (
-                            <option key={acc.id} value={acc.id}>
-                              {acc.name}
-                            </option>
-                          ))}
-                        </select>
-                        {currentMappings[0] && (
-                          <p className="text-[11px] text-muted-foreground mt-1 px-1">
-                            ID: {currentMappings[0].account_id}
+                        {/* Show loading spinner for platforms with direct API */}
+                        {accounts.length === 0 && ((platform.key === 'google_ads' && googleAdsLoading) || (platform.key === 'meta_ads' && metaAdsLoading)) ? (
+                          <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-input bg-background text-sm text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Loading {platform.label} accounts...
+                          </div>
+                        ) : accounts.length === 0 && DIRECT_API_PLATFORMS.has(platform.key) ? (
+                          <p className="text-xs text-muted-foreground italic py-2">
+                            {platform.key === 'google_ads' ? 'No Google Ads accounts found. Check your Google Ads API credentials.' :
+                             'No Meta ad accounts found. Check your Meta access token.'}
                           </p>
+                        ) : (
+                          <>
+                            <select
+                              value={currentMappings[0]?.account_id || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val) replaceMapping(platform.key, val);
+                              }}
+                              disabled={isSaving || accounts.length === 0}
+                              className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer"
+                              style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23888\' stroke-width=\'2\'%3E%3Cpath d=\'m6 9 6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
+                            >
+                              <option value="">Select {platform.label} account...</option>
+                              {accounts.map(acc => (
+                                <option key={acc.id} value={acc.id}>
+                                  {acc.name}
+                                </option>
+                              ))}
+                            </select>
+                            {currentMappings[0] && (
+                              <p className="text-[11px] text-muted-foreground mt-1 px-1">
+                                ID: {currentMappings[0].account_id}
+                              </p>
+                            )}
+                          </>
                         )}
                       </div>
                     ) : (
@@ -540,6 +616,10 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
                           <p className="text-xs text-muted-foreground italic">
                             {isMeta && metaPagesLoading ? 'Loading pages from Meta...' :
                              isMeta ? 'No pages found from Meta API. Check your Meta access token.' :
+                             platform.key === 'google_ads' && googleAdsLoading ? 'Loading Google Ads accounts...' :
+                             platform.key === 'google_ads' ? 'No Google Ads accounts found. Check your Google Ads API credentials.' :
+                             platform.key === 'meta_ads' && metaAdsLoading ? 'Loading Meta ad accounts...' :
+                             platform.key === 'meta_ads' ? 'No Meta ad accounts found. Check your Meta access token.' :
                              'No accounts available from Supermetrics for this platform.'}
                           </p>
                         )}

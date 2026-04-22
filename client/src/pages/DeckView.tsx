@@ -946,7 +946,7 @@ const DeckView = () => {
   const brandTextSecondary = (savedTextSecondary && hasEnoughContrast(savedTextSecondary, brandBackground))
     ? savedTextSecondary
     : (isLightBg ? '#4a4a5e' : '#a0a0b0');
-  const clientLogo = logoOverride || deck?.brand_colors?.logo;
+  const clientLogo = logoOverride === '__deleted__' ? undefined : (logoOverride || deck?.brand_colors?.logo);
 
   const handleLogoUpload = async (file: File) => {
     if (!deck) return;
@@ -1000,6 +1000,24 @@ const DeckView = () => {
       toast({ title: 'Failed to upload logo', variant: 'destructive' });
     } finally {
       setIsUploadingLogo(false);
+    }
+  };
+
+  const handleLogoDelete = async () => {
+    if (!deck) return;
+    try {
+      setLogoOverride('__deleted__');
+      // Clear logo from deck brand_colors
+      const currentBrandColors = (deck.brand_colors || {}) as Record<string, unknown>;
+      const { logo: _removed, ...rest } = currentBrandColors;
+      await supabase.from('decks')
+        .update({ brand_colors: rest as any })
+        .eq('id', deck.id);
+
+      toast({ title: 'Logo removed' });
+    } catch (err) {
+      console.error('Logo delete error:', err);
+      toast({ title: 'Failed to remove logo', variant: 'destructive' });
     }
   };
 
@@ -2160,6 +2178,47 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 <Palette className="w-3.5 h-3.5" />
                 Colors
               </button>
+              {/* Logo management */}
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleLogoUpload(f);
+                  e.target.value = '';
+                }}
+              />
+              {clientLogo ? (
+                <button
+                  onClick={handleLogoDelete}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium backdrop-blur border transition-all hover:scale-105"
+                  style={{
+                    backgroundColor: 'rgba(239,68,68,0.15)',
+                    borderColor: 'rgba(239,68,68,0.35)',
+                    color: '#fca5a5',
+                  }}
+                  title="Remove client logo from deck"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Remove Logo
+                </button>
+              ) : (
+                <button
+                  onClick={() => logoInputRef.current?.click()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium backdrop-blur border transition-all hover:scale-105"
+                  style={{
+                    backgroundColor: 'rgba(255,255,255,0.08)',
+                    borderColor: 'rgba(255,255,255,0.15)',
+                    color: '#a0a0b0',
+                  }}
+                  title="Upload client logo"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Add Logo
+                </button>
+              )}
               <button
                 onClick={async () => {
                   // Fetch SM accounts if not loaded yet
@@ -2297,10 +2356,10 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                     editKey="cover.logo"
                     src={clientLogo}
                     alt={deck.client_name}
-                    className="h-10 md:h-14 object-contain"
+                    className="h-10 md:h-14 object-contain drop-shadow-lg"
                     wrapperClassName="relative"
-                    style={{ filter: 'brightness(0) invert(1) opacity(0.9)' }}
                     placeholderLabel="Upload Logo"
+                    onDelete={handleLogoDelete}
                   />
                 )}
                 <span className="deck-ref-badge-gold">Performance Deck</span>
