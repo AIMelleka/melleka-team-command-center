@@ -1009,7 +1009,7 @@ const Index = () => {
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors border border-border/50"
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-                    {{ 'claude-opus-4-6': 'Melleka Opus 4.6', 'claude-sonnet-4-6': 'Melleka Sonnet 4.6', 'claude-haiku-4-5-20251001': 'Melleka Haiku 4.5' }[modelId] || 'Melleka Opus 4.6'}
+                    {{ 'claude-opus-4-6': 'Melleka Super Smart', 'claude-sonnet-4-6': 'Melleka F&S', 'claude-haiku-4-5-20251001': 'Melleka Fast' }[modelId] || 'Melleka Super Smart'}
                     <ChevronDown className="w-3 h-3" />
                   </button>
                   {showModelPicker && (
@@ -1017,9 +1017,9 @@ const Index = () => {
                       <div className="fixed inset-0 z-40" onClick={() => setShowModelPicker(false)} />
                       <div className="absolute right-0 bottom-full mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[180px]">
                         {([
-                          { id: 'claude-opus-4-6', label: 'Melleka Opus 4.6', desc: 'Most capable' },
-                          { id: 'claude-sonnet-4-6', label: 'Melleka Sonnet 4.6', desc: 'Fast & smart' },
-                          { id: 'claude-haiku-4-5-20251001', label: 'Melleka Haiku 4.5', desc: 'Fastest' },
+                          { id: 'claude-opus-4-6', label: 'Melleka Super Smart', desc: 'Most capable' },
+                          { id: 'claude-sonnet-4-6', label: 'Melleka F&S', desc: 'Fast & smart' },
+                          { id: 'claude-haiku-4-5-20251001', label: 'Melleka Fast', desc: 'Fastest' },
                         ] as const).map((m) => (
                           <button
                             key={m.id}
