@@ -93,6 +93,22 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       const ext = file.originalname.split(".").pop() || "bin";
       const storagePath = `${slug}/${batchId}/${randomUUID()}.${ext}`;
 
+      // Create base64 image block for Claude vision BEFORE storage upload
+      // so Claude can still analyze the image even if storage fails
+      if (IMAGE_TYPES.has(file.mimetype)) {
+        imageCount++;
+        if (imageBlocks.length < 3) {
+          imageBlocks.push({
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: file.mimetype as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+              data: buffer.toString("base64"),
+            },
+          });
+        }
+      }
+
       // Upload to Supabase storage immediately
       const { error: uploadErr } = await supabase.storage
         .from(BUCKET)
@@ -107,7 +123,7 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
 
       if (uploadErr) {
         console.error(`[chat] Upload failed for ${file.originalname}:`, uploadErr.message);
-        fileAnnotations.push(`[Upload FAILED: ${file.originalname} — ${uploadErr.message}]`);
+        fileAnnotations.push(`[Upload FAILED: ${file.originalname} — ${uploadErr.message}. Image still sent to AI for analysis.]`);
         continue;
       }
 
@@ -117,18 +133,6 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       pendingUploads.push({ file, buffer, storagePath, publicUrl });
 
       if (IMAGE_TYPES.has(file.mimetype)) {
-        imageCount++;
-        // Only send first 3 images as inline base64 for vision analysis
-        if (imageBlocks.length < 3) {
-          imageBlocks.push({
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: file.mimetype as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-              data: buffer.toString("base64"),
-            },
-          });
-        }
         fileAnnotations.push(`[Uploaded image: ${file.originalname} — URL: ${publicUrl}]`);
       } else {
         const sizeKB = (file.size / 1024).toFixed(1);
