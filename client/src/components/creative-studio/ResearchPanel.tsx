@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { ensureFreshSession } from '@/lib/supabaseHelpers';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
@@ -227,6 +228,7 @@ export default function ResearchPanel({ onResearchUpdate }: ResearchPanelProps) 
     ));
 
     try {
+      await ensureFreshSession();
       let response: { data: any; error: any };
 
       switch (source.type) {

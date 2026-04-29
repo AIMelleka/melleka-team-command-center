@@ -12,11 +12,16 @@ const supabaseAuth = createClient(
 
 export interface AuthRequest extends Request {
   memberName?: string;
+  anthropicApiKey?: string;
 }
 
 // Cache MFA enrollment status per user to avoid 2 extra Supabase calls per request
 const mfaCache = new Map<string, { hasTotp: boolean; expiresAt: number }>();
 const MFA_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Cache per-user API keys (refresh every 5 min so key changes propagate)
+const apiKeyCache = new Map<string, { key: string | null; expiresAt: number }>();
+const API_KEY_CACHE_TTL = 5 * 60 * 1000;
 
 export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   const header = req.headers.authorization;
@@ -42,11 +47,29 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     const memberName = (email.split("@")[0] || "unknown").toLowerCase();
     req.memberName = memberName;
 
-    // Ensure team member record + local folder exist (fire-and-forget)
-    Promise.resolve(
-      supabase.from("team_members").upsert({ name: memberName }, { onConflict: "name" })
-    ).catch(() => {});
+    // Ensure team member record exists (fire-and-forget)
+    Promise.resolve(supabase.from("team_members").upsert({ name: memberName }, { onConflict: "name" })).catch(() => {});
     getMemberDir(memberName).catch(() => {});
+
+    // Fetch per-user Anthropic API key (cached)
+    const cached = apiKeyCache.get(memberName);
+    if (cached && Date.now() < cached.expiresAt) {
+      if (cached.key) req.anthropicApiKey = cached.key;
+    } else {
+      try {
+        const { data } = await supabase
+          .from("team_members")
+          .select("anthropic_api_key")
+          .eq("name", memberName)
+          .limit(1)
+          .single();
+        const key = data?.anthropic_api_key || null;
+        apiKeyCache.set(memberName, { key, expiresAt: Date.now() + API_KEY_CACHE_TTL });
+        if (key) req.anthropicApiKey = key;
+      } catch {
+        // DB lookup failed — proceed without per-user key
+      }
+    }
 
     next();
   } catch {

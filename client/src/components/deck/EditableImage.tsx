@@ -55,11 +55,6 @@ export const EditableImage = ({
       toast({ title: 'Please select an image file', variant: 'destructive' });
       return;
     }
-    if (file.size > 20 * 1024 * 1024) {
-      toast({ title: 'Image must be under 20MB', variant: 'destructive' });
-      return;
-    }
-
     setIsUploading(true);
     try {
       const ext = file.name.split('.').pop() || 'jpg';

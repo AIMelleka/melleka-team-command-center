@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { ensureFreshSession, extractEdgeFunctionError } from '@/lib/supabaseHelpers';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -162,10 +163,6 @@ export function ImagePanel({ onGenerated, prefill }: ImagePanelProps) {
       toast({ title: 'Invalid file', description: 'Please upload an image', variant: 'destructive' });
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      toast({ title: 'File too large', description: 'Max 10MB', variant: 'destructive' });
-      return;
-    }
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
@@ -222,6 +219,21 @@ export function ImagePanel({ onGenerated, prefill }: ImagePanelProps) {
 
   // ── Generation ──
 
+  const invokeImageGenerator = async (): Promise<{ data: any; error: any }> => {
+    await ensureFreshSession();
+    return supabase.functions.invoke('image-generator', {
+      body: {
+        prompt,
+        mode,
+        referenceImage,
+        width: selectedSize.w,
+        height: selectedSize.h,
+        style,
+        numberOfImages,
+      },
+    });
+  };
+
   const handleGenerate = async () => {
     if (!prompt && mode === 'generate') {
       toast({ title: 'Enter a prompt', variant: 'destructive' });
@@ -234,30 +246,33 @@ export function ImagePanel({ onGenerated, prefill }: ImagePanelProps) {
 
     setIsGenerating(true);
     try {
-      const { data, error } = await supabase.functions.invoke('image-generator', {
-        body: {
-          prompt,
-          mode,
-          referenceImage,
-          width: selectedSize.w,
-          height: selectedSize.h,
-          style,
-          numberOfImages,
-        },
-      });
+      // Try with automatic retry on transient failures
+      let result = await invokeImageGenerator();
+      let { data, error } = result;
+
+      // Auto-retry once on non-policy errors (network, 500, timeout)
+      if ((error || !data?.success) && !data?.reason?.includes('SAFETY') && !data?.reason?.includes('PROHIBITED')) {
+        console.warn('[ImagePanel] First attempt failed, retrying...', error?.message || data?.error);
+        await new Promise(r => setTimeout(r, 1500));
+        result = await invokeImageGenerator();
+        data = result.data;
+        error = result.error;
+      }
 
       if (error || !data?.success) {
-        const contextJson = (error as any)?.context?.json;
-        const errorData = contextJson || data;
-        const reason = errorData?.reason;
-        const rephrased = errorData?.rephrased;
-        const isPolicyBlock = reason === "IMAGE_PROHIBITED_CONTENT" || reason === "IMAGE_SAFETY";
+        let errMsg = error
+          ? await extractEdgeFunctionError(error, 'Generation failed')
+          : (data?.error || 'Generation failed');
 
-        let errorMsg = errorData?.error || error?.message || 'Generation failed';
+        const errorData = data || {};
+        const reason = errorData.reason;
+        const rephrased = errorData.rephrased;
+        const isPolicyBlock = reason === "IMAGE_PROHIBITED_CONTENT" || reason === "IMAGE_SAFETY" || reason === "PROHIBITED_CONTENT" || reason === "SAFETY";
+
         if (isPolicyBlock && rephrased) {
-          errorMsg += `\n\nYour prompt was auto-rephrased to: "${rephrased}" but still triggered the filter. Try a different reference image or simpler instructions.`;
+          errMsg += `\n\nYour prompt was auto-rephrased to: "${rephrased}" but still triggered the filter. Try a different reference image or simpler instructions.`;
         }
-        throw new Error(errorMsg);
+        throw new Error(errMsg);
       }
 
       const newImages: GeneratedImage[] = data.images.map((img: any) => ({
@@ -268,11 +283,11 @@ export function ImagePanel({ onGenerated, prefill }: ImagePanelProps) {
         timestamp: Date.now(),
       }));
 
-      // Save to database
+      // Save to database with retry
       if (user) {
         const inserts = newImages.map(img => ({
           created_by: user.id,
-          prompt: img.prompt,
+          prompt: (img.prompt || '').slice(0, 2000),
           mode: img.mode,
           style: style !== 'none' ? style : null,
           width: selectedSize.w,
@@ -280,9 +295,17 @@ export function ImagePanel({ onGenerated, prefill }: ImagePanelProps) {
           image_url: img.imageUrl,
           generator: img.generator,
         }));
-        const { data: saved } = await supabase.from('generated_images').insert(inserts).select();
+        let saved: any[] | null = null;
+        const { data: firstTry, error: dbErr } = await supabase.from('generated_images').insert(inserts).select();
+        if (dbErr) {
+          console.error('[ImagePanel] DB save failed, retrying:', dbErr);
+          const { data: retry } = await supabase.from('generated_images').insert(inserts).select();
+          saved = retry;
+        } else {
+          saved = firstTry;
+        }
         if (saved) {
-          const withIds = newImages.map((img, i) => ({ ...img, dbId: saved[i]?.id }));
+          const withIds = newImages.map((img, i) => ({ ...img, dbId: saved![i]?.id }));
           withIds.forEach(img => {
             onGenerated(toGalleryItem(img, selectedSize, style));
           });
@@ -300,7 +323,7 @@ export function ImagePanel({ onGenerated, prefill }: ImagePanelProps) {
       toast({ title: `${newImages.length} image${newImages.length > 1 ? 's' : ''} generated!` });
     } catch (e: any) {
       const msg = e.message || 'Unknown error';
-      const isPolicyBlock = msg.includes('content policy') || msg.includes('safety policy');
+      const isPolicyBlock = msg.includes('content policy') || msg.includes('safety policy') || msg.includes('PROHIBITED') || msg.includes('SAFETY');
       toast({
         title: isPolicyBlock ? '\u26a0\ufe0f Content Policy Block' : 'Generation failed',
         description: msg.length > 200 ? msg.slice(0, 200) + '\u2026' : msg,

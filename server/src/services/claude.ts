@@ -1022,6 +1022,7 @@ async function runChat(
   conversationId?: string | null,
   lowTokenMode?: boolean,
   model?: string,
+  anthropicApiKey?: string,
 ): Promise<string> {
   // Migrate old blob memory to individual entries (first time only)
   await migrateMemoryIfNeeded(memberName);
@@ -1164,7 +1165,7 @@ async function runChat(
 
       let stream: AsyncGenerator<LLMStreamEvent>;
       try {
-        stream = await callLLMWithFallback(systemPrompt, currentMessages, TOOL_DEFINITIONS, write, memberName, model);
+        stream = await callLLMWithFallback(systemPrompt, currentMessages, TOOL_DEFINITIONS, write, memberName, model, anthropicApiKey);
       } catch (err: any) {
         const errMsg = `\n\n[Error: All LLM providers failed — ${err.message}]`;
         fullResponse += errMsg;
@@ -1371,12 +1372,13 @@ export async function streamChat(
   conversationId?: string | null,
   lowTokenMode?: boolean,
   model?: string,
+  anthropicApiKey?: string,
 ): Promise<string> {
   const write: SseWriter = safeWrite((event) => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
     if (onEvent) onEvent(event);
   });
-  return runChat(memberName, messages, write, conversationId, lowTokenMode, model);
+  return runChat(memberName, messages, write, conversationId, lowTokenMode, model, anthropicApiKey);
 }
 
 /** Run chat in the background (no SSE, just returns the full response) */
@@ -1385,5 +1387,11 @@ export async function runChatBackground(
   messages: Anthropic.MessageParam[],
   conversationId?: string | null,
 ): Promise<string> {
-  return runChat(memberName, messages, null, conversationId);
+  // Look up per-user API key for background jobs (no request context)
+  const { data } = await supabase
+    .from("team_members")
+    .select("anthropic_api_key")
+    .eq("name", memberName)
+    .single();
+  return runChat(memberName, messages, null, conversationId, undefined, undefined, data?.anthropic_api_key || undefined);
 }

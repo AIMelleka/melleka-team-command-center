@@ -692,10 +692,6 @@ const ProposalBuilder = () => {
                                     toast.error('Please select an image file');
                                     return;
                                   }
-                                  if (file.size > 5 * 1024 * 1024) {
-                                    toast.error('Image must be less than 5MB');
-                                    return;
-                                  }
                                   const reader = new FileReader();
                                   reader.onload = (event) => {
                                     const dataUrl = event.target?.result as string;

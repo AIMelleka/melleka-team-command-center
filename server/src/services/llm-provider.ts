@@ -398,8 +398,9 @@ async function callClaude(
   messages: Anthropic.MessageParam[],
   tools: Anthropic.Tool[],
   model?: string,
+  anthropicApiKey?: string,
 ): Promise<AsyncGenerator<LLMStreamEvent>> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = anthropicApiKey || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw Object.assign(new Error("ANTHROPIC_API_KEY not configured"), { status: 401 });
 
   const client = new Anthropic({ apiKey });
@@ -513,6 +514,7 @@ export async function callLLMWithFallback(
   write: SseWriter,
   memberName: string,
   model?: string,
+  anthropicApiKey?: string,
 ): Promise<AsyncGenerator<LLMStreamEvent>> {
   const errors: Array<{ provider: string; error: string }> = [];
 
@@ -524,9 +526,9 @@ export async function callLLMWithFallback(
       continue;
     }
 
-    // Skip if no API key
+    // Skip if no API key (for Claude, per-user key also counts)
     const keyMap: Record<Provider, string | undefined> = {
-      claude: process.env.ANTHROPIC_API_KEY,
+      claude: anthropicApiKey || process.env.ANTHROPIC_API_KEY,
       gemini: process.env.GOOGLE_AI_API_KEY,
       openai: process.env.OPENAI_API_KEY,
     };
@@ -540,10 +542,10 @@ export async function callLLMWithFallback(
 
       const callers = { claude: callClaude, gemini: callGemini, openai: callOpenAI };
       const stream = provider === "claude"
-        ? await callClaude(systemPrompt, messages, tools, model)
+        ? await callClaude(systemPrompt, messages, tools, model, anthropicApiKey)
         : await callers[provider](systemPrompt, messages, tools);
 
-      console.log(`[llm] ${memberName} | connected to ${provider}`);
+      console.log(`[llm] ${memberName} | connected to ${provider}${provider === "claude" && anthropicApiKey ? " (per-user key)" : ""}`);
 
       // Fallback is silent to the user - just log it server-side
 

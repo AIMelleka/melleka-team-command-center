@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { ensureFreshSession, extractEdgeFunctionError } from '@/lib/supabaseHelpers';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -61,12 +62,14 @@ const TYPE_ICONS: Record<CreativeType, typeof Megaphone> = {
   ad: Megaphone,
   image: ImageIcon,
   video: Video,
+  canva: PenLine,
 };
 
 const TYPE_LABELS: Record<CreativeType, string> = {
   ad: 'Ad Creative',
   image: 'Image',
   video: 'Video',
+  canva: 'Canva Design',
 };
 
 export function SmartBrief({ brandContext, onAnalysisComplete, onGenerateNow, onCustomize, onResearchUpdate }: SmartBriefProps) {
@@ -110,6 +113,7 @@ export function SmartBrief({ brandContext, onAnalysisComplete, onGenerateNow, on
         };
       }
 
+      await ensureFreshSession();
       const { data, error } = await supabase.functions.invoke('analyze-creative-brief', {
         body: {
           brief: brief.trim(),
@@ -119,8 +123,7 @@ export function SmartBrief({ brandContext, onAnalysisComplete, onGenerateNow, on
       });
 
       if (error) {
-        const errJson = (error as any)?.context?.json;
-        throw new Error(errJson?.error || error.message || 'Analysis failed');
+        throw new Error(await extractEdgeFunctionError(error, 'Analysis failed'));
       }
 
       if (!data?.success || !data?.analysis) {

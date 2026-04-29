@@ -4,6 +4,7 @@
 create table if not exists team_members (
   id uuid primary key default gen_random_uuid(),
   name text unique not null,
+  anthropic_api_key text,
   created_at timestamptz default now()
 );
 

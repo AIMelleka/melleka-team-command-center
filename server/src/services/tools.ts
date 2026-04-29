@@ -3255,6 +3255,45 @@ export async function executeTool(
           return urlData.publicUrl;
         };
 
+        const tryOpenAIModel = async (): Promise<string | null> => {
+          const openaiKey = process.env.OPENAI_API_KEY;
+          if (!openaiKey) { console.log("[generate_image] No OPENAI_API_KEY, skipping"); return null; }
+          const sizeMap: Record<string, string> = {
+            "1:1": "1024x1024", "16:9": "1536x1024", "9:16": "1024x1536",
+            "4:3": "1536x1024", "3:4": "1024x1536",
+          };
+          const size = sizeMap[imgAspect] || "1024x1024";
+          try {
+            const resp = await fetch("https://api.openai.com/v1/images/generations", {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${openaiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "gpt-image-1",
+                prompt: imgPrompt,
+                n: 1,
+                size,
+                quality: "high",
+                output_format: "b64_json",
+              }),
+            });
+            if (!resp.ok) {
+              const errText = await resp.text();
+              console.log(`[generate_image] gpt-image-1 HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+              if (errText.includes("content_policy")) return "Image generation was blocked by content policy. Try rephrasing your prompt.";
+              return null;
+            }
+            const data = await resp.json() as any;
+            const b64 = data.data?.[0]?.b64_json;
+            if (!b64) return null;
+            const buf = Buffer.from(b64, "base64");
+            const url = await uploadGenImage(buf, "image/png");
+            return `![Generated Image](${url})`;
+          } catch (err) { console.error("[generate_image] gpt-image-1 error:", err); return null; }
+        };
+
         const tryGeminiImgModel = async (model: string): Promise<string | null> => {
           try {
             const resp = await fetch(
@@ -3305,6 +3344,7 @@ export async function executeTool(
         };
 
         const imgModels: Array<{ name: string; fn: () => Promise<string | null> }> = [
+          { name: "gpt-image-1", fn: tryOpenAIModel },
           { name: "gemini-2.0-flash-exp-image-generation", fn: () => tryGeminiImgModel("gemini-2.0-flash-exp-image-generation") },
           { name: "imagen-4.0-generate-001", fn: () => tryImagenModel("imagen-4.0-generate-001") },
         ];

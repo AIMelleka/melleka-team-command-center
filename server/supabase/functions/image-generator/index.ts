@@ -56,6 +56,14 @@ async function urlToInlineData(url: string): Promise<{ mimeType: string; data: s
   }
 }
 
+/** Map arbitrary width/height to OpenAI's supported sizes */
+function mapToOpenAISize(width: number, height: number): string {
+  const ratio = width / height;
+  if (ratio > 1.2) return "1536x1024";   // landscape
+  if (ratio < 0.83) return "1024x1536";  // portrait
+  return "1024x1024";                     // square
+}
+
 // Rephrase prompts for safety using Claude Haiku (fast + cheap)
 async function rephrasePromptForSafety(
   originalPrompt: string,
@@ -202,6 +210,108 @@ async function generateWithGemini(
   return null;
 }
 
+// Generate image with OpenAI gpt-image-1
+async function generateWithOpenAI(
+  prompt: string,
+  mode: string,
+  referenceImageUrl?: string,
+  width: number = 1024,
+  height: number = 1024,
+): Promise<{ imageUrl: string; generator: string } | { finishReason: string } | null> {
+  const apiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!apiKey) { console.log("[OPENAI] No OPENAI_API_KEY, skipping"); return null; }
+
+  const size = mapToOpenAISize(width, height);
+  console.log(`[OPENAI] mode=${mode}, size=${size}, hasRef=${!!referenceImageUrl}`);
+
+  try {
+    if (mode === "generate" && !referenceImageUrl) {
+      // Text-to-image: use /v1/images/generations
+      const resp = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-image-1",
+          prompt,
+          n: 1,
+          size,
+          quality: "high",
+          output_format: "b64_json",
+        }),
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        console.error(`[OPENAI] generations error ${resp.status}:`, errText.slice(0, 300));
+        if (errText.includes("content_policy")) return { finishReason: "SAFETY" };
+        if (resp.status === 429 || resp.status >= 500) return null;
+        return null;
+      }
+
+      const data = await resp.json();
+      const b64 = data.data?.[0]?.b64_json;
+      if (!b64) { console.warn("[OPENAI] No image data in response"); return null; }
+
+      const imageUrl = `data:image/png;base64,${b64}`;
+      const publicUrl = await uploadToStorage(imageUrl, "openai");
+      console.log("[OPENAI] Generated successfully (generations)");
+      return { imageUrl: publicUrl, generator: "gpt-image-1" };
+    } else {
+      // Edit/Background/Upscale or generate-with-reference: use /v1/images/edits
+      const formData = new FormData();
+      formData.append("model", "gpt-image-1");
+      formData.append("prompt", prompt);
+      formData.append("n", "1");
+      formData.append("size", size);
+      formData.append("quality", "high");
+
+      if (referenceImageUrl) {
+        // Fetch reference image and attach as PNG blob
+        let imgBytes: Uint8Array | null = null;
+        if (referenceImageUrl.startsWith("data:image/")) {
+          const match = referenceImageUrl.match(/^data:image\/[a-zA-Z0-9+.-]+;base64,(.*)$/);
+          if (match) imgBytes = Uint8Array.from(atob(match[1]), (c) => c.charCodeAt(0));
+        } else {
+          const imgResp = await fetch(referenceImageUrl);
+          if (imgResp.ok) imgBytes = new Uint8Array(await imgResp.arrayBuffer());
+        }
+        if (imgBytes) {
+          formData.append("image[]", new Blob([imgBytes], { type: "image/png" }), "reference.png");
+        }
+      }
+
+      const resp = await fetch("https://api.openai.com/v1/images/edits", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${apiKey}` },
+        body: formData,
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        console.error(`[OPENAI] edits error ${resp.status}:`, errText.slice(0, 300));
+        if (errText.includes("content_policy")) return { finishReason: "SAFETY" };
+        if (resp.status === 429 || resp.status >= 500) return null;
+        return null;
+      }
+
+      const data = await resp.json();
+      const b64 = data.data?.[0]?.b64_json;
+      if (!b64) { console.warn("[OPENAI] No image data in edits response"); return null; }
+
+      const imageUrl = `data:image/png;base64,${b64}`;
+      const publicUrl = await uploadToStorage(imageUrl, "openai");
+      console.log("[OPENAI] Generated successfully (edits)");
+      return { imageUrl: publicUrl, generator: "gpt-image-1" };
+    }
+  } catch (e) {
+    console.error("[OPENAI] Error:", e);
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -269,10 +379,19 @@ serve(async (req) => {
     let blockedReason: string | null = null;
 
     for (let i = 0; i < Math.min(numberOfImages, 4); i++) {
-      const result = await generateWithGemini(enhancedPrompt, mode, refUrl);
+      // Try OpenAI first, fall back to Gemini
+      let result = await generateWithOpenAI(enhancedPrompt, mode, refUrl, width, height);
 
+      // If OpenAI returned a safety block, respect it — do NOT fall back
       if (result && "finishReason" in result && result.finishReason) {
         blockedReason = result.finishReason;
+      } else if (!result || !("imageUrl" in result)) {
+        // OpenAI failed (not safety) — try Gemini as fallback
+        console.log(`[GEN] OpenAI failed for image ${i + 1}, falling back to Gemini`);
+        result = await generateWithGemini(enhancedPrompt, mode, refUrl);
+        if (result && "finishReason" in result && result.finishReason) {
+          blockedReason = result.finishReason;
+        }
       }
 
       if (result && "imageUrl" in result && result.imageUrl) {

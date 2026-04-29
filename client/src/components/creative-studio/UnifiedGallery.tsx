@@ -52,6 +52,7 @@ export function UnifiedGallery({ items, onClear }: UnifiedGalleryProps) {
       a.click();
       URL.revokeObjectURL(a.href);
     } catch {
+      toast.error('Download failed, opening in new tab...');
       window.open(item.url, '_blank');
     }
   };

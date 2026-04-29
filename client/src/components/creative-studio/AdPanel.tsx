@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { ensureFreshSession, extractEdgeFunctionError } from "@/lib/supabaseHelpers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -219,10 +220,6 @@ export function AdPanel({ brandContext, onGenerated, prefill }: AdPanelProps) {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error("Image must be under 5MB");
-        return;
-      }
       setUploadedImageFile(file);
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -329,6 +326,7 @@ export function AdPanel({ brandContext, onGenerated, prefill }: AdPanelProps) {
         .slice(0, 2)
         .map((s) => s.screenshot as string);
 
+      await ensureFreshSession();
       const { data, error } = await supabase.functions.invoke("generate-ad-image", {
         body: {
           prompt: fullPrompt,
@@ -353,11 +351,9 @@ export function AdPanel({ brandContext, onGenerated, prefill }: AdPanelProps) {
       });
 
       if (error) {
-        const errJson = (error as any)?.context?.json;
-        const message =
-          errJson?.help || errJson?.error || error.message || "Failed to generate image";
-        console.error("generate-ad-image error:", errJson || error);
-        throw new Error(message);
+        const errMsg = await extractEdgeFunctionError(error, 'Failed to generate image');
+        console.error("generate-ad-image error:", errMsg);
+        throw new Error(errMsg);
       }
 
       setProgress(80);

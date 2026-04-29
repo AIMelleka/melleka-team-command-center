@@ -66,6 +66,15 @@ export async function fetchMessages(convId: string): Promise<Message[]> {
   return res.json();
 }
 
+export async function renameConversation(convId: string, title: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/conversations/${convId}`, {
+    method: "PATCH",
+    headers: await authHeaders(),
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error("Failed to rename conversation");
+}
+
 export async function deleteConversation(convId: string): Promise<void> {
   await fetch(`${API_BASE}/conversations/${convId}`, {
     method: "DELETE",

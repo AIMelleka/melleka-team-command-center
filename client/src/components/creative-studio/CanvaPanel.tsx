@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import {
@@ -52,6 +52,7 @@ export function CanvaPanel({ brandContext, onGenerated }: Props) {
   const [canvaMode, setCanvaMode] = useState<CanvaMode>('create');
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Create mode state
   const [designType, setDesignType] = useState('presentation');
@@ -80,9 +81,12 @@ export function CanvaPanel({ brandContext, onGenerated }: Props) {
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState('png');
 
-  // Check connection status on mount
+  // Check connection status on mount; clean up polling on unmount
   useEffect(() => {
     checkConnection();
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
   }, []);
 
   async function checkConnection() {
@@ -104,19 +108,24 @@ export function CanvaPanel({ brandContext, onGenerated }: Props) {
       const data = await resp.json();
       if (data.url) {
         window.open(data.url, '_blank', 'width=600,height=700');
+        // Clear any existing poll before starting new one
+        if (pollingRef.current) clearInterval(pollingRef.current);
         // Poll for connection
-        const interval = setInterval(async () => {
-          const r = await fetch(`${API_BASE}/api/canva/status`, { headers });
-          const d = await r.json();
-          if (d.connected) {
-            clearInterval(interval);
-            setIsConnected(true);
-            setIsConnecting(false);
-            toast.success('Canva connected!');
-          }
+        pollingRef.current = setInterval(async () => {
+          try {
+            const r = await fetch(`${API_BASE}/api/canva/status`, { headers });
+            const d = await r.json();
+            if (d.connected) {
+              if (pollingRef.current) clearInterval(pollingRef.current);
+              pollingRef.current = null;
+              setIsConnected(true);
+              setIsConnecting(false);
+              toast.success('Canva connected!');
+            }
+          } catch { /* ignore polling errors */ }
         }, 3000);
         // Stop polling after 5 minutes
-        setTimeout(() => clearInterval(interval), 300000);
+        setTimeout(() => { if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; } }, 300000);
       } else {
         toast.error(data.error || 'Failed to start OAuth');
         setIsConnecting(false);
@@ -130,23 +139,7 @@ export function CanvaPanel({ brandContext, onGenerated }: Props) {
   async function createDesign() {
     setIsCreating(true);
     try {
-      const headers = await authHeaders();
-      const body: any = { design_type: designType };
-      if (title.trim()) body.title = title.trim();
-      if (designType === 'custom') {
-        body.width = customWidth;
-        body.height = customHeight;
-      }
-
-      const resp = await fetch(`${API_BASE}/api/canva/design`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-      });
-
-      // The tools are on the server agent side, not as REST endpoints.
-      // We'll use the chat API to invoke canva tools via the agent.
-      // For now, open Canva directly for design creation.
+      // Open Canva directly for design creation (server agent tools handle API operations)
       const canvaUrl = `https://www.canva.com/design/new?type=${designType}`;
       window.open(canvaUrl, '_blank');
       toast.success('Opening Canva editor...');

@@ -47,6 +47,33 @@ router.get("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
   res.json(messages ?? []);
 });
 
+// Rename a conversation
+router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
+  const { title } = req.body;
+  if (!title || typeof title !== "string") {
+    res.status(400).json({ error: "Title is required." });
+    return;
+  }
+
+  const { data: conv } = await supabase
+    .from("team_conversations")
+    .select("member_name")
+    .eq("id", req.params.id)
+    .single();
+
+  if (!conv || conv.member_name !== req.memberName!.toLowerCase()) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+
+  await supabase
+    .from("team_conversations")
+    .update({ title: title.trim(), updated_at: new Date().toISOString() })
+    .eq("id", req.params.id);
+
+  res.json({ ok: true });
+});
+
 // Delete a conversation
 router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
   const { data: conv } = await supabase

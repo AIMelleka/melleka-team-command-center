@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { ensureFreshSession, extractEdgeFunctionError } from '@/lib/supabaseHelpers';
 import { useAuth } from '@/hooks/useAuth';
 import AdminHeader from '@/components/AdminHeader';
 import { toast } from 'sonner';
@@ -96,6 +97,7 @@ export default function CreativeStudio() {
       if (analysis.outputType === 'ad') {
         // Call generate-ad-image
         const dims = analysis.dimensions || { width: 1080, height: 1080 };
+        await ensureFreshSession();
         const { data, error } = await supabase.functions.invoke('generate-ad-image', {
           body: {
             prompt: analysis.enhancedPrompt,
@@ -117,8 +119,7 @@ export default function CreativeStudio() {
         });
 
         if (error) {
-          const errJson = (error as any)?.context?.json;
-          throw new Error(errJson?.error || error.message);
+          throw new Error(await extractEdgeFunctionError(error, 'Ad generation failed'));
         }
         if (data?.imageUrl) {
           handleGenerated({
@@ -142,6 +143,7 @@ export default function CreativeStudio() {
       } else if (analysis.outputType === 'image') {
         // Call image-generator
         const dims = analysis.dimensions || { width: 1024, height: 1024 };
+        await ensureFreshSession();
         const { data, error } = await supabase.functions.invoke('image-generator', {
           body: {
             prompt: analysis.enhancedPrompt,
@@ -154,8 +156,8 @@ export default function CreativeStudio() {
         });
 
         if (error || !data?.success) {
-          const errJson = (error as any)?.context?.json;
-          throw new Error(errJson?.error || data?.error || error?.message || 'Generation failed');
+          if (error) throw new Error(await extractEdgeFunctionError(error, 'Image generation failed'));
+          throw new Error(data?.error || 'Image generation failed');
         }
 
         for (const img of data.images) {
@@ -192,6 +194,7 @@ export default function CreativeStudio() {
         toast.success('Image generated!');
       } else if (analysis.outputType === 'video') {
         // Call generate-video
+        await ensureFreshSession();
         const { data, error } = await supabase.functions.invoke('generate-video', {
           body: {
             prompt: analysis.enhancedPrompt,
@@ -202,7 +205,9 @@ export default function CreativeStudio() {
           },
         });
 
-        if (error) throw error;
+        if (error) {
+          throw new Error(await extractEdgeFunctionError(error, 'Video generation failed'));
+        }
         if (data?.videoUrl) {
           handleGenerated({
             id: crypto.randomUUID(),

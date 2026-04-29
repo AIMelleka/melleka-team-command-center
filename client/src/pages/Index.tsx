@@ -25,6 +25,7 @@ import {
   fetchConversations as apiFetchConversations,
   fetchMessages as apiFetchMessages,
   deleteConversation as apiDeleteConversation,
+  renameConversation as apiRenameConversation,
   fetchNotifications as apiFetchNotifications,
   ensureTeamMember,
   checkJobStatus,
@@ -389,10 +390,15 @@ const Index = () => {
 
   const confirmRename = async () => {
     if (!editing || !editing.title.trim()) { setEditing(null); return; }
-    // Note: rename still goes through the conversations API on the server
-    // The server handles this already via the conversations route
-    setConversations(prev => prev.map(c => c.id === editing.id ? { ...c, title: editing.title.trim() } : c));
+    const newTitle = editing.title.trim();
+    setConversations(prev => prev.map(c => c.id === editing.id ? { ...c, title: newTitle } : c));
     setEditing(null);
+    try {
+      await apiRenameConversation(editing.id, newTitle);
+    } catch {
+      toast.error('Failed to rename conversation');
+      loadConversations();
+    }
   };
 
   const loadMemory = () => setShowMemory(true);

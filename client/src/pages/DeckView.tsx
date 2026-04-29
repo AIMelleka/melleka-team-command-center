@@ -951,8 +951,6 @@ const DeckView = () => {
   const handleLogoUpload = async (file: File) => {
     if (!deck) return;
     if (!file.type.startsWith('image/')) { toast({ title: 'Please select an image file', variant: 'destructive' }); return; }
-    if (file.size > 5 * 1024 * 1024) { toast({ title: 'Image must be less than 5MB', variant: 'destructive' }); return; }
-    
     setIsUploadingLogo(true);
     try {
       const clientSlug = deck.client_name.toLowerCase().replace(/[^a-z0-9]+/g, '-');

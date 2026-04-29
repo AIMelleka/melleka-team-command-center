@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { ensureFreshSession, extractEdgeFunctionError } from "@/lib/supabaseHelpers";
 import { cn } from "@/lib/utils";
 import type { BrandContext, GalleryItem, VideoPrefill } from "./types";
 
@@ -279,6 +280,7 @@ export function VideoPanel({ brandContext, onGenerated, prefill }: VideoPanelPro
       const fullPrompt = buildFullPrompt();
       console.log("Full video prompt:", fullPrompt.substring(0, 500) + "...");
 
+      await ensureFreshSession();
       const { data, error } = await supabase.functions.invoke("generate-video", {
         body: {
           prompt: fullPrompt,
@@ -291,7 +293,9 @@ export function VideoPanel({ brandContext, onGenerated, prefill }: VideoPanelPro
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        throw new Error(await extractEdgeFunctionError(error, 'Video generation failed'));
+      }
 
       if (data?.videoUrl) {
         const videoUrl = data.videoUrl as string;

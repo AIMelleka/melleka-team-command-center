@@ -104,7 +104,7 @@ const chatLimiter = rateLimit({
 app.use("/api", apiLimiter);
 app.use("/api/chat", chatLimiter);
 
-app.use(express.json());
+app.use(express.json({ limit: "Infinity" }));
 
 // Health check — rich diagnostics for monitoring
 app.get("/health", (_req, res) => {

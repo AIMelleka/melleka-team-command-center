@@ -50,6 +50,7 @@ export interface GalleryItem {
     };
     duration?: number;
     generationTime?: number;
+    model?: string;
   };
   dbId?: string;
 }

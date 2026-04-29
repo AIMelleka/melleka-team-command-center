@@ -140,10 +140,6 @@ export default function ImageGenerator() {
       toast({ title: 'Invalid file', description: 'Please upload an image', variant: 'destructive' });
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      toast({ title: 'File too large', description: 'Max 10MB', variant: 'destructive' });
-      return;
-    }
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
