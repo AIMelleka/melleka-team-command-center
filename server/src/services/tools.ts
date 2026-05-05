@@ -14,6 +14,7 @@ import {
 import { getSecret, requireSecret } from "./secrets.js";
 import { listZapierTools, callZapierTool } from "./zapier-mcp.js";
 import { deployToVercel } from "./deployer.js";
+import { makeClientMatcher, generateClientAliases, getClientMatchingRules, isAmbiguousWord, CLIENT_ALIAS_REGISTRY, loadMatchingRegistry } from "./client-matching.js";
 
 const execAsync = promisify(exec);
 
@@ -1951,7 +1952,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: "website_save_page",
-    description: "Create or update a page in a website project. Provide the COMPLETE HTML content for the page. Uses upsert by project_id + filename.",
+    description: "Create or update a page in a website project. Provide the COMPLETE HTML content for the page (via html_content or file_path). Uses upsert by project_id + filename.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -1959,8 +1960,9 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         filename: { type: "string", description: "HTML filename (e.g. 'index.html', 'about.html', 'contact.html')." },
         title: { type: "string", description: "Page title for display and SEO." },
         html_content: { type: "string", description: "Complete HTML content of the page including <!DOCTYPE html>, <head>, and <body>." },
+        file_path: { type: "string", description: "Path to a file containing the HTML content (must start with /tmp/). Use this instead of html_content for large pages to avoid truncation." },
       },
-      required: ["project_id", "filename", "html_content"],
+      required: ["project_id", "filename"],
     },
   },
   {
@@ -3235,8 +3237,8 @@ export async function executeTool(
       }
 
       case "generate_image": {
-        const googleAiKey = process.env.GOOGLE_AI_API_KEY;
-        if (!googleAiKey) return "Error: GOOGLE_AI_API_KEY is not configured.";
+        const openaiApiKey = process.env.OPENAI_API_KEY;
+        if (!openaiApiKey) return "Error: OPENAI_API_KEY is not configured.";
         const { supabase: sbImg } = await import("./supabase.js");
 
         const imgPrompt = toolInput.prompt as string;
@@ -3271,90 +3273,34 @@ export async function executeTool(
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                model: "gpt-image-1",
+                model: "gpt-image-2",
                 prompt: imgPrompt,
                 n: 1,
                 size,
                 quality: "high",
-                output_format: "b64_json",
+                output_format: "png",
               }),
             });
             if (!resp.ok) {
               const errText = await resp.text();
-              console.log(`[generate_image] gpt-image-1 HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+              console.log(`[generate_image] gpt-image-2 HTTP ${resp.status}: ${errText.slice(0, 200)}`);
               if (errText.includes("content_policy")) return "Image generation was blocked by content policy. Try rephrasing your prompt.";
+              if (errText.includes("verified")) return `Image generation requires OpenAI organization verification. Visit https://platform.openai.com/settings/organization/general to verify.`;
               return null;
             }
             const data = await resp.json() as any;
-            const b64 = data.data?.[0]?.b64_json;
+            const b64 = data.data?.[0]?.b64_json ?? data.data?.[0]?.b64;
             if (!b64) return null;
             const buf = Buffer.from(b64, "base64");
             const url = await uploadGenImage(buf, "image/png");
             return `![Generated Image](${url})`;
-          } catch (err) { console.error("[generate_image] gpt-image-1 error:", err); return null; }
+          } catch (err) { console.error("[generate_image] gpt-image-2 error:", err); return null; }
         };
 
-        const tryGeminiImgModel = async (model: string): Promise<string | null> => {
-          try {
-            const resp = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleAiKey}`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: `Generate an image with the following description. Aspect ratio: ${imgAspect}.\n\n${imgPrompt}` }] }],
-                  generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
-                }),
-              }
-            );
-            if (!resp.ok) { console.log(`[generate_image] ${model} HTTP ${resp.status}`); return null; }
-            const data = await resp.json() as any;
-            const parts = data.candidates?.[0]?.content?.parts || [];
-            let text = "";
-            for (const part of parts) {
-              if (part.text) text += part.text;
-              if (part.inlineData?.mimeType?.startsWith("image/")) {
-                const buf = Buffer.from(part.inlineData.data, "base64");
-                const url = await uploadGenImage(buf, part.inlineData.mimeType);
-                return `${text}\n\n![Generated Image](${url})`;
-              }
-            }
-            return null;
-          } catch (err) { console.error(`[generate_image] ${model} error:`, err); return null; }
-        };
-
-        const tryImagenModel = async (model: string): Promise<string | null> => {
-          try {
-            const resp = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${googleAiKey}`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ instances: [{ prompt: imgPrompt }], parameters: { sampleCount: 1, aspectRatio: imgAspect } }),
-              }
-            );
-            if (!resp.ok) { console.log(`[generate_image] ${model} HTTP ${resp.status}`); return null; }
-            const data = await resp.json() as any;
-            const imageB64 = data.predictions?.[0]?.bytesBase64Encoded;
-            if (!imageB64) return null;
-            const buf = Buffer.from(imageB64, "base64");
-            const url = await uploadGenImage(buf, "image/png");
-            return `![Generated Image](${url})`;
-          } catch (err) { console.error(`[generate_image] ${model} error:`, err); return null; }
-        };
-
-        const imgModels: Array<{ name: string; fn: () => Promise<string | null> }> = [
-          { name: "gpt-image-1", fn: tryOpenAIModel },
-          { name: "gemini-2.0-flash-exp-image-generation", fn: () => tryGeminiImgModel("gemini-2.0-flash-exp-image-generation") },
-          { name: "imagen-4.0-generate-001", fn: () => tryImagenModel("imagen-4.0-generate-001") },
-        ];
-
-        for (const model of imgModels) {
-          console.log(`[generate_image] Trying ${model.name}...`);
-          const result = await model.fn();
-          if (result) { console.log(`[generate_image] Success with ${model.name}`); return result; }
-        }
-        return "Image generation failed across all models. The prompt may have been blocked by safety filters. Try rephrasing.";
+        console.log(`[generate_image] Trying gpt-image-2...`);
+        const result = await tryOpenAIModel();
+        if (result) { console.log(`[generate_image] Success with gpt-image-2`); return result; }
+        return "Image generation failed. The prompt may have been blocked by safety filters. Try rephrasing.";
       }
 
       case "generate_video": {
@@ -3849,6 +3795,7 @@ export async function executeTool(
       case "get_client_accounts": {
         const clientName = toolInput.client_name as string | undefined;
         const client = await getSupabaseClient();
+        const registry = await loadMatchingRegistry();
 
         let matchedClients: typeof allClients = [];
         // Fetch ALL active clients first (needed for fuzzy fallback)
@@ -3861,8 +3808,23 @@ export async function executeTool(
 
         if (clientName) {
           const search = clientName.toLowerCase().trim();
+
+          // Strategy 0: Check registry for registered clients (strict matching)
+          const registryRules = getClientMatchingRules(clientName, registry);
+          if (registryRules) {
+            matchedClients = allClients.filter((c) => {
+              const nameLower = c.client_name.toLowerCase();
+              // Reject if name matches an exclusion pattern
+              if (registryRules.excludePatterns.some((ep) => nameLower.includes(ep.toLowerCase()))) return false;
+              // Match if name matches any alias
+              return registryRules.aliases.some((alias) => nameLower.includes(alias.toLowerCase()) || alias.toLowerCase().includes(nameLower));
+            });
+          }
+
           // Strategy 1: Exact match (case-insensitive)
-          matchedClients = allClients.filter((c) => c.client_name.toLowerCase() === search);
+          if (matchedClients.length === 0) {
+            matchedClients = allClients.filter((c) => c.client_name.toLowerCase() === search);
+          }
           // Strategy 2: DB name contains search term
           if (matchedClients.length === 0) {
             matchedClients = allClients.filter((c) => c.client_name.toLowerCase().includes(search));
@@ -3871,13 +3833,15 @@ export async function executeTool(
           if (matchedClients.length === 0) {
             matchedClients = allClients.filter((c) => search.includes(c.client_name.toLowerCase()));
           }
-          // Strategy 4: Word overlap (handles "TMI Traffic" matching "TMI")
+          // Strategy 4: Word overlap (handles "TMI Traffic" matching "TMI") — filter ambiguous words
           if (matchedClients.length === 0) {
-            const searchWords = search.split(/[\s\-_]+/).filter(Boolean);
-            matchedClients = allClients.filter((c) => {
-              const nameWords = c.client_name.toLowerCase().split(/[\s\-_]+/).filter(Boolean);
-              return searchWords.some((sw: string) => nameWords.some((nw: string) => nw.includes(sw) || sw.includes(nw)));
-            });
+            const searchWords = search.split(/[\s\-_]+/).filter(Boolean).filter((w) => !isAmbiguousWord(w));
+            if (searchWords.length > 0) {
+              matchedClients = allClients.filter((c) => {
+                const nameWords = c.client_name.toLowerCase().split(/[\s\-_]+/).filter(Boolean);
+                return searchWords.some((sw: string) => nameWords.some((nw: string) => nw.includes(sw) || sw.includes(nw)));
+              });
+            }
           }
           if (matchedClients.length === 0) {
             const allNames = allClients.map((c) => c.client_name).join(", ");
@@ -4029,6 +3993,7 @@ export async function executeTool(
 
       case "notion_query_tasks": {
         const clientName = ((toolInput.client_name as string) || "").trim();
+        const registry = await loadMatchingRegistry();
 
         const notionApiKey = process.env.NOTION_API_KEY;
         if (!notionApiKey) return "Error: NOTION_API_KEY is not configured.";
@@ -4107,33 +4072,8 @@ export async function executeTool(
           if (allTasks.length >= 2000) hasMore = false;
         }
 
-        // Build client name aliases for fuzzy matching
-        const clientLower = clientName.toLowerCase().trim();
-        const clientWords = clientLower.split(/\s+/).filter(Boolean);
-        const aliases = new Set<string>([clientLower]);
-        if (clientWords.length > 1) {
-          aliases.add(clientWords.map(w => w[0]).join("")); // acronym
-          aliases.add(clientWords.slice(0, 2).join(" ")); // first two words
-          aliases.add(clientWords[0]); // first word
-          aliases.add(clientWords.join("")); // no spaces
-          if (clientWords.length >= 3) aliases.add(clientWords.map(w => w[0]).join("").slice(0, 3));
-        }
-        // Also add the raw input as-is (handles cases like "SDPF", "STJ", "GGIS")
-        aliases.add(clientLower.replace(/\s+/g, ""));
-
-        const matchesClient = (clientField: string, title: string): boolean => {
-          const field = (clientField || "").toLowerCase();
-          const titleLower = (title || "").toLowerCase();
-          for (const alias of aliases) {
-            if (field.includes(alias) || (alias.length >= 2 && field.includes(alias))) return true;
-            if (alias.length >= 3 && titleLower.includes(alias)) return true;
-          }
-          // Also check if any alias is a substring of the client field or vice versa
-          for (const alias of aliases) {
-            if (alias.length >= 3 && field && (field.includes(alias) || alias.includes(field))) return true;
-          }
-          return false;
-        };
+        // Use shared client matcher (strict registry + smart alias matching)
+        const clientMatcher = makeClientMatcher(clientName, registry);
 
         // Parse and filter tasks
         const results: Array<{ title: string; status: string; client: string; assignee: string; manager: string; lastEdited: string; isCompleted: boolean }> = [];
@@ -4185,11 +4125,20 @@ export async function executeTool(
           const doneCheckbox = props["Done ?"]?.checkbox === true;
 
           if (isNonEssential) continue;
-          if (clientName && !matchesClient(client, title)) continue;
+          if (clientName && !clientMatcher(client, title)) continue;
           if (statusFilter === "completed" && !isCompleted && !doneCheckbox) continue;
           if (statusFilter === "pending" && (isCompleted || doneCheckbox)) continue;
 
           results.push({ title, status, client, assignee, manager, lastEdited, isCompleted });
+        }
+
+        // Post-filter verification: warn when matched tasks have client fields that don't exactly match
+        if (clientName && results.length > 0) {
+          const exactLower = clientName.toLowerCase().trim();
+          const fuzzyMatches = results.filter((t) => t.client.toLowerCase() !== exactLower && !generateClientAliases(clientName, registry).some((a) => t.client.toLowerCase() === a));
+          if (fuzzyMatches.length > 0) {
+            console.warn(`[notion_query_tasks] WARNING: ${fuzzyMatches.length} task(s) for "${clientName}" matched via fuzzy (not exact alias). Clients: ${[...new Set(fuzzyMatches.map((t) => t.client))].join(", ")}`);
+          }
         }
 
         // Format output
@@ -4201,7 +4150,7 @@ export async function executeTool(
 
         if (results.length === 0) {
           output += `No ${label.toLowerCase()} tasks found for ${scope} in the given date range.\n`;
-          if (clientName) output += `\nTip: Try broader date range or different name/alias. Aliases tried: ${[...aliases].join(", ")}`;
+          if (clientName) output += `\nTip: Try broader date range or different name/alias. Aliases tried: ${generateClientAliases(clientName, registry).join(", ")}`;
         } else {
           for (const t of results) {
             output += `- ${t.title}`;
@@ -5335,7 +5284,25 @@ export async function executeTool(
         const projectId = toolInput.project_id as string;
         const filename = toolInput.filename as string;
         const title = toolInput.title as string | undefined;
+        const filePath = toolInput.file_path as string | undefined;
         let htmlContent = toolInput.html_content as string;
+
+        // If file_path provided, read content from the file instead
+        if (filePath) {
+          if (!filePath.startsWith("/tmp/")) {
+            return "Error: file_path must start with /tmp/ for security.";
+          }
+          try {
+            htmlContent = await fs.readFile(filePath, "utf-8");
+            console.log(`[tools] website_save_page: read ${(htmlContent.length / 1024).toFixed(1)}KB from ${filePath}`);
+          } catch (err: any) {
+            return `Error reading file_path "${filePath}": ${err.message}`;
+          }
+        }
+
+        if (!htmlContent) {
+          return "Error: either html_content or file_path is required.";
+        }
 
         // Ensure valid HTML document
         if (htmlContent && !htmlContent.trim().toLowerCase().startsWith("<!doctype") && !htmlContent.trim().toLowerCase().startsWith("<html")) {
