@@ -219,8 +219,8 @@ async function validateCriticalTokens() {
   }
 }
 
-const server = app.listen(PORT, () => {
-  console.log(`Melleka Teams server running on http://localhost:${PORT}`);
+const server = app.listen(Number(PORT), "0.0.0.0", () => {
+  console.log(`Melleka Teams server running on http://0.0.0.0:${PORT}`);
   startScheduler().catch(console.error);
   warmCaches().catch(console.error);
   validateCriticalTokens().catch(console.error);
