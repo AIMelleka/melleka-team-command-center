@@ -1,5 +1,5 @@
 # Stage 1: Build server
-FROM node:20-alpine AS server-builder
+FROM node:22-alpine AS server-builder
 WORKDIR /app/server
 COPY server/package*.json ./
 RUN npm install
@@ -7,7 +7,7 @@ COPY server/ ./
 RUN npx tsc && cp -r src/data dist/data 2>/dev/null || true
 
 # Stage 2: Production image
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 
 # Install ripgrep for search_code tool and vercel CLI for deploy_site tool
