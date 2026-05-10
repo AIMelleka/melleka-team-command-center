@@ -40,8 +40,6 @@ import { useVoicePreference } from '@/hooks/useVoicePreference';
 import { VoiceConversationOverlay } from '@/components/chat/VoiceConversationOverlay';
 import { MemoryPanel } from '@/components/MemoryPanel';
 import { useModelPreference } from '@/hooks/useModelPreference';
-import { useGettingStarted } from '@/hooks/useGettingStarted';
-import GettingStartedDialog, { ExitIntentOverlay } from '@/components/GettingStartedDialog';
 
 // ── Types ────────────────────────────────────────────
 
@@ -82,15 +80,6 @@ const quickPrompts = [
   "Show me all recent ad reviews and key insights",
   "Which clients need attention — low scores, missing configs, or high CPA?",
   "What SEO progress have we made across all clients?",
-];
-
-const newUserPrompts = [
-  "What can you help me with?",
-  "Help me write a blog post for SEO",
-  "Generate ad creative ideas for my business",
-  "Analyze my website and suggest improvements",
-  "Write a cold outreach email for my agency",
-  "Create a social media content plan for this week",
 ];
 
 // ── Helpers ──────────────────────────────────────────
@@ -164,7 +153,6 @@ const Index = () => {
   const [showVoiceOverlay, setShowVoiceOverlay] = useState(false);
   const { voiceId } = useVoicePreference();
   const { modelId, setModelId } = useModelPreference();
-  const { gettingStartedDismissed, dismissGettingStarted } = useGettingStarted();
   const [showModelPicker, setShowModelPicker] = useState(false);
   const voiceChat = useVoiceChat({
     onTranscript: (text) => sendMessageRef.current(text),
@@ -848,19 +836,9 @@ const Index = () => {
             <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
           </div>
         ) : filteredConversations.length === 0 ? (
-          <div className="text-center py-8 px-3">
-            <p className="text-xs text-muted-foreground mb-3">
-              {searchQuery ? 'No chats found' : 'No chats yet'}
-            </p>
-            {!searchQuery && (
-              <button
-                onClick={() => { setActiveConvoId(null); setMessages([]); inputRef.current?.focus(); }}
-                className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
-              >
-                Start your first conversation
-              </button>
-            )}
-          </div>
+          <p className="text-xs text-muted-foreground text-center py-8">
+            {searchQuery ? 'No chats found' : 'No chats yet'}
+          </p>
         ) : (
           filteredConversations.map(c => renderConversationItem(c))
         )}
@@ -909,13 +887,6 @@ const Index = () => {
 
   return (
     <div className="h-screen h-[100dvh] bg-background flex flex-col overflow-hidden">
-      {!gettingStartedDismissed && (
-        <GettingStartedDialog
-          onDismiss={dismissGettingStarted}
-          inputRef={inputRef}
-        />
-      )}
-      <ExitIntentOverlay enabled={gettingStartedDismissed} />
       <AdminHeader />
 
       <div className="flex-1 flex overflow-hidden">
@@ -970,7 +941,7 @@ const Index = () => {
               </p>
 
               <div className="w-full max-w-3xl grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 mb-6">
-                {(conversations.length === 0 ? newUserPrompts : quickPrompts).map((prompt, i) => (
+                {quickPrompts.map((prompt, i) => (
                   <button
                     key={i}
                     onClick={() => sendMessage(prompt)}
@@ -1034,7 +1005,7 @@ const Index = () => {
           )}
 
           {/* Input area */}
-          <div className="border-t border-border bg-background p-3 md:p-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-4">
+          <div className="border-t border-border bg-background p-3 md:p-4">
             <div className="max-w-3xl mx-auto relative">
               {/* Model selector */}
               <div className="flex justify-end mb-1.5">

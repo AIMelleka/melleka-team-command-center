@@ -37,7 +37,7 @@ const Login = () => {
       });
       toast.success('Welcome back!');
       setTimeout(() => {
-        navigate(isAdminUser ? '/' : '/user', { replace: true });
+        navigate(isAdminUser ? '/client-health' : '/user', { replace: true });
       }, 100);
     }
   };
@@ -302,7 +302,7 @@ const Login = () => {
             Sign In
           </h1>
           <p className="text-muted-foreground mt-2 text-sm">
-            AI-powered marketing tools for your team
+            Sign in to access the Content Hub
           </p>
         </div>
 
@@ -312,7 +312,7 @@ const Login = () => {
             <Input
               id="email"
               type="email"
-              placeholder="you@company.com"
+              placeholder="admin@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoCapitalize="none"

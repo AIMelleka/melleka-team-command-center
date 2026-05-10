@@ -10,7 +10,7 @@ const NAV_ITEMS = [
 ];
 
 // Hide bottom nav on fullscreen pages where it would overlap content
-const HIDDEN_PATHS = ['/login'];
+const HIDDEN_PATHS = ['/', '/login'];
 // Hide on public-facing pages (proposals, decks) — no admin nav for clients
 const HIDDEN_PREFIXES = ['/proposal/', '/deck/'];
 

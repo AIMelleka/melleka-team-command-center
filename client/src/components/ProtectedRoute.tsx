@@ -84,23 +84,22 @@ const ProtectedRoute = ({ children, requireAdmin = false, routePath }: Protected
     return <>{children}</>;
   }
 
-  // Prompt MFA enrollment for users who haven't set it up (exempt service accounts)
+  // Force MFA enrollment for all users who haven't set it up (exempt service accounts)
   const userEmail = user?.email?.toLowerCase() ?? '';
-  if (user && !mfaEnrolled && !MFA_EXEMPT_EMAILS.includes(userEmail) && forcingEnroll) {
+  if (user && !mfaEnrolled && !MFA_EXEMPT_EMAILS.includes(userEmail)) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
         <div className="w-full max-w-md mb-6 text-center">
-          <h1 className="text-xl font-bold text-foreground mb-2">Set Up Two-Factor Authentication</h1>
+          <h1 className="text-xl font-bold text-foreground mb-2">Two-Factor Authentication Required</h1>
           <p className="text-sm text-muted-foreground">
-            Protect your account with an extra layer of security.
+            You must enable two-factor authentication to continue.
           </p>
         </div>
         <EnrollMFA
+          hideCancelButton
           onEnrolled={async () => {
             await refreshMfaStatus();
-            setForcingEnroll(false);
           }}
-          onCancelled={() => setForcingEnroll(false)}
         />
       </div>
     );
