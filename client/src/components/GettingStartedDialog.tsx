@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Play, Link2, MessageSquare, FileText, Palette, Calendar, X, CheckCircle2,
@@ -180,6 +180,115 @@ const GettingStartedDialog = ({ onDismiss, inputRef, agencyName }: GettingStarte
             className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
           >
             I'm good — let me explore on my own
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Exit-Intent Overlay ─────────────────────────────────────────
+// Fires once per session when the user's mouse exits the viewport top (desktop only).
+// Shows a "Still figuring things out?" prompt with video + Calendly CTA.
+
+const EXIT_INTENT_SESSION_KEY = 'exit-intent-shown';
+
+interface ExitIntentOverlayProps {
+  enabled: boolean; // only show for users who dismissed getting-started without completing much
+}
+
+export const ExitIntentOverlay = ({ enabled }: ExitIntentOverlayProps) => {
+  const [show, setShow] = useState(false);
+  const [showVideo, setShowVideo] = useState(false);
+  const firedRef = useRef(false);
+
+  useEffect(() => {
+    if (!enabled) return;
+    // Don't fire again this session
+    if (sessionStorage.getItem(EXIT_INTENT_SESSION_KEY)) return;
+
+    // Wait 5 seconds before arming — avoid triggering on initial page load mouse movement
+    const armTimeout = setTimeout(() => {
+      const handleMouseLeave = (e: MouseEvent) => {
+        // Only trigger when mouse exits through the top of the viewport
+        if (e.clientY > 0) return;
+        if (firedRef.current) return;
+        firedRef.current = true;
+        sessionStorage.setItem(EXIT_INTENT_SESSION_KEY, 'true');
+        setShow(true);
+        document.removeEventListener('mouseleave', handleMouseLeave);
+      };
+
+      document.addEventListener('mouseleave', handleMouseLeave);
+      return () => document.removeEventListener('mouseleave', handleMouseLeave);
+    }, 5000);
+
+    return () => clearTimeout(armTimeout);
+  }, [enabled]);
+
+  if (!show) return null;
+
+  return (
+    <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl p-6 sm:p-8 relative">
+        {/* Close */}
+        <button
+          onClick={() => setShow(false)}
+          className="absolute top-4 right-4 p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        {/* Content */}
+        <h2 className="text-lg sm:text-xl font-bold text-foreground mb-2 pr-10">
+          Still figuring things out?
+        </h2>
+        <p className="text-muted-foreground text-sm mb-5">
+          No worries — watch our 2-minute walkthrough or book a free call and we'll get you set up personally.
+        </p>
+
+        {/* Video embed */}
+        {showVideo && (
+          <div className="mb-5 rounded-xl overflow-hidden border border-border aspect-video">
+            <iframe
+              src={`https://www.youtube.com/embed/${DEMO_VIDEO_ID}?autoplay=1&rel=0`}
+              title="Platform Tutorial"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="w-full h-full"
+            />
+          </div>
+        )}
+
+        {/* CTAs */}
+        <div className="flex flex-col gap-3">
+          {!showVideo && (
+            <button
+              onClick={() => setShowVideo(true)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors"
+            >
+              <Play className="w-4 h-4" />
+              Watch the 2-min tutorial
+            </button>
+          )}
+          <a
+            href={CALENDLY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium text-sm transition-colors ${
+              showVideo
+                ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                : 'border border-border text-foreground hover:bg-muted'
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            Book a free onboarding call
+          </a>
+          <button
+            onClick={() => setShow(false)}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2 mt-1"
+          >
+            No thanks, I'll figure it out
           </button>
         </div>
       </div>

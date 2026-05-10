@@ -41,7 +41,7 @@ import { VoiceConversationOverlay } from '@/components/chat/VoiceConversationOve
 import { MemoryPanel } from '@/components/MemoryPanel';
 import { useModelPreference } from '@/hooks/useModelPreference';
 import { useGettingStarted } from '@/hooks/useGettingStarted';
-import GettingStartedDialog from '@/components/GettingStartedDialog';
+import GettingStartedDialog, { ExitIntentOverlay } from '@/components/GettingStartedDialog';
 
 // ── Types ────────────────────────────────────────────
 
@@ -896,6 +896,7 @@ const Index = () => {
           inputRef={inputRef}
         />
       )}
+      <ExitIntentOverlay enabled={gettingStartedDismissed} />
       <AdminHeader />
 
       <div className="flex-1 flex overflow-hidden">
