@@ -16,16 +16,38 @@ router.get("/", requireAuth, async (req: AuthRequest, res) => {
   try {
     const { data } = await supabase
       .from("user_preferences")
-      .select("voice_id, model_id")
+      .select("voice_id, model_id, getting_started_dismissed")
       .eq("member_name", req.memberName!)
       .single();
 
     res.json({
       voice_id: data?.voice_id || DEFAULT_VOICE_ID,
       model_id: data?.model_id || DEFAULT_MODEL_ID,
+      getting_started_dismissed: data?.getting_started_dismissed || false,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to load preferences";
+    res.status(500).json({ error: message });
+  }
+});
+
+router.post("/dismiss-getting-started", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { error } = await supabase
+      .from("user_preferences")
+      .upsert(
+        { member_name: req.memberName!, getting_started_dismissed: true },
+        { onConflict: "member_name" }
+      );
+
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
+    }
+
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to dismiss getting started";
     res.status(500).json({ error: message });
   }
 });

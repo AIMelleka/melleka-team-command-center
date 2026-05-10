@@ -40,6 +40,8 @@ import { useVoicePreference } from '@/hooks/useVoicePreference';
 import { VoiceConversationOverlay } from '@/components/chat/VoiceConversationOverlay';
 import { MemoryPanel } from '@/components/MemoryPanel';
 import { useModelPreference } from '@/hooks/useModelPreference';
+import { useGettingStarted } from '@/hooks/useGettingStarted';
+import GettingStartedDialog from '@/components/GettingStartedDialog';
 
 // ── Types ────────────────────────────────────────────
 
@@ -153,6 +155,7 @@ const Index = () => {
   const [showVoiceOverlay, setShowVoiceOverlay] = useState(false);
   const { voiceId } = useVoicePreference();
   const { modelId, setModelId } = useModelPreference();
+  const { gettingStartedDismissed, dismissGettingStarted } = useGettingStarted();
   const [showModelPicker, setShowModelPicker] = useState(false);
   const voiceChat = useVoiceChat({
     onTranscript: (text) => sendMessageRef.current(text),
@@ -887,6 +890,12 @@ const Index = () => {
 
   return (
     <div className="h-screen h-[100dvh] bg-background flex flex-col overflow-hidden">
+      {!gettingStartedDismissed && (
+        <GettingStartedDialog
+          onDismiss={dismissGettingStarted}
+          inputRef={inputRef}
+        />
+      )}
       <AdminHeader />
 
       <div className="flex-1 flex overflow-hidden">
