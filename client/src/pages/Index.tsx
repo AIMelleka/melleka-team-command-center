@@ -84,6 +84,15 @@ const quickPrompts = [
   "What SEO progress have we made across all clients?",
 ];
 
+const newUserPrompts = [
+  "What can you help me with?",
+  "Help me write a blog post for SEO",
+  "Generate ad creative ideas for my business",
+  "Analyze my website and suggest improvements",
+  "Write a cold outreach email for my agency",
+  "Create a social media content plan for this week",
+];
+
 // ── Helpers ──────────────────────────────────────────
 
 function formatSize(bytes: number): string {
@@ -839,9 +848,19 @@ const Index = () => {
             <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
           </div>
         ) : filteredConversations.length === 0 ? (
-          <p className="text-xs text-muted-foreground text-center py-8">
-            {searchQuery ? 'No chats found' : 'No chats yet'}
-          </p>
+          <div className="text-center py-8 px-3">
+            <p className="text-xs text-muted-foreground mb-3">
+              {searchQuery ? 'No chats found' : 'No chats yet'}
+            </p>
+            {!searchQuery && (
+              <button
+                onClick={() => { setActiveConvoId(null); setMessages([]); inputRef.current?.focus(); }}
+                className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
+              >
+                Start your first conversation
+              </button>
+            )}
+          </div>
         ) : (
           filteredConversations.map(c => renderConversationItem(c))
         )}
@@ -951,7 +970,7 @@ const Index = () => {
               </p>
 
               <div className="w-full max-w-3xl grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 mb-6">
-                {quickPrompts.map((prompt, i) => (
+                {(conversations.length === 0 ? newUserPrompts : quickPrompts).map((prompt, i) => (
                   <button
                     key={i}
                     onClick={() => sendMessage(prompt)}
@@ -1015,7 +1034,7 @@ const Index = () => {
           )}
 
           {/* Input area */}
-          <div className="border-t border-border bg-background p-3 md:p-4">
+          <div className="border-t border-border bg-background p-3 md:p-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-4">
             <div className="max-w-3xl mx-auto relative">
               {/* Model selector */}
               <div className="flex justify-end mb-1.5">
