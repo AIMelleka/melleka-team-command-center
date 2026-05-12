@@ -33,6 +33,7 @@ import { ProposalHeroSkeleton, SectionSkeleton, ChartSkeleton } from '@/componen
 import { apiService } from '@/lib/apiService';
 import { AdminEditProvider, useAdminEdit } from '@/components/editor/AdminEditContext';
 import { AdminToolbar } from '@/components/editor/AdminToolbar';
+import { EditableText } from '@/components/editor/EditableText';
 import { LogoUploader } from '@/components/LogoUploader';
 import { ReliableLogo } from '@/components/ReliableLogo';
 import { MarketingTimelineSection } from '@/components/MarketingTimelineSection';
@@ -871,6 +872,11 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
       const pkg = WEBSITE_PACKAGES.find(p => p.id === websitePkgId);
       if (pkg) setSelectedWebsitePackage(pkg);
     }
+    // Initialize logo from proposal data
+    if (proposal?.content) {
+      const logoUrl = proposal.content.hero?.clientLogo || proposal.content.brandStyles?.logo;
+      if (logoUrl) setCurrentLogo(logoUrl);
+    }
   }, [proposal]);
 
   // Pre-fill SEO search with client's website URL and auto-fetch (admins only)
@@ -1599,7 +1605,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
     color: textColor
   } as React.CSSProperties;
 
-  // Handle saving admin changes
+  // Handle saving admin changes — supports nested dot-path keys (e.g. "hero.headline")
   const handleSaveChanges = async (changes: Record<string, unknown>) => {
     if (!proposal) return;
     try {
@@ -1608,18 +1614,35 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
       } = await supabase.from('proposals').select('content').eq('id', proposal.id).single();
       if (currentProposal) {
         const currentContent = currentProposal.content as Record<string, unknown> || {};
-        const updatedContent = {
-          ...currentContent,
-          ...changes
-        };
-        await supabase.from('proposals')
+        const updatedContent = JSON.parse(JSON.stringify(currentContent)); // deep clone
+
+        // Apply each change using dot-path notation
+        for (const [path, value] of Object.entries(changes)) {
+          const keys = path.split('.');
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let target: any = updatedContent;
+          for (let i = 0; i < keys.length - 1; i++) {
+            if (!target[keys[i]] || typeof target[keys[i]] !== 'object') {
+              target[keys[i]] = {};
+            }
+            target = target[keys[i]];
+          }
+          target[keys[keys.length - 1]] = value;
+        }
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .update({
-          content: updatedContent as any
-        }).eq('id', proposal.id);
+        const { error } = await supabase.from('proposals')
+          .update({ content: updatedContent as any })
+          .eq('id', proposal.id);
+
+        if (error) throw error;
+
+        // Update local state so UI reflects saved changes
+        setProposal(prev => prev ? { ...prev, content: updatedContent } : prev);
       }
     } catch (err) {
       console.error('Failed to save proposal changes:', err);
+      throw err; // re-throw so AdminToolbar can show error toast
     }
   };
   return <div className="min-h-screen min-h-[100dvh] flex flex-col lg:flex-row overflow-x-hidden overflow-y-auto" style={brandStyle}>
@@ -1658,7 +1681,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
             <div className="flex items-center gap-2 p-2 rounded-lg" style={{
           backgroundColor: cardBackground
         }}>
-              <ReliableLogo sources={[content.brandStyles?.logo, content.hero?.clientLogo, content.brandStyles?.ogImage, content.brandStyles?.favicon]} alt={proposal.client_name} className="h-7 w-auto max-w-[80px] object-contain" fallback={<div className="w-7 h-7 rounded flex items-center justify-center flex-shrink-0" style={{
+              <ReliableLogo sources={[currentLogo, content.brandStyles?.logo, content.hero?.clientLogo, content.brandStyles?.ogImage, content.brandStyles?.favicon]} alt={proposal.client_name} className="h-7 w-auto max-w-[80px] object-contain" fallback={<div className="w-7 h-7 rounded flex items-center justify-center flex-shrink-0" style={{
             backgroundColor: primaryColor
           }}>
                     <span className="text-white font-bold text-xs">{proposal.client_name.charAt(0)}</span>
@@ -1954,7 +1977,22 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                     </div>} />
                 {/* Admin Logo Tools */}
                 {isAdminVerified && <div className="mt-4 flex justify-center">
-                    <LogoUploader currentLogo={currentLogo || content.hero?.clientLogo || content.brandStyles?.logo} proposalId={proposal.id} websiteUrl={content.websiteUrl} onLogoUpdated={newUrl => setCurrentLogo(newUrl)} primaryColor={primaryColor} isLightBackground={isLightBackground} />
+                    <LogoUploader currentLogo={currentLogo || content.hero?.clientLogo || content.brandStyles?.logo} proposalId={proposal.id} websiteUrl={content.websiteUrl} onLogoUpdated={newUrl => {
+                      setCurrentLogo(newUrl);
+                      // Update local proposal state so sidebar and all logo references stay in sync
+                      setProposal(prev => {
+                        if (!prev) return prev;
+                        const c = prev.content as Record<string, any>;
+                        return {
+                          ...prev,
+                          content: {
+                            ...c,
+                            hero: { ...(c.hero || {}), clientLogo: newUrl },
+                            brandStyles: { ...(c.brandStyles || {}), logo: newUrl },
+                          }
+                        } as Proposal;
+                      });
+                    }} primaryColor={primaryColor} isLightBackground={isLightBackground} />
                   </div>}
               </div>
 
@@ -1989,21 +2027,26 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
               </h1>
               
               {/* AI-Generated Headline - Smaller and Italicized */}
-              <p className="text-lg md:text-xl max-w-3xl mx-auto leading-relaxed italic mb-4" style={{
-              color: textMutedColor
-            }}>
-                {isWebsiteOnly 
+              <EditableText
+                value={isWebsiteOnly
                   ? (content.hero?.headline || "Custom Website Designed for Your Brand")
                   : (content.hero?.headline || content.title || `Strategic Growth Plan for ${proposal.client_name}`)}
-              </p>
-              
+                path="hero.headline"
+                as="p"
+                className="text-lg md:text-xl max-w-3xl mx-auto leading-relaxed italic mb-4"
+                style={{ color: textMutedColor }}
+                multiline
+              />
+
               {/* Subheadline */}
-              <p className="text-base md:text-lg max-w-2xl mx-auto leading-relaxed" style={{
-              color: textMutedColor,
-              opacity: 0.8
-            }}>
-                {isWebsiteOnly ? websiteHeroSubheadline : content.hero?.subheadline || proposal.project_description}
-              </p>
+              <EditableText
+                value={isWebsiteOnly ? websiteHeroSubheadline : content.hero?.subheadline || proposal.project_description}
+                path="hero.subheadline"
+                as="p"
+                className="text-base md:text-lg max-w-2xl mx-auto leading-relaxed"
+                style={{ color: textMutedColor, opacity: 0.8 }}
+                multiline
+              />
             </div>
 
             {/* Selected Package Banner - Premium Glassmorphic with Neon */}
@@ -2312,11 +2355,14 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                     </div>
                   </div>
                   
-                  <p className="text-lg leading-relaxed whitespace-pre-line relative z-10" style={{
-                color: textMutedColor
-              }}>
-                    {content.executiveSummary.overview}
-                  </p>
+                  <EditableText
+                    value={content.executiveSummary.overview}
+                    path="executiveSummary.overview"
+                    as="p"
+                    className="text-lg leading-relaxed whitespace-pre-line relative z-10"
+                    style={{ color: textMutedColor }}
+                    multiline
+                  />
                 </div>
               </AnimatedSection>
 
@@ -2399,11 +2445,14 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                         </div>
                       </div>
                       
-                      <p className="text-lg leading-relaxed" style={{
-                  color: textMutedColor
-                }}>
-                        {content.executiveSummary.approach}
-                      </p>
+                      <EditableText
+                        value={content.executiveSummary.approach}
+                        path="executiveSummary.approach"
+                        as="p"
+                        className="text-lg leading-relaxed"
+                        style={{ color: textMutedColor }}
+                        multiline
+                      />
                       
                       {/* Quick Benefits */}
                       <div className="flex flex-wrap gap-3 mt-8">
