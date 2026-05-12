@@ -94,6 +94,73 @@ router.post("/bulk", requireAuth, upload.array("files"), async (req: AuthRequest
   });
 });
 
+// POST /api/uploads/proposal-logo — upload a logo for a proposal
+router.post("/proposal-logo", requireAuth, upload.single("file"), async (req: AuthRequest, res) => {
+  const file = req.file;
+  const proposalId = req.body.proposal_id as string;
+
+  if (!file) {
+    res.status(400).json({ error: "No file provided" });
+    return;
+  }
+  if (!proposalId) {
+    res.status(400).json({ error: "proposal_id is required" });
+    return;
+  }
+
+  try {
+    const fileBuffer = await fs.readFile(file.path);
+    const ext = file.originalname.split(".").pop() || "png";
+    const storagePath = `${proposalId}/logo-${Date.now()}.${ext}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from("proposal-assets")
+      .upload(storagePath, fileBuffer, {
+        contentType: file.mimetype,
+        upsert: true,
+        cacheControl: "3600",
+      });
+
+    await fs.unlink(file.path).catch(() => {});
+
+    if (uploadErr) {
+      res.status(500).json({ error: uploadErr.message });
+      return;
+    }
+
+    const { data: urlData } = supabase.storage
+      .from("proposal-assets")
+      .getPublicUrl(storagePath);
+
+    const newLogoUrl = urlData.publicUrl;
+
+    // Update proposal content with new logo
+    const { data: proposal } = await supabase
+      .from("proposals")
+      .select("content")
+      .eq("id", proposalId)
+      .single();
+
+    if (proposal) {
+      const content = (proposal.content as Record<string, any>) || {};
+      const updatedContent = {
+        ...content,
+        hero: { ...(content.hero || {}), clientLogo: newLogoUrl },
+        brandStyles: { ...(content.brandStyles || {}), logo: newLogoUrl },
+      };
+      await supabase
+        .from("proposals")
+        .update({ content: updatedContent as any })
+        .eq("id", proposalId);
+    }
+
+    res.json({ url: newLogoUrl });
+  } catch (err: any) {
+    console.error("Proposal logo upload error:", err);
+    res.status(500).json({ error: err.message || "Upload failed" });
+  }
+});
+
 // GET /api/uploads — list uploads with filters
 router.get("/", requireAuth, async (req: AuthRequest, res) => {
   let query = supabase

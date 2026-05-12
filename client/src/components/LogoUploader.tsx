@@ -5,6 +5,10 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { apiService } from '@/lib/apiService';
 
+const API_BASE = import.meta.env.PROD
+  ? (import.meta.env.VITE_API_URL || 'https://api.teams.melleka.com/api')
+  : '/api';
+
 interface LogoUploaderProps {
   currentLogo?: string;
   proposalId: string;
@@ -39,35 +43,32 @@ export const LogoUploader = ({
     setIsUploading(true);
 
     try {
-      // Generate unique filename
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${proposalId}/logo-${Date.now()}.${fileExt}`;
+      // Upload via server endpoint (bypasses storage RLS)
+      const { data: { session } } = await supabase.auth.getSession();
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('proposal_id', proposalId);
 
-      // Upload to Supabase Storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('proposal-assets')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: true,
-        });
+      const resp = await fetch(`${API_BASE}/uploads/proposal-logo`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: formData,
+      });
 
-      if (uploadError) {
-        throw uploadError;
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.error || 'Upload failed');
       }
 
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from('proposal-assets')
-        .getPublicUrl(fileName);
+      const { url: newLogoUrl } = await resp.json();
 
-      const newLogoUrl = urlData.publicUrl;
-
-      await updateProposalLogo(newLogoUrl);
       onLogoUpdated(newLogoUrl);
       toast.success('Logo updated successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error uploading logo:', error);
-      toast.error('Failed to upload logo');
+      toast.error(error.message || 'Failed to upload logo');
     } finally {
       setIsUploading(false);
       // Reset input
@@ -104,7 +105,27 @@ export const LogoUploader = ({
         return;
       }
 
-      await updateProposalLogo(newLogoUrl);
+      // Update proposal content in DB with the scraped logo URL
+      const { data: proposal } = await supabase
+        .from('proposals')
+        .select('content')
+        .eq('id', proposalId)
+        .single();
+
+      if (proposal) {
+        const content = proposal.content as Record<string, any> || {};
+        await supabase
+          .from('proposals')
+          .update({
+            content: {
+              ...content,
+              hero: { ...(content.hero || {}), clientLogo: newLogoUrl },
+              brandStyles: { ...(content.brandStyles || {}), logo: newLogoUrl },
+            } as any,
+          })
+          .eq('id', proposalId);
+      }
+
       onLogoUpdated(newLogoUrl);
       toast.success('Logo refreshed from website!');
     } catch (error) {
@@ -112,43 +133,6 @@ export const LogoUploader = ({
       toast.error('Failed to refresh logo. Try uploading manually.');
     } finally {
       setIsRefreshing(false);
-    }
-  };
-
-  const updateProposalLogo = async (newLogoUrl: string) => {
-    // Fetch current content and update
-    const { data: proposal } = await supabase
-      .from('proposals')
-      .select('content')
-      .eq('id', proposalId)
-      .single();
-
-    if (proposal) {
-      const currentContent = proposal.content as Record<string, unknown> || {};
-      const currentHero = currentContent.hero as Record<string, unknown> || {};
-      const currentBrandStyles = currentContent.brandStyles as Record<string, unknown> || {};
-
-      const updatedContent = {
-        ...currentContent,
-        hero: {
-          ...currentHero,
-          clientLogo: newLogoUrl,
-        },
-        brandStyles: {
-          ...currentBrandStyles,
-          logo: newLogoUrl,
-        },
-      };
-
-      const { error: saveError } = await supabase
-        .from('proposals')
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .update({ content: updatedContent as any })
-        .eq('id', proposalId);
-
-      if (saveError) {
-        throw saveError;
-      }
     }
   };
 
