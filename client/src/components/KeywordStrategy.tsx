@@ -2,6 +2,10 @@ import { AnimatedSection } from './AnimatedSection';
 import { Search, TrendingUp, MapPin, Ban, Target, ArrowUpRight, ArrowDownRight, Minus, Sparkles, Crosshair, Zap, Star } from 'lucide-react';
 import { AnimatedCounter } from './AnimatedCounter';
 import { isLightColor } from './PlatformLogos';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableText } from '@/components/editor/EditableText';
+import { EditableList } from '@/components/editor/EditableList';
 
 
 interface KeywordStrategyProps {
@@ -98,6 +102,10 @@ export const KeywordStrategy = ({
   borderColor,
   clientName
 }: KeywordStrategyProps) => {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('keyword-strategy')) return null;
+
   // Use live SEO data if available, otherwise fall back to static AI-generated data
   const hasLiveData = liveSeoData?.topKeywords && liveSeoData.topKeywords.length > 0;
   
@@ -121,6 +129,7 @@ export const KeywordStrategy = ({
 
   return (
     <section id="keyword-strategy" className="py-24 relative overflow-hidden">
+      <EditableContainer sectionId="keyword-strategy" sectionName="Keyword Strategy" onDelete={() => hideSection('keyword-strategy')} onVisibilityToggle={() => hideSection('keyword-strategy')} isHidden={isSectionHidden('keyword-strategy')}>
       {/* Background Effects */}
       <div className="absolute inset-0 pointer-events-none">
         <div 
@@ -145,14 +154,21 @@ export const KeywordStrategy = ({
               }}
             >
               <Crosshair className="w-3.5 h-3.5 sm:w-4 sm:h-4" style={{ color: primaryColor }} />
-              <span className="text-xs sm:text-sm font-medium" style={{ color: primaryColor }}>SEO & PPC Intelligence</span>
+              <EditableText
+                value="SEO & PPC Intelligence"
+                path="keywordStrategy.badgeText"
+                as="span"
+                className="text-xs sm:text-sm font-medium"
+                style={{ color: primaryColor }}
+              />
             </div>
-            <h2 
+            <EditableText
+              value="Strategic Keyword Targeting"
+              path="keywordStrategy.title"
+              as="h2"
               className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-display font-bold mb-4 sm:mb-6"
               style={{ color: textColor }}
-            >
-              Strategic <span style={{ color: primaryColor }}>Keyword Targeting</span>
-            </h2>
+            />
             <p className="text-sm sm:text-base md:text-lg max-w-3xl mx-auto mb-6 sm:mb-8" style={{ color: textMutedColor }}>
               Data-driven keyword research tailored for {displayClientName}'s market dominance.
               {hasLiveData && <span className="ml-2 text-xs px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb, ${primaryColor} 20%, transparent)`, color: primaryColor }}>🔴 LIVE DATA</span>}
@@ -229,10 +245,20 @@ export const KeywordStrategy = ({
                   <Target className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7" style={{ color: isLightColor(primaryColor) ? '#1a1a2e' : 'white' }} />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold truncate" style={{ color: textColor }}>
-                    Primary Keywords
-                  </h3>
-                  <p className="text-xs sm:text-sm truncate" style={{ color: textMutedColor }}>High-priority terms for immediate targeting</p>
+                  <EditableText
+                    value="Primary Keywords"
+                    path="keywordStrategy.primaryKeywordsTitle"
+                    as="h3"
+                    className="text-lg sm:text-xl md:text-2xl font-display font-bold truncate"
+                    style={{ color: textColor }}
+                  />
+                  <EditableText
+                    value="High-priority terms for immediate targeting"
+                    path="keywordStrategy.primaryKeywordsSubtitle"
+                    as="p"
+                    className="text-xs sm:text-sm truncate"
+                    style={{ color: textMutedColor }}
+                  />
                 </div>
               </div>
 
@@ -336,10 +362,20 @@ export const KeywordStrategy = ({
                   <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 text-white" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold truncate" style={{ color: textColor }}>
-                    Long-Tail Keywords
-                  </h3>
-                  <p className="text-xs sm:text-sm truncate" style={{ color: textMutedColor }}>Lower competition, higher conversion potential</p>
+                  <EditableText
+                    value="Long-Tail Keywords"
+                    path="keywordStrategy.longTailTitle"
+                    as="h3"
+                    className="text-lg sm:text-xl md:text-2xl font-display font-bold truncate"
+                    style={{ color: textColor }}
+                  />
+                  <EditableText
+                    value="Lower competition, higher conversion potential"
+                    path="keywordStrategy.longTailSubtitle"
+                    as="p"
+                    className="text-xs sm:text-sm truncate"
+                    style={{ color: textMutedColor }}
+                  />
                 </div>
               </div>
 
@@ -406,10 +442,20 @@ export const KeywordStrategy = ({
                     <MapPin className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-base sm:text-lg font-display font-bold truncate" style={{ color: textColor }}>
-                      Local Keywords
-                    </h3>
-                    <p className="text-xs sm:text-sm truncate" style={{ color: textMutedColor }}>Geo-targeted terms</p>
+                    <EditableText
+                      value="Local Keywords"
+                      path="keywordStrategy.localKeywordsTitle"
+                      as="h3"
+                      className="text-base sm:text-lg font-display font-bold truncate"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value="Geo-targeted terms"
+                      path="keywordStrategy.localKeywordsSubtitle"
+                      as="p"
+                      className="text-xs sm:text-sm truncate"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 sm:gap-3">
@@ -452,9 +498,13 @@ export const KeywordStrategy = ({
                     <Ban className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-base sm:text-lg font-display font-bold truncate" style={{ color: textColor }}>
-                      Negative Keywords
-                    </h3>
+                    <EditableText
+                      value="Negative Keywords"
+                      path="keywordStrategy.negativeKeywordsTitle"
+                      as="h3"
+                      className="text-base sm:text-lg font-display font-bold truncate"
+                      style={{ color: textColor }}
+                    />
                     <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-red-500/15 text-red-400">
                       Excluded from ads
                     </span>
@@ -511,9 +561,13 @@ export const KeywordStrategy = ({
                     <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 text-white" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold truncate" style={{ color: textColor }}>
-                      Competitor Keyword Gaps
-                    </h3>
+                    <EditableText
+                      value="Competitor Keyword Gaps"
+                      path="keywordStrategy.competitorGapsTitle"
+                      as="h3"
+                      className="text-lg sm:text-xl md:text-2xl font-display font-bold truncate"
+                      style={{ color: textColor }}
+                    />
                     <div className="flex items-center gap-2 mt-1">
                       <span 
                         className="text-[10px] sm:text-xs px-2 sm:px-3 py-0.5 sm:py-1 rounded-full font-bold"
@@ -552,6 +606,7 @@ export const KeywordStrategy = ({
           </AnimatedSection>
         )}
       </div>
+      </EditableContainer>
     </section>
   );
 };

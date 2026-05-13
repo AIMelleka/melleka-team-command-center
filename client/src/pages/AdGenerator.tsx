@@ -386,7 +386,7 @@ export default function AdGenerator() {
         if (hasComparison) {
           toast.success("A/B comparison ready! Both Nano Banana and Runware images generated.");
         } else if (data.generator === "nano-banana") {
-          toast.success("Image generated with Nano Banana (Gemini)!");
+          toast.success("Image generated with OpenAI gpt-image-2!");
         } else if (data.generator === "runware") {
           toast.success("Image generated with Runware (Flux)!");
         } else {
@@ -855,7 +855,7 @@ export default function AdGenerator() {
                               </div>
                               
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {/* Nano Banana (Gemini) */}
+                                {/* OpenAI gpt-image-2 */}
                                 <div className="group/img relative rounded-xl overflow-hidden border border-border hover:border-blue-400/50 transition-all duration-300">
                                   <div className="absolute top-2 left-2 z-10 px-2 py-1 rounded-lg bg-blue-500/80 backdrop-blur-sm text-xs font-medium text-white">
                                     🍌 Nano Banana

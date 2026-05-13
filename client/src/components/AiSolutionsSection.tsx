@@ -4,6 +4,9 @@ import { CalloutBadge } from './ProposalAnnotations';
 import { useState } from 'react';
 import { LiveChatbotDemo } from './LiveChatbotDemo';
 import { isLightColor } from './PlatformLogos';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableText } from '@/components/editor/EditableText';
 
 
 interface AiSolutionsContent {
@@ -444,9 +447,13 @@ export const AiSolutionsSection = ({
   showAiTools = false
 }: AiSolutionsSectionProps) => {
   const { aiVoiceAgent, aiChatbot, aiToolsOnDemand } = content;
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('ai-solutions')) return null;
 
   return (
     <section id="ai-solutions" className="py-24">
+      <EditableContainer sectionId="ai-solutions" sectionName="AI Solutions" onDelete={() => hideSection('ai-solutions')} onVisibilityToggle={() => hideSection('ai-solutions')} isHidden={isSectionHidden('ai-solutions')}>
       <div className="container max-w-6xl mx-auto px-4">
         <AnimatedSection>
           <div className="flex items-center gap-3 mb-4">
@@ -457,12 +464,19 @@ export const AiSolutionsSection = ({
               <Bot className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h2 className="text-3xl md:text-4xl font-display font-bold" style={{ color: textColor }}>
-                AI-Powered Solutions
-              </h2>
-              <p style={{ color: textMutedColor }}>
-                24/7 intelligent automation for {clientName}
-              </p>
+              <EditableText
+                value="AI-Powered Solutions"
+                path="aiSolutions.title"
+                as="h2"
+                className="text-3xl md:text-4xl font-display font-bold"
+                style={{ color: textColor }}
+              />
+              <EditableText
+                value={`24/7 intelligent automation for ${clientName}`}
+                path="aiSolutions.subtitle"
+                as="p"
+                style={{ color: textMutedColor }}
+              />
             </div>
             <CalloutBadge text="INCLUDED" variant="highlight" />
           </div>
@@ -487,19 +501,31 @@ export const AiSolutionsSection = ({
                     <Mic className="w-7 h-7" style={{ color: primaryColor }} />
                   </div>
                   <div>
-                    <h3 className="text-xl font-display font-semibold" style={{ color: textColor }}>
-                      {aiVoiceAgent?.headline || "AI Voice Agent"}
-                    </h3>
-                    <p className="text-sm" style={{ color: textMutedColor }}>
-                      Never miss a call again
-                    </p>
+                    <EditableText
+                      value={aiVoiceAgent?.headline || "AI Voice Agent"}
+                      path="aiSolutions.aiVoiceAgent.headline"
+                      as="h3"
+                      className="text-xl font-display font-semibold"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value="Never miss a call again"
+                      path="aiSolutions.aiVoiceAgent.subtitle"
+                      as="p"
+                      className="text-sm"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
 
-                <p className="mb-6" style={{ color: textMutedColor }}>
-                  {aiVoiceAgent?.description || 
-                    `Our AI Voice Agent handles calls 24/7 for ${clientName}, booking appointments, answering customer questions, and qualifying leads. It speaks naturally and represents your brand professionally, ensuring no opportunity is ever missed.`}
-                </p>
+                <EditableText
+                  value={aiVoiceAgent?.description || `Our AI Voice Agent handles calls 24/7 for ${clientName}, booking appointments, answering customer questions, and qualifying leads. It speaks naturally and represents your brand professionally, ensuring no opportunity is ever missed.`}
+                  path="aiSolutions.aiVoiceAgent.description"
+                  as="p"
+                  className="mb-6"
+                  style={{ color: textMutedColor }}
+                  multiline
+                />
 
                 {/* Features - Uses AI-generated or client-contextual features */}
                 <div className="space-y-3 mb-6">
@@ -614,19 +640,31 @@ export const AiSolutionsSection = ({
                     <MessageSquare className="w-7 h-7" style={{ color: secondaryColor }} />
                   </div>
                   <div>
-                    <h3 className="text-xl font-display font-semibold" style={{ color: textColor }}>
-                      {aiChatbot?.headline || "AI Chatbot"}
-                    </h3>
-                    <p className="text-sm" style={{ color: textMutedColor }}>
-                      Instant website support
-                    </p>
+                    <EditableText
+                      value={aiChatbot?.headline || "AI Chatbot"}
+                      path="aiSolutions.aiChatbot.headline"
+                      as="h3"
+                      className="text-xl font-display font-semibold"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value="Instant website support"
+                      path="aiSolutions.aiChatbot.subtitle"
+                      as="p"
+                      className="text-sm"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
 
-                <p className="mb-6" style={{ color: textMutedColor }}>
-                  {aiChatbot?.description || 
-                    `Our AI Chatbot engages visitors the moment they land on ${clientName}'s website, answering questions about your products and services, capturing leads, and guiding them toward conversion, all while you focus on running your business.`}
-                </p>
+                <EditableText
+                  value={aiChatbot?.description || `Our AI Chatbot engages visitors the moment they land on ${clientName}'s website, answering questions about your products and services, capturing leads, and guiding them toward conversion, all while you focus on running your business.`}
+                  path="aiSolutions.aiChatbot.description"
+                  as="p"
+                  className="mb-6"
+                  style={{ color: textMutedColor }}
+                  multiline
+                />
 
                 {/* Features - Uses AI-generated or client-contextual features */}
                 <div className="space-y-3 mb-6">
@@ -728,12 +766,20 @@ export const AiSolutionsSection = ({
                   <Sparkles className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-display font-semibold" style={{ color: textColor }}>
-                    Try It Live
-                  </h3>
-                  <p className="text-sm" style={{ color: textMutedColor }}>
-                    Experience how your AI chatbot will work
-                  </p>
+                  <EditableText
+                    value="Try It Live"
+                    path="aiSolutions.liveDemoTitle"
+                    as="h3"
+                    className="text-xl font-display font-semibold"
+                    style={{ color: textColor }}
+                  />
+                  <EditableText
+                    value="Experience how your AI chatbot will work"
+                    path="aiSolutions.liveDemoSubtitle"
+                    as="p"
+                    className="text-sm"
+                    style={{ color: textMutedColor }}
+                  />
                 </div>
                 <CalloutBadge text="INTERACTIVE DEMO" variant="highlight" />
               </div>
@@ -770,14 +816,22 @@ export const AiSolutionsSection = ({
             >
               <div className="flex items-center gap-3 mb-6">
                 <Sparkles className="w-6 h-6" style={{ color: primaryColor }} />
-                <h3 className="text-xl font-display font-semibold" style={{ color: textColor }}>
-                  AI Tools On Demand
-                </h3>
+                <EditableText
+                  value="AI Tools On Demand"
+                  path="aiSolutions.aiToolsOnDemand.title"
+                  as="h3"
+                  className="text-xl font-display font-semibold"
+                  style={{ color: textColor }}
+                />
               </div>
-              <p className="mb-6" style={{ color: textMutedColor }}>
-                {aiToolsOnDemand.description || 
-                  `Access to custom AI tools built specifically for ${clientName}'s needs - from content generation to data analysis.`}
-              </p>
+              <EditableText
+                value={aiToolsOnDemand.description || `Access to custom AI tools built specifically for ${clientName}'s needs - from content generation to data analysis.`}
+                path="aiSolutions.aiToolsOnDemand.description"
+                as="p"
+                className="mb-6"
+                style={{ color: textMutedColor }}
+                multiline
+              />
               <div className="grid md:grid-cols-2 gap-4">
                 {(aiToolsOnDemand.tools || []).map((tool, i) => (
                   <div key={i} className="flex items-center gap-2">
@@ -790,6 +844,7 @@ export const AiSolutionsSection = ({
           </AnimatedSection>
         )}
       </div>
+      </EditableContainer>
     </section>
   );
 };

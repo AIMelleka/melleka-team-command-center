@@ -1,5 +1,8 @@
 import { Monitor, Globe, ExternalLink } from 'lucide-react';
 import { AnimatedSection } from '@/components/AnimatedSection';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableText } from '@/components/editor/EditableText';
 
 interface PortfolioWebsite {
   url: string;
@@ -29,6 +32,10 @@ export const PortfolioShowcaseSection = ({
   borderColor,
   backgroundColor,
 }: PortfolioShowcaseSectionProps) => {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('portfolio')) return null;
+
   // Default portfolio sites with real screenshots via thum.io
   const defaultPortfolio = [
     {
@@ -70,6 +77,7 @@ export const PortfolioShowcaseSection = ({
 
   return (
     <section id="portfolio" className="py-24 relative overflow-hidden" style={{ backgroundColor }}>
+      <EditableContainer sectionId="portfolio" sectionName="Portfolio Showcase" onDelete={() => hideSection('portfolio')} onVisibilityToggle={() => hideSection('portfolio')} isHidden={isSectionHidden('portfolio')}>
       {/* Animated background */}
       <div className="absolute inset-0 pointer-events-none">
         <div 
@@ -85,15 +93,28 @@ export const PortfolioShowcaseSection = ({
       <div className="container max-w-6xl mx-auto px-4 relative z-10">
         <AnimatedSection>
           <div className="text-center mb-16">
-            <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{ color: secondaryColor }}>
-              Our Work
-            </p>
-            <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{ color: textColor }}>
-              Similar Projects We've Built
-            </h2>
-            <p className="text-lg max-w-3xl mx-auto" style={{ color: textMutedColor }}>
-              Explore examples of websites we've created for businesses like yours. Click "View Full Site" to see them live.
-            </p>
+            <EditableText
+              value="Our Work"
+              path="portfolio.subtitle"
+              as="p"
+              className="font-medium uppercase tracking-widest text-sm mb-4"
+              style={{ color: secondaryColor }}
+            />
+            <EditableText
+              value="Similar Projects We've Built"
+              path="portfolio.title"
+              as="h2"
+              className="text-3xl md:text-5xl font-display font-bold mb-6"
+              style={{ color: textColor }}
+            />
+            <EditableText
+              value={`Explore examples of websites we've created for businesses like yours. Click "View Full Site" to see them live.`}
+              path="portfolio.description"
+              as="p"
+              className="text-lg max-w-3xl mx-auto"
+              style={{ color: textMutedColor }}
+              multiline
+            />
           </div>
         </AnimatedSection>
 
@@ -167,9 +188,21 @@ export const PortfolioShowcaseSection = ({
                   className="px-4 py-3"
                   style={{ borderTop: `1px solid ${borderColor}` }}
                 >
-                  <p className="font-medium text-sm" style={{ color: textColor }}>{site.title}</p>
+                  <EditableText
+                    value={site.title}
+                    path={`portfolio.websites.${idx}.title`}
+                    as="p"
+                    className="font-medium text-sm"
+                    style={{ color: textColor }}
+                  />
                   {site.description && (
-                    <p className="text-xs mt-1" style={{ color: textMutedColor }}>{site.description}</p>
+                    <EditableText
+                      value={site.description}
+                      path={`portfolio.websites.${idx}.description`}
+                      as="p"
+                      className="text-xs mt-1"
+                      style={{ color: textMutedColor }}
+                    />
                   )}
                 </div>
               </div>
@@ -177,6 +210,7 @@ export const PortfolioShowcaseSection = ({
           </div>
         </AnimatedSection>
       </div>
+      </EditableContainer>
     </section>
   );
 };

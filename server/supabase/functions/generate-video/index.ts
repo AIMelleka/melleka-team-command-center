@@ -118,16 +118,29 @@ async function pollForCompletion(
         throw new Error(`Polling failed: ${response.status} - ${errorText}`);
       }
 
-      const result = await response.json();
-      console.log(`Poll attempt ${attempt + 1}: status=${result.status}`);
+      let result: any;
+      try {
+        result = await response.json();
+      } catch {
+        console.warn(`Poll attempt ${attempt + 1}: non-JSON response, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+        continue;
+      }
 
-      if (result.status === "completed") {
+      const status = result.status || "unknown";
+      // Log intermediate statuses so we can debug long waits
+      if (attempt % 10 === 0 || status !== "processing") {
+        console.log(`Poll attempt ${attempt + 1}/${maxAttempts}: status=${status}`);
+      }
+
+      if (status === "completed") {
         return result;
       }
-      if (result.status === "failed") {
-        throw new Error("Video generation failed");
+      if (status === "failed") {
+        const failMsg = result.error || result.message || "Video generation failed";
+        throw new Error(`Video generation failed: ${failMsg}`);
       }
-      if (result.status === "nsfw") {
+      if (status === "nsfw") {
         throw new Error("Content blocked by moderation. Please adjust the prompt.");
       }
 
@@ -185,7 +198,19 @@ serve(async (req) => {
     // Determine if image-to-video or text-to-video
     const isImageToVideo = !!startingImage;
     const modelMap = isImageToVideo ? IMAGE_TO_VIDEO_MODELS : TEXT_TO_VIDEO_MODELS;
-    const endpoint = modelMap[model] || (isImageToVideo ? IMAGE_TO_VIDEO_MODELS["kling-3"] : TEXT_TO_VIDEO_MODELS["kling-3"]);
+
+    // FIXED: Validate model supports the requested generation type — don't silently fallback
+    if (!modelMap[model]) {
+      const availableModels = Object.keys(modelMap);
+      const modeLabel = isImageToVideo ? 'image-to-video' : 'text-to-video';
+      return new Response(
+        JSON.stringify({
+          error: `Model "${model}" does not support ${modeLabel}. Available models: ${availableModels.join(', ')}`,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const endpoint = modelMap[model];
 
     // Enhance prompt with cinematic production quality
     const enhancedPrompt = enhanceCinematicPrompt(prompt, cameraFixed);
@@ -200,10 +225,26 @@ serve(async (req) => {
       isImageToVideo,
     });
 
+    // FIXED: Per-model duration limits instead of one-size-fits-all clamping
+    const modelDurationLimits: Record<string, { min: number; max: number }> = {
+      "kling-3": { min: 5, max: 10 },
+      "kling-2.6": { min: 5, max: 10 },
+      "kling-2.1": { min: 5, max: 10 },
+      "sora-2": { min: 5, max: 20 },
+      "minimax": { min: 5, max: 10 },
+      "seedance": { min: 4, max: 12 },
+      "dop": { min: 3, max: 8 },
+    };
+    const limits = modelDurationLimits[model] || { min: 4, max: 12 };
+    const clampedDuration = Math.max(limits.min, Math.min(limits.max, Math.round(duration)));
+    if (clampedDuration !== Math.round(duration)) {
+      console.log(`[VIDEO] Duration clamped from ${duration}s to ${clampedDuration}s for model ${model} (range: ${limits.min}-${limits.max}s)`);
+    }
+
     // Build request body (top-level params, NOT nested in input)
     const submitBody: Record<string, any> = {
       prompt: enhancedPrompt,
-      duration: Math.max(4, Math.min(12, Math.round(duration))),
+      duration: clampedDuration,
       aspect_ratio: aspectRatio,
     };
 
@@ -270,7 +311,15 @@ serve(async (req) => {
       throw new Error(`Higgsfield API failed: ${response.status} - ${errorText}`);
     }
 
-    const submitData = await response.json();
+    // FIXED: Wrap JSON parsing in try/catch to handle non-JSON responses
+    let submitData: any;
+    try {
+      submitData = await response.json();
+    } catch (parseErr) {
+      const rawText = await response.text().catch(() => "(unreadable)");
+      console.error("[VIDEO] API returned non-JSON response:", rawText.slice(0, 300));
+      throw new Error("Video API returned an invalid response. Please try again.");
+    }
     const requestId = submitData.request_id;
 
     if (!requestId) {

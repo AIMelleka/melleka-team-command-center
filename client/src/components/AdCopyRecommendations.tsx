@@ -4,6 +4,10 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { AnimatedCounter } from './AnimatedCounter';
 import { isLightColor } from './PlatformLogos';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableList } from '@/components/editor/EditableList';
+import { EditableText } from '@/components/editor/EditableText';
 
 interface AdCopyRecommendationsProps {
   adCopyRecommendations: {
@@ -34,6 +38,9 @@ export const AdCopyRecommendations = ({
   clientName
 }: AdCopyRecommendationsProps) => {
   const [copiedIndex, setCopiedIndex] = useState<string | null>(null);
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('ad-copy')) return null;
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -72,6 +79,7 @@ export const AdCopyRecommendations = ({
 
   return (
     <section id="ad-copy" className="py-24 relative overflow-hidden" style={{ backgroundColor: 'transparent' }}>
+      <EditableContainer sectionId="ad-copy" sectionName="Ad Copy Recommendations" onDelete={() => hideSection('ad-copy')} onVisibilityToggle={() => hideSection('ad-copy')} isHidden={isSectionHidden('ad-copy')}>
       {/* Background Effects */}
       <div className="absolute inset-0 pointer-events-none">
         <div 
@@ -96,18 +104,29 @@ export const AdCopyRecommendations = ({
               }}
             >
               <Wand2 className="w-4 h-4" style={{ color: primaryColor }} />
-              <span className="text-sm font-medium" style={{ color: primaryColor }}>Custom Ad Copy</span>
+              <EditableText
+                value="Custom Ad Copy"
+                path="adCopy.badgeText"
+                as="span"
+                className="text-sm font-medium"
+                style={{ color: primaryColor }}
+              />
             </div>
-            <h2 
+            <EditableText
+              value="Ready-to-Use Ad Copy"
+              path="adCopy.title"
+              as="h2"
               className="text-4xl md:text-5xl font-display font-bold mb-6"
               style={{ color: textColor }}
-            >
-              Ready-to-Use <span style={{ color: primaryColor }}>Ad Copy</span>
-            </h2>
-            <p className="text-lg max-w-3xl mx-auto mb-8" style={{ color: textMutedColor }}>
-              Personalized headlines, descriptions, and hooks crafted specifically for {clientName}. 
-              Click any item to copy it instantly.
-            </p>
+            />
+            <EditableText
+              value={`Personalized headlines, descriptions, and hooks crafted specifically for ${clientName}. Click any item to copy it instantly.`}
+              path="adCopy.description"
+              as="p"
+              className="text-lg max-w-3xl mx-auto mb-8"
+              style={{ color: textMutedColor }}
+              multiline
+            />
 
             {/* Stats Row */}
             <div className="flex flex-wrap justify-center gap-6">
@@ -180,10 +199,20 @@ export const AdCopyRecommendations = ({
                   <Search className="w-7 h-7 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-display font-bold" style={{ color: textColor }}>
-                    Google Ads Copy
-                  </h3>
-                  <p className="text-sm" style={{ color: textMutedColor }}>Headlines & Descriptions</p>
+                  <EditableText
+                    value="Google Ads Copy"
+                    path="adCopy.googleAdsTitle"
+                    as="h3"
+                    className="text-xl font-display font-bold"
+                    style={{ color: textColor }}
+                  />
+                  <EditableText
+                    value="Headlines & Descriptions"
+                    path="adCopy.googleAdsSubtitle"
+                    as="p"
+                    className="text-sm"
+                    style={{ color: textMutedColor }}
+                  />
                 </div>
               </div>
 
@@ -199,19 +228,21 @@ export const AdCopyRecommendations = ({
                       30 char max
                     </span>
                   </div>
-                  <div className="space-y-3">
-                    {adCopyRecommendations.googleAdsHeadlines.map((headline, i) => (
-                      <div 
-                        key={i}
+                  <EditableList
+                    items={adCopyRecommendations.googleAdsHeadlines}
+                    basePath="adCopyRecommendations.googleAdsHeadlines"
+                    className="space-y-3"
+                    renderItem={(headline, i) => (
+                      <div
                         className="group flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.02]"
-                        style={{ 
+                        style={{
                           background: `linear-gradient(135deg, color-mix(in srgb, ${primaryColor} 8%, transparent), color-mix(in srgb, ${primaryColor} 4%, transparent))`,
                           border: `1px solid color-mix(in srgb, ${primaryColor} 15%, transparent)`
                         }}
                         onClick={() => copyToClipboard(headline, `gh-${i}`)}
                       >
                         <div className="flex items-center gap-3">
-                          <span 
+                          <span
                             className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
                             style={{ backgroundColor: `color-mix(in srgb, ${primaryColor} 20%, transparent)`, color: primaryColor }}
                           >
@@ -223,8 +254,8 @@ export const AdCopyRecommendations = ({
                         </div>
                         <CopyButton text={headline} id={`gh-${i}`} />
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  />
                 </div>
               )}
 
@@ -240,12 +271,14 @@ export const AdCopyRecommendations = ({
                       90 char max
                     </span>
                   </div>
-                  <div className="space-y-3">
-                    {adCopyRecommendations.googleAdsDescriptions.map((desc, i) => (
-                      <div 
-                        key={i}
+                  <EditableList
+                    items={adCopyRecommendations.googleAdsDescriptions}
+                    basePath="adCopyRecommendations.googleAdsDescriptions"
+                    className="space-y-3"
+                    renderItem={(desc, i) => (
+                      <div
                         className="group flex items-start justify-between p-4 rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.01]"
-                        style={{ 
+                        style={{
                           background: `color-mix(in srgb, ${borderColor} 30%, transparent)`,
                           border: `1px solid ${borderColor}`
                         }}
@@ -256,8 +289,8 @@ export const AdCopyRecommendations = ({
                         </span>
                         <CopyButton text={desc} id={`gd-${i}`} />
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  />
                 </div>
               )}
             </div>
@@ -290,10 +323,20 @@ export const AdCopyRecommendations = ({
                   <MessageSquare className="w-7 h-7 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-display font-bold" style={{ color: textColor }}>
-                    Meta Ads Copy
-                  </h3>
-                  <p className="text-sm" style={{ color: textMutedColor }}>Facebook & Instagram</p>
+                  <EditableText
+                    value="Meta Ads Copy"
+                    path="adCopy.metaAdsTitle"
+                    as="h3"
+                    className="text-xl font-display font-bold"
+                    style={{ color: textColor }}
+                  />
+                  <EditableText
+                    value="Facebook & Instagram"
+                    path="adCopy.metaAdsSubtitle"
+                    as="p"
+                    className="text-sm"
+                    style={{ color: textMutedColor }}
+                  />
                 </div>
               </div>
 
@@ -306,19 +349,21 @@ export const AdCopyRecommendations = ({
                       Headlines
                     </h4>
                   </div>
-                  <div className="space-y-3">
-                    {adCopyRecommendations.metaAdHeadlines.map((headline, i) => (
-                      <div 
-                        key={i}
+                  <EditableList
+                    items={adCopyRecommendations.metaAdHeadlines}
+                    basePath="adCopyRecommendations.metaAdHeadlines"
+                    className="space-y-3"
+                    renderItem={(headline, i) => (
+                      <div
                         className="group flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.02]"
-                        style={{ 
+                        style={{
                           background: 'linear-gradient(135deg, rgba(225, 48, 108, 0.08), rgba(64, 93, 230, 0.05))',
                           border: '1px solid rgba(225, 48, 108, 0.15)'
                         }}
                         onClick={() => copyToClipboard(headline, `mh-${i}`)}
                       >
                         <div className="flex items-center gap-3">
-                          <span 
+                          <span
                             className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
                             style={{ background: 'linear-gradient(135deg, #E1306C, #405DE6)', color: 'white' }}
                           >
@@ -330,8 +375,8 @@ export const AdCopyRecommendations = ({
                         </div>
                         <CopyButton text={headline} id={`mh-${i}`} />
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  />
                 </div>
               )}
 
@@ -344,12 +389,14 @@ export const AdCopyRecommendations = ({
                       Primary Text
                     </h4>
                   </div>
-                  <div className="space-y-3">
-                    {adCopyRecommendations.metaAdPrimaryText.map((text, i) => (
-                      <div 
-                        key={i}
+                  <EditableList
+                    items={adCopyRecommendations.metaAdPrimaryText}
+                    basePath="adCopyRecommendations.metaAdPrimaryText"
+                    className="space-y-3"
+                    renderItem={(text, i) => (
+                      <div
                         className="group flex items-start justify-between p-4 rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.01]"
-                        style={{ 
+                        style={{
                           background: `color-mix(in srgb, ${borderColor} 30%, transparent)`,
                           border: `1px solid ${borderColor}`
                         }}
@@ -360,8 +407,8 @@ export const AdCopyRecommendations = ({
                         </span>
                         <CopyButton text={text} id={`mp-${i}`} />
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  />
                 </div>
               )}
             </div>
@@ -392,20 +439,32 @@ export const AdCopyRecommendations = ({
                     <MousePointer className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-display font-bold" style={{ color: textColor }}>
-                      Call-to-Action Buttons
-                    </h3>
-                    <p className="text-sm" style={{ color: textMutedColor }}>Click to copy any CTA</p>
+                    <EditableText
+                      value="Call-to-Action Buttons"
+                      path="adCopy.ctaTitle"
+                      as="h3"
+                      className="text-lg font-display font-bold"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value="Click to copy any CTA"
+                      path="adCopy.ctaSubtitle"
+                      as="p"
+                      className="text-sm"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  {adCopyRecommendations.callToActions.map((cta, i) => (
+                <EditableList
+                  items={adCopyRecommendations.callToActions}
+                  basePath="adCopyRecommendations.callToActions"
+                  className="flex flex-wrap gap-3"
+                  renderItem={(cta, i) => (
                     <button
-                      key={i}
                       onClick={() => copyToClipboard(cta, `cta-${i}`)}
                       className="group relative px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 hover:scale-105 hover:-translate-y-1"
-                      style={{ 
-                        background: copiedIndex === `cta-${i}` 
+                      style={{
+                        background: copiedIndex === `cta-${i}`
                           ? `linear-gradient(135deg, ${secondaryColor}, color-mix(in srgb, ${secondaryColor} 70%, ${primaryColor}))`
                           : `linear-gradient(135deg, ${primaryColor}, color-mix(in srgb, ${primaryColor} 70%, ${secondaryColor}))`,
                         color: isLightColor(primaryColor) ? '#1a1a2e' : 'white',
@@ -417,8 +476,8 @@ export const AdCopyRecommendations = ({
                         <Check className="inline-block w-4 h-4 ml-2" />
                       )}
                     </button>
-                  ))}
-                </div>
+                  )}
+                />
               </div>
             </AnimatedSection>
           )}
@@ -452,28 +511,40 @@ export const AdCopyRecommendations = ({
                       <Lightbulb className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-display font-bold" style={{ color: textColor }}>
-                        Video/Ad Hooks
-                      </h3>
-                      <p className="text-sm" style={{ color: textMutedColor }}>Stop-the-scroll openers</p>
+                      <EditableText
+                        value="Video/Ad Hooks"
+                        path="adCopy.hooksTitle"
+                        as="h3"
+                        className="text-lg font-display font-bold"
+                        style={{ color: textColor }}
+                      />
+                      <EditableText
+                        value="Stop-the-scroll openers"
+                        path="adCopy.hooksSubtitle"
+                        as="p"
+                        className="text-sm"
+                        style={{ color: textMutedColor }}
+                      />
                     </div>
                   </div>
-                  <div className="space-y-3">
-                    {adCopyRecommendations.hooks.map((hook, i) => (
-                      <div 
-                        key={i}
+                  <EditableList
+                    items={adCopyRecommendations.hooks}
+                    basePath="adCopyRecommendations.hooks"
+                    className="space-y-3"
+                    renderItem={(hook, i) => (
+                      <div
                         className="group flex items-start justify-between p-4 rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.02]"
-                        style={{ 
+                        style={{
                           background: `linear-gradient(135deg, color-mix(in srgb, ${secondaryColor} 10%, transparent), color-mix(in srgb, ${primaryColor} 5%, transparent))`,
                           border: `1px solid color-mix(in srgb, ${secondaryColor} 20%, transparent)`
                         }}
                         onClick={() => copyToClipboard(hook, `hook-${i}`)}
                       >
                         <div className="flex items-start gap-3">
-                          <div 
+                          <div
                             className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                            style={{ 
-                              background: `linear-gradient(135deg, ${secondaryColor}30, ${primaryColor}20)` 
+                            style={{
+                              background: `linear-gradient(135deg, ${secondaryColor}30, ${primaryColor}20)`
                             }}
                           >
                             <Zap className="w-4 h-4" style={{ color: secondaryColor }} />
@@ -484,14 +555,15 @@ export const AdCopyRecommendations = ({
                         </div>
                         <CopyButton text={hook} id={`hook-${i}`} />
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  />
                 </div>
               </div>
             </AnimatedSection>
           )}
         </div>
       </div>
+      </EditableContainer>
     </section>
   );
 };

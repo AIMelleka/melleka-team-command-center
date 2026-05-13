@@ -7,6 +7,7 @@ import {
   validateGHLData,
   validateBranding,
   validateDeckContent,
+  validateDeckDataIntegrity,
   generateQAReport,
   formatQAReportForLog,
   withQARetry,
@@ -674,10 +675,33 @@ serve(async (req) => {
       console.warn("Page screenshot capture error (non-fatal):", screenshotError);
     }
 
-    // ============= QA GATE 6: Final Validation & Save =============
-      console.log("\n=== QA GATE 6: Final Validation & Save ===");
+    // ============= QA GATE 6: Pre-Launch Data Integrity Check =============
+      console.log("\n=== QA GATE 6: Pre-Launch Data Integrity Check ===");
+      await updateJob(90, "Running pre-launch data integrity checks...");
+
+    // Run comprehensive data integrity validation BEFORE saving
+    const integrityChecks = validateDeckDataIntegrity(
+      deckContent,
+      supermetricsData ?? null,
+      dateRangeStart,
+      dateRangeEnd,
+    );
+    allQAChecks.push(...integrityChecks);
+
+    const integrityReport = generateQAReport(integrityChecks, 'DATA_INTEGRITY');
+    qaReports.push(integrityReport);
+    console.log(formatQAReportForLog(integrityReport));
+
+    // If data integrity has critical failures, block publishing and force review
+    if (integrityReport.criticalFailures > 0) {
+      console.error(`⚠️ DATA INTEGRITY FAILED: ${integrityReport.criticalFailures} critical issues found`);
+      console.error("Deck will be saved as 'needs_review' — NOT auto-published");
+    }
+
+    // ============= QA GATE 7: Final Validation & Save =============
+      console.log("\n=== QA GATE 7: Final Validation & Save ===");
       await updateJob(95, "Final QA + saving deck...");
-    
+
     // Generate final comprehensive report
     const finalReport = generateQAReport(allQAChecks, 'FINAL');
     qaReports.push(finalReport);
@@ -703,7 +727,9 @@ serve(async (req) => {
     };
 
       const screenshots = lookerData?.screenshots?.map((s: { image: string }) => s.image) || [];
-      const status = finalReport.overallPassed ? "published" : "needs_review";
+      // Block auto-publish if data integrity failed OR overall QA failed
+      const dataIntegrityPassed = integrityReport.criticalFailures === 0;
+      const status = (finalReport.overallPassed && dataIntegrityPassed) ? "published" : "needs_review";
 
       // Provide the summary shape the Deck Builder UI expects
       const qaReportSummary = {
@@ -1181,27 +1207,135 @@ function buildDeckContent(
   };
 
   // Prioritize: Supermetrics > AI Vision > Legacy metrics > Sheets
+  // CRITICAL: Use ?? (nullish coalescing) instead of || so that valid 0 values
+  // from Supermetrics don't fall through to fabricated fallbacks.
+  // Never fabricate data — if we don't have real numbers, use 0.
   const googleMetrics = extractedGoogle?.metrics || {};
   const metaMetrics = extractedMeta?.metrics || {};
-  
-  const googleSpend = smGoogle?.summary?._cost || parseNumber(googleMetrics.spend || metrics.spend || metrics.google_spend) || summaryData.totalSpend * 0.6 || sheets.googleAds?.spend || 0;
-  const googleClicks = smGoogle?.summary?._clicks || parseNumber(googleMetrics.clicks || metrics.clicks || metrics.google_clicks) || sheets.googleAds?.clicks || 0;
-  const googleImpressions = smGoogle?.summary?._impressions || parseNumber(googleMetrics.impressions || metrics.impressions) || sheets.googleAds?.impressions || 0;
-  const googleConversions = smGoogle?.summary?._conversions || parseNumber(googleMetrics.conversions || googleMetrics.leads || metrics.conversions || metrics.google_conversions) || sheets.googleAds?.conversions || 0;
-  const googleCtr = smGoogle?.summary?._ctr || parseNumber(googleMetrics.ctr || metrics.ctr) || sheets.googleAds?.ctr || 0;
-  const googleCpc = smGoogle?.summary?._cpc || parseNumber(googleMetrics.cpc || metrics.cpc) || sheets.googleAds?.cpc || 0;
-  const googleRoas = parseNumber(googleMetrics.roas || metrics.roas || metrics.google_roas) || sheets.googleAds?.roas || 0;
-  const googleCpa = smGoogle?.summary?._cpa || (googleSpend && googleConversions ? googleSpend / googleConversions : 0);
-  const googleConvRate = smGoogle?.summary?._conversion_rate || parseNumber(googleMetrics.conversionRate) || 0;
 
-  const metaSpend = smMeta?.summary?._cost || parseNumber(metaMetrics.spend || metrics.meta_spend || metrics.facebook_spend) || summaryData.totalSpend * 0.4 || sheets.metaAds?.spend || 0;
-  const metaImpressions = smMeta?.summary?._impressions || parseNumber(metaMetrics.impressions || metrics.meta_impressions) || sheets.metaAds?.impressions || 0;
-  const metaClicks = smMeta?.summary?._clicks || parseNumber(metaMetrics.clicks) || sheets.metaAds?.clicks || 0;
-  const metaConversions = smMeta?.summary?._conversions || parseNumber(metaMetrics.conversions || metaMetrics.leads || metrics.meta_conversions) || sheets.metaAds?.conversions || 0;
-  const metaCpm = smMeta?.summary?._cpm || parseNumber(metaMetrics.cpm || metrics.cpm) || sheets.metaAds?.cpm || 0;
-  const metaCtr = smMeta?.summary?._ctr || parseNumber(metaMetrics.ctr) || 0;
-  const metaCpc = smMeta?.summary?._cpc || 0;
-  const metaCpa = smMeta?.summary?._cpa || (metaSpend && metaConversions ? metaSpend / metaConversions : 0);
+  // Helper: resolve first non-null/undefined value (treats 0 as valid)
+  const firstDefined = (...values: (number | null | undefined)[]): number => {
+    for (const v of values) {
+      if (v !== null && v !== undefined && !isNaN(v)) return v;
+    }
+    return 0;
+  };
+
+  // Data source lineage tracking — records which source provided each metric
+  const _dataSourceLog: Record<string, string> = {};
+  const tracked = (name: string, ...sources: [string, number | null | undefined][]): number => {
+    for (const [source, value] of sources) {
+      if (value !== null && value !== undefined && !isNaN(value) && value !== 0) {
+        _dataSourceLog[name] = source;
+        return value;
+      }
+    }
+    // All sources returned 0/null — check if any source explicitly had 0 (real zero vs missing)
+    for (const [source, value] of sources) {
+      if (value === 0) {
+        _dataSourceLog[name] = `${source} (zero)`;
+        return 0;
+      }
+    }
+    _dataSourceLog[name] = 'no_data';
+    return 0;
+  };
+
+  const googleSpend = tracked('google_spend',
+    ['supermetrics', smGoogle?.summary?._cost],
+    ['ai_vision', parseNumber(googleMetrics.spend)],
+    ['legacy_ai', parseNumber(metrics.spend ?? metrics.google_spend)],
+    ['sheets', sheets.googleAds?.spend],
+  );
+  const googleClicks = tracked('google_clicks',
+    ['supermetrics', smGoogle?.summary?._clicks],
+    ['ai_vision', parseNumber(googleMetrics.clicks)],
+    ['legacy_ai', parseNumber(metrics.clicks ?? metrics.google_clicks)],
+    ['sheets', sheets.googleAds?.clicks],
+  );
+  const googleImpressions = tracked('google_impressions',
+    ['supermetrics', smGoogle?.summary?._impressions],
+    ['ai_vision', parseNumber(googleMetrics.impressions)],
+    ['legacy_ai', parseNumber(metrics.impressions)],
+    ['sheets', sheets.googleAds?.impressions],
+  );
+  const googleConversions = tracked('google_conversions',
+    ['supermetrics', smGoogle?.summary?._conversions],
+    ['ai_vision', parseNumber(googleMetrics.conversions ?? googleMetrics.leads)],
+    ['legacy_ai', parseNumber(metrics.conversions ?? metrics.google_conversions)],
+    ['sheets', sheets.googleAds?.conversions],
+  );
+  const googleCtr = tracked('google_ctr',
+    ['supermetrics', smGoogle?.summary?._ctr],
+    ['ai_vision', parseNumber(googleMetrics.ctr)],
+    ['legacy_ai', parseNumber(metrics.ctr)],
+    ['sheets', sheets.googleAds?.ctr],
+  );
+  const googleCpc = tracked('google_cpc',
+    ['supermetrics', smGoogle?.summary?._cpc],
+    ['ai_vision', parseNumber(googleMetrics.cpc)],
+    ['legacy_ai', parseNumber(metrics.cpc)],
+    ['sheets', sheets.googleAds?.cpc],
+  );
+  const googleRoas = tracked('google_roas',
+    ['supermetrics', smGoogle?.summary?._roas],
+    ['ai_vision', parseNumber(googleMetrics.roas)],
+    ['legacy_ai', parseNumber(metrics.roas ?? metrics.google_roas)],
+    ['sheets', sheets.googleAds?.roas],
+  );
+  const googleCpa = tracked('google_cpa',
+    ['supermetrics', smGoogle?.summary?._cpa],
+    ['calculated', googleSpend > 0 && googleConversions > 0 ? googleSpend / googleConversions : null],
+  );
+  const googleConvRate = firstDefined(smGoogle?.summary?._conversion_rate, parseNumber(googleMetrics.conversionRate));
+
+  const metaSpend = tracked('meta_spend',
+    ['supermetrics', smMeta?.summary?._cost],
+    ['ai_vision', parseNumber(metaMetrics.spend)],
+    ['legacy_ai', parseNumber(metrics.meta_spend ?? metrics.facebook_spend)],
+    ['sheets', sheets.metaAds?.spend],
+  );
+  const metaImpressions = tracked('meta_impressions',
+    ['supermetrics', smMeta?.summary?._impressions],
+    ['ai_vision', parseNumber(metaMetrics.impressions)],
+    ['legacy_ai', parseNumber(metrics.meta_impressions)],
+    ['sheets', sheets.metaAds?.impressions],
+  );
+  const metaClicks = tracked('meta_clicks',
+    ['supermetrics', smMeta?.summary?._clicks],
+    ['ai_vision', parseNumber(metaMetrics.clicks)],
+    ['sheets', sheets.metaAds?.clicks],
+  );
+  const metaConversions = tracked('meta_conversions',
+    ['supermetrics', smMeta?.summary?._conversions],
+    ['ai_vision', parseNumber(metaMetrics.conversions ?? metaMetrics.leads)],
+    ['legacy_ai', parseNumber(metrics.meta_conversions)],
+    ['sheets', sheets.metaAds?.conversions],
+  );
+  const metaCpm = tracked('meta_cpm',
+    ['supermetrics', smMeta?.summary?._cpm],
+    ['ai_vision', parseNumber(metaMetrics.cpm)],
+    ['legacy_ai', parseNumber(metrics.cpm)],
+    ['sheets', sheets.metaAds?.cpm],
+  );
+  const metaCtr = tracked('meta_ctr',
+    ['supermetrics', smMeta?.summary?._ctr],
+    ['ai_vision', parseNumber(metaMetrics.ctr)],
+  );
+  const metaCpc = tracked('meta_cpc',
+    ['supermetrics', smMeta?.summary?._cpc],
+    ['ai_vision', parseNumber(metaMetrics.cpc)],
+    ['calculated', metaSpend > 0 && metaClicks > 0 ? metaSpend / metaClicks : null],
+  );
+  const metaCpa = tracked('meta_cpa',
+    ['supermetrics', smMeta?.summary?._cpa],
+    ['calculated', metaSpend > 0 && metaConversions > 0 ? metaSpend / metaConversions : null],
+  );
+
+  console.log("=== DATA SOURCE LINEAGE ===");
+  for (const [metric, source] of Object.entries(_dataSourceLog)) {
+    console.log(`  ${metric}: ${source}`);
+  }
 
   // Period-over-period changes from Supermetrics
   const googlePrev = smGoogle?.previousPeriod || {};
@@ -1233,34 +1367,57 @@ function buildDeckContent(
   };
 
   // Aggregate totals across ALL Supermetrics platforms (not just Google+Meta)
+  // FIXED: Deduplicate versioned keys — only count each platform once using the
+  // primary entry (e.g. google_ads, not google_ads_v1 AND google_ads_v2).
+  // The adPlatforms array already handles multi-account display separately.
   const allPlatformTotals = hasSupermetrics ? (() => {
     let totalSpend = 0, totalClicks = 0, totalConversions = 0, totalLeads = 0, totalImpressions = 0;
-    for (const [, data] of Object.entries(supermetricsData as Record<string, any>)) {
-      totalSpend += data?.summary?._cost || 0;
-      totalClicks += data?.summary?._clicks || 0;
-      totalConversions += data?.summary?._conversions || 0;
-      totalLeads += data?.summary?._leads || 0;
-      totalImpressions += data?.summary?._impressions || 0;
+    const seenPlatforms = new Set<string>();
+    for (const [key, data] of Object.entries(supermetricsData as Record<string, any>)) {
+      // Derive the base platform key (strip _v1, _v2 suffixes)
+      const basePlatform = (data as any)?.platformKey || key.replace(/_v\d+$/, '');
+      if (seenPlatforms.has(basePlatform)) {
+        console.log(`[DEDUP] Skipping ${key} — already counted ${basePlatform}`);
+        continue;
+      }
+      seenPlatforms.add(basePlatform);
+      totalSpend += data?.summary?._cost ?? 0;
+      totalClicks += data?.summary?._clicks ?? 0;
+      totalConversions += data?.summary?._conversions ?? 0;
+      totalLeads += data?.summary?._leads ?? 0;
+      totalImpressions += data?.summary?._impressions ?? 0;
     }
     return { totalSpend, totalClicks, totalConversions, totalLeads, totalImpressions };
   })() : null;
 
+  // Weighted averages (by volume, not simple average)
+  const totalImpsForAvg = googleImpressions + metaImpressions;
+  const totalClicksForAvg = googleClicks + metaClicks;
+  const weightedAvgCTR = totalImpsForAvg > 0
+    ? (googleCtr * googleImpressions + metaCtr * metaImpressions) / totalImpsForAvg
+    : 0;
+  const weightedAvgCPC = totalClicksForAvg > 0
+    ? (googleSpend + metaSpend) / totalClicksForAvg
+    : 0;
+
   return {
     // Flag that Supermetrics data was used
     dataSource: hasSupermetrics ? 'supermetrics' : 'screenshots',
+    // Data source lineage — tracks which source provided each metric for debugging
+    _dataSourceLog,
     hero: {
-      totalSpend: allPlatformTotals?.totalSpend || (googleSpend + metaSpend),
-      totalLeads: allPlatformTotals?.totalLeads || allPlatformTotals?.totalConversions || (googleConversions + metaConversions),
-      roas: googleRoas || calculateRoas(allPlatformTotals?.totalSpend || (googleSpend + metaSpend), allPlatformTotals?.totalConversions || (googleConversions + metaConversions)),
-      totalImpressions: allPlatformTotals?.totalImpressions || (googleImpressions + metaImpressions),
-      totalClicks: allPlatformTotals?.totalClicks || (googleClicks + metaClicks),
-      avgCTR: ((googleCtr + metaCtr) / 2) || 0,
-      avgCPC: ((googleCpc + metaCpc) / 2) || 0,
+      totalSpend: allPlatformTotals?.totalSpend ?? (googleSpend + metaSpend),
+      totalLeads: allPlatformTotals?.totalLeads ?? allPlatformTotals?.totalConversions ?? (googleConversions + metaConversions),
+      roas: googleRoas || calculateRoas(allPlatformTotals?.totalSpend ?? (googleSpend + metaSpend), allPlatformTotals?.totalConversions ?? (googleConversions + metaConversions)),
+      totalImpressions: allPlatformTotals?.totalImpressions ?? (googleImpressions + metaImpressions),
+      totalClicks: allPlatformTotals?.totalClicks ?? (googleClicks + metaClicks),
+      avgCTR: weightedAvgCTR,
+      avgCPC: weightedAvgCPC,
       overviewScreenshot: findScreenshotBySection('overview') || lookerData?.screenshots?.[0]?.image || null,
       executiveSummary,
       keyFindings: allKeyFindings,
-      newContacts: ghl.contacts?.newThisPeriod || 0,
-      pipelineValue: ghl.opportunities?.totalValue || 0,
+      newContacts: ghl.contacts?.newThisPeriod ?? 0,
+      pipelineValue: ghl.opportunities?.totalValue ?? 0,
       performanceGrades: {
         overall: googleGrade,
         google: googleGrade,
@@ -1268,10 +1425,10 @@ function buildDeckContent(
       },
       // Period-over-period changes from Supermetrics
       changes: hasSupermetrics ? {
-        spend: pctChange(googleSpend + metaSpend, (googlePrev._cost || 0) + (metaPrev._cost || 0)),
-        clicks: pctChange(googleClicks + metaClicks, (googlePrev._clicks || 0) + (metaPrev._clicks || 0)),
-        conversions: pctChange(googleConversions + metaConversions, (googlePrev._conversions || 0) + (metaPrev._conversions || 0)),
-        impressions: pctChange(googleImpressions + metaImpressions, (googlePrev._impressions || 0) + (metaPrev._impressions || 0)),
+        spend: pctChange(googleSpend + metaSpend, (googlePrev._cost ?? 0) + (metaPrev._cost ?? 0)),
+        clicks: pctChange(googleClicks + metaClicks, (googlePrev._clicks ?? 0) + (metaPrev._clicks ?? 0)),
+        conversions: pctChange(googleConversions + metaConversions, (googlePrev._conversions ?? 0) + (metaPrev._conversions ?? 0)),
+        impressions: pctChange(googleImpressions + metaImpressions, (googlePrev._impressions ?? 0) + (metaPrev._impressions ?? 0)),
       } : undefined,
     },
     adOverview: {

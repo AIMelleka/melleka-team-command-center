@@ -11,8 +11,75 @@ import fs from "fs/promises";
 import path from "path";
 import type Anthropic from "@anthropic-ai/sdk";
 import { randomUUID } from "crypto";
+import sharp from "sharp";
 
 const router = Router();
+
+const INLINE_IMAGE_LIMIT = 12; // Claude supports up to 20; 12 covers most upload batches
+const MAX_IMAGE_BYTES = 4.8 * 1024 * 1024; // 4.8MB — leaves headroom under Anthropic's 5MB limit
+
+/**
+ * Compress an image buffer to stay under Anthropic's 5MB per-image limit.
+ * Progressive strategy: resize large dimensions first, then reduce JPEG quality.
+ * Returns { buffer, mediaType } — may convert PNG/WebP to JPEG if needed.
+ */
+async function compressImageForClaude(
+  buffer: Buffer,
+  originalMimeType: string,
+): Promise<{ data: string; mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp" }> {
+  // If already under limit, return as-is
+  if (buffer.length <= MAX_IMAGE_BYTES) {
+    return {
+      data: buffer.toString("base64"),
+      mediaType: originalMimeType as any,
+    };
+  }
+
+  console.log(`[chat] Image ${(buffer.length / 1024 / 1024).toFixed(1)}MB exceeds limit, compressing...`);
+
+  try {
+    let img = sharp(buffer);
+    const metadata = await img.metadata();
+    const w = metadata.width || 3000;
+    const h = metadata.height || 3000;
+
+    // Step 1: If dimensions are huge, resize to max 3000px (keeps quality high)
+    if (w > 3000 || h > 3000) {
+      img = img.resize({ width: 3000, height: 3000, fit: "inside", withoutEnlargement: true });
+    }
+
+    // Step 2: Convert to JPEG quality 82
+    let compressed = await img.jpeg({ quality: 82, mozjpeg: true }).toBuffer();
+    if (compressed.length <= MAX_IMAGE_BYTES) {
+      console.log(`[chat] Compressed to ${(compressed.length / 1024 / 1024).toFixed(1)}MB (q82)`);
+      return { data: compressed.toString("base64"), mediaType: "image/jpeg" };
+    }
+
+    // Step 3: Lower quality to 65
+    compressed = await sharp(buffer)
+      .resize({ width: 2400, height: 2400, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 65, mozjpeg: true })
+      .toBuffer();
+    if (compressed.length <= MAX_IMAGE_BYTES) {
+      console.log(`[chat] Compressed to ${(compressed.length / 1024 / 1024).toFixed(1)}MB (q65, 2400px)`);
+      return { data: compressed.toString("base64"), mediaType: "image/jpeg" };
+    }
+
+    // Step 4: Aggressive — quality 60, max 1920px
+    compressed = await sharp(buffer)
+      .resize({ width: 1920, height: 1920, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 60, mozjpeg: true })
+      .toBuffer();
+    console.log(`[chat] Compressed to ${(compressed.length / 1024 / 1024).toFixed(1)}MB (q60, 1920px)`);
+    return { data: compressed.toString("base64"), mediaType: "image/jpeg" };
+  } catch (err) {
+    console.error("[chat] Image compression failed, using original:", err);
+    return {
+      data: buffer.toString("base64"),
+      mediaType: originalMimeType as any,
+    };
+  }
+}
 
 let activeSseConnections = 0;
 export function getActiveSseConnections(): number { return activeSseConnections; }
@@ -80,7 +147,7 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
     let imageCount = 0;
 
     // We'll persist uploads to Supabase after convId is established (need FK).
-    // For now, read image data for inline vision (first 3 images only).
+    // For now, read image data for inline vision (first 12 images; compressed to stay under 5MB each).
     const pendingUploads: Array<{
       file: Express.Multer.File;
       buffer: Buffer;
@@ -97,13 +164,14 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       // so Claude can still analyze the image even if storage fails
       if (IMAGE_TYPES.has(file.mimetype)) {
         imageCount++;
-        if (imageBlocks.length < 3) {
+        if (imageBlocks.length < INLINE_IMAGE_LIMIT) {
+          const compressed = await compressImageForClaude(buffer, file.mimetype);
           imageBlocks.push({
             type: "image",
             source: {
               type: "base64",
-              media_type: file.mimetype as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-              data: buffer.toString("base64"),
+              media_type: compressed.mediaType,
+              data: compressed.data,
             },
           });
         }
@@ -142,10 +210,10 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       }
     }
 
-    // If more than 3 images, tell Claude about the manage_uploads tool
-    if (imageCount > 3) {
+    // If more than INLINE_IMAGE_LIMIT images, tell Claude about the manage_uploads tool
+    if (imageCount > INLINE_IMAGE_LIMIT) {
       fileAnnotations.push(
-        `[NOTE: ${imageCount} images uploaded (first 3 shown inline for analysis). Use the manage_uploads tool with batch_id="${batchId}" to view/search all uploads. Use the public URLs above to embed images in any generated content.]`
+        `[NOTE: ${imageCount} images uploaded (first ${INLINE_IMAGE_LIMIT} shown inline for analysis). Use the manage_uploads tool with batch_id="${batchId}" to view/search all uploads. Use the public URLs above to embed images in any generated content.]`
       );
     } else if (imageCount > 0) {
       fileAnnotations.push(

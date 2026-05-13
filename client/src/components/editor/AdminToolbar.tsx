@@ -1,24 +1,26 @@
 import { useState } from 'react';
 import { useAdminEdit } from './AdminEditContext';
-import { Shield, ShieldCheck, Save, X, Undo, Plus, Palette, Layout, Eye, Lock } from 'lucide-react';
+import { Shield, ShieldCheck, Save, X, Undo, Plus, Palette, ArrowUpDown, Eye, Lock, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AdminToolbarProps {
   onSave: (changes: Record<string, unknown>) => Promise<void>;
   primaryColor?: string;
-  isAdmin?: boolean; // Only show toolbar for authenticated admins
+  isAdmin?: boolean;
+  onAddSection?: () => void;
+  onTogglePreview?: () => void;
+  onReorderSections?: () => void;
 }
 
-export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false }: AdminToolbarProps) => {
-  const { isEditMode, isAdminVerified, verifyAdmin, logout, hasChanges, getChanges, clearChanges } = useAdminEdit();
+export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false, onAddSection, onTogglePreview, onReorderSections }: AdminToolbarProps) => {
+  const { isEditMode, isAdminVerified, verifyAdmin, logout, hasChanges, getChanges, clearChanges, setIsEditMode } = useAdminEdit();
   const [showPinInput, setShowPinInput] = useState(false);
   const [pin, setPin] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
 
-  // Don't render anything if user is not an authenticated admin
-  if (!isAdmin) {
-    return null;
-  }
+  // The shield button is always available on proposal pages.
+  // The PIN modal is the access control gate — not the auth state.
 
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,7 +39,7 @@ export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false
       toast.info('No changes to save');
       return;
     }
-    
+
     setIsSaving(true);
     try {
       await onSave(getChanges());
@@ -54,6 +56,19 @@ export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false
   const handleDiscard = () => {
     clearChanges();
     toast.info('Changes discarded');
+  };
+
+  const handlePreviewToggle = () => {
+    if (isPreviewing) {
+      setIsEditMode(true);
+      setIsPreviewing(false);
+      toast.info('Back to edit mode');
+    } else {
+      setIsEditMode(false);
+      setIsPreviewing(true);
+      toast.info('Preview mode — edit UI hidden');
+    }
+    onTogglePreview?.();
   };
 
   // Not in edit mode - show the admin access button
@@ -83,7 +98,7 @@ export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false
                   <p className="text-sm text-muted-foreground">Enter PIN to enable editing</p>
                 </div>
               </div>
-              
+
               <form onSubmit={handlePinSubmit}>
                 <input
                   type="password"
@@ -111,7 +126,7 @@ export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false
                   </button>
                 </div>
               </form>
-              
+
               <p className="text-xs text-muted-foreground text-center mt-4">
                 Default PIN: 1234
               </p>
@@ -129,9 +144,18 @@ export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false
         <div className="flex items-center justify-between h-16">
           {/* Left side - mode indicator */}
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/30">
-              <ShieldCheck className="w-4 h-4 text-green-500" />
-              <span className="text-sm font-medium text-green-500">Edit Mode Active</span>
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${isPreviewing ? 'bg-blue-500/10 border border-blue-500/30' : 'bg-green-500/10 border border-green-500/30'}`}>
+              {isPreviewing ? (
+                <>
+                  <Eye className="w-4 h-4 text-blue-500" />
+                  <span className="text-sm font-medium text-blue-500">Preview Mode</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4 h-4 text-green-500" />
+                  <span className="text-sm font-medium text-green-500">Edit Mode Active</span>
+                </>
+              )}
             </div>
             {hasChanges && (
               <span className="text-sm text-yellow-500 animate-pulse">
@@ -143,6 +167,7 @@ export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false
           {/* Center - quick tools */}
           <div className="hidden md:flex items-center gap-1 p-1 rounded-lg bg-muted">
             <button
+              onClick={() => onAddSection?.()}
               className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-background hover:text-foreground transition-colors"
               title="Add Section"
             >
@@ -150,25 +175,32 @@ export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false
               Add Section
             </button>
             <button
-              className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-background hover:text-foreground transition-colors"
-              title="Change Colors"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-muted-foreground/50 cursor-not-allowed"
+              title="Coming soon"
+              disabled
             >
               <Palette className="w-4 h-4" />
               Colors
             </button>
             <button
+              onClick={() => onReorderSections?.()}
               className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-background hover:text-foreground transition-colors"
-              title="Layout"
+              title="Reorder Sections"
             >
-              <Layout className="w-4 h-4" />
-              Layout
+              <ArrowUpDown className="w-4 h-4" />
+              Reorder
             </button>
             <button
-              className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-background hover:text-foreground transition-colors"
-              title="Preview"
+              onClick={handlePreviewToggle}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                isPreviewing
+                  ? 'bg-blue-500/10 text-blue-500'
+                  : 'text-muted-foreground hover:bg-background hover:text-foreground'
+              }`}
+              title={isPreviewing ? 'Back to Edit' : 'Preview'}
             >
-              <Eye className="w-4 h-4" />
-              Preview
+              {isPreviewing ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {isPreviewing ? 'Edit' : 'Preview'}
             </button>
           </div>
 

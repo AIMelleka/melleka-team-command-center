@@ -3,8 +3,15 @@ import { FileText, Video, MessageSquare, Mail, Target, ArrowUpRight, Copy, Check
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { AnimatedCounter } from './AnimatedCounter';
-import { supabase } from '@/integrations/supabase/client';
 import { isLightColor } from './PlatformLogos';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableList } from '@/components/editor/EditableList';
+import { EditableText } from '@/components/editor/EditableText';
+
+const API_BASE = import.meta.env.PROD
+  ? (import.meta.env.VITE_API_URL || "https://api.teams.melleka.com/api")
+  : "/api";
 
 
 // Ad Creative Samples for the carousel
@@ -122,19 +129,14 @@ export const ContentStrategy = ({
   const [portfolioImages, setPortfolioImages] = useState<string[]>([]);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
-  // Load portfolio images from proposal-assets/portfolio (managed via Portfolio Manager)
+  // Load portfolio images via server API (bypasses storage RLS)
+  // Loads dynamically at render time so images appear on ALL proposals (existing & new)
   useEffect(() => {
     const loadPortfolioImages = async () => {
       try {
-        const { data, error } = await supabase.storage
-          .from('proposal-assets')
-          .list('portfolio', { limit: 50, sortBy: { column: 'created_at', order: 'desc' } });
-
-        if (!error) {
-          const urls = (data || [])
-            .filter(file => file.name !== '.emptyFolderPlaceholder')
-            .map(file => supabase.storage.from('proposal-assets').getPublicUrl(`portfolio/${file.name}`).data.publicUrl);
-
+        const res = await fetch(`${API_BASE}/uploads/portfolio-images`);
+        if (res.ok) {
+          const urls: string[] = await res.json();
           if (urls.length > 0) {
             setPortfolioImages(urls);
           }
@@ -164,12 +166,16 @@ export const ContentStrategy = ({
   };
 
   const { blogTopics, videoIdeas, socialPosts, emailSubjectLines } = contentStrategy;
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('content-strategy')) return null;
 
   // Stats
   const totalContent = (blogTopics?.length || 0) + (videoIdeas?.length || 0) + (socialPosts?.length || 0) + (emailSubjectLines?.length || 0);
 
   return (
     <section id="content-strategy" className="py-24 relative overflow-hidden" style={{ backgroundColor: 'transparent' }}>
+      <EditableContainer sectionId="content-strategy" sectionName="Content Strategy" onDelete={() => hideSection('content-strategy')} onVisibilityToggle={() => hideSection('content-strategy')} isHidden={isSectionHidden('content-strategy')}>
       {/* Background Effects */}
       <div className="absolute inset-0 pointer-events-none">
         <div 
@@ -194,17 +200,29 @@ export const ContentStrategy = ({
               }}
             >
               <Lightbulb className="w-4 h-4" style={{ color: secondaryColor }} />
-              <span className="text-sm font-medium" style={{ color: secondaryColor }}>Strategic Content Plan</span>
+              <EditableText
+                value="Strategic Content Plan"
+                path="contentStrategy.badgeText"
+                as="span"
+                className="text-sm font-medium"
+                style={{ color: secondaryColor }}
+              />
             </div>
-            <h2 
+            <EditableText
+              value="Content Strategy"
+              path="contentStrategy.title"
+              as="h2"
               className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-display font-bold mb-4 sm:mb-6 px-2"
               style={{ color: textColor }}
-            >
-              Content <span style={{ color: secondaryColor }}>Strategy</span>
-            </h2>
-            <p className="text-sm sm:text-base md:text-lg max-w-3xl mx-auto mb-6 sm:mb-8 px-2" style={{ color: textMutedColor }}>
-              Personalized content ideas designed to engage {clientName}'s audience across every channel.
-            </p>
+            />
+            <EditableText
+              value={`Personalized content ideas designed to engage ${clientName}'s audience across every channel.`}
+              path="contentStrategy.description"
+              as="p"
+              className="text-sm sm:text-base md:text-lg max-w-3xl mx-auto mb-6 sm:mb-8 px-2"
+              style={{ color: textMutedColor }}
+              multiline
+            />
 
             {/* Stats */}
             <div className="flex flex-wrap justify-center gap-3 sm:gap-6">
@@ -265,10 +283,20 @@ export const ContentStrategy = ({
                     <FileText className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7" style={{ color: isLightColor(primaryColor) ? '#1a1a2e' : 'white' }} />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-base sm:text-lg md:text-xl font-display font-bold truncate" style={{ color: textColor }}>
-                      Blog Topics
-                    </h3>
-                    <p className="text-xs sm:text-sm truncate" style={{ color: textMutedColor }}>SEO-driven content ideas</p>
+                    <EditableText
+                      value="Blog Topics"
+                      path="contentStrategy.blogTopicsTitle"
+                      as="h3"
+                      className="text-base sm:text-lg md:text-xl font-display font-bold truncate"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value="SEO-driven content ideas"
+                      path="contentStrategy.blogTopicsSubtitle"
+                      as="p"
+                      className="text-xs sm:text-sm truncate"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
 
@@ -292,12 +320,21 @@ export const ContentStrategy = ({
                             {priorityStyle.icon}
                           </span>
                         </div>
-                        <h4 className="font-semibold text-xs sm:text-sm leading-tight flex-1 mb-2 sm:mb-3 line-clamp-3" style={{ color: textColor }}>
-                          {topic.title}
-                        </h4>
+                        <EditableText
+                          value={topic.title}
+                          path={`contentStrategy.blogTopics.${i}.title`}
+                          as="h4"
+                          className="font-semibold text-xs sm:text-sm leading-tight flex-1 mb-2 sm:mb-3 line-clamp-3"
+                          style={{ color: textColor }}
+                        />
                         <div className="flex items-center gap-2 text-[10px] sm:text-xs mt-auto" style={{ color: textMutedColor }}>
                           <Target className="w-3 h-3 flex-shrink-0" style={{ color: secondaryColor }} />
-                          <span className="line-clamp-1">{topic.goal}</span>
+                          <EditableText
+                            value={topic.goal}
+                            path={`contentStrategy.blogTopics.${i}.goal`}
+                            as="span"
+                            className="line-clamp-1"
+                          />
                         </div>
                       </div>
                     );
@@ -336,10 +373,20 @@ export const ContentStrategy = ({
                     <Play className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 text-white" />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-base sm:text-lg md:text-xl font-display font-bold truncate" style={{ color: textColor }}>
-                      Video Ideas
-                    </h3>
-                    <p className="text-xs sm:text-sm truncate" style={{ color: textMutedColor }}>Engaging video content</p>
+                    <EditableText
+                      value="Video Ideas"
+                      path="contentStrategy.videoIdeasTitle"
+                      as="h3"
+                      className="text-base sm:text-lg md:text-xl font-display font-bold truncate"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value="Engaging video content"
+                      path="contentStrategy.videoIdeasSubtitle"
+                      as="p"
+                      className="text-xs sm:text-sm truncate"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
 
@@ -355,9 +402,13 @@ export const ContentStrategy = ({
                           border: `1px solid ${borderColor}`
                         }}
                       >
-                        <h4 className="font-semibold text-xs sm:text-sm mb-2 sm:mb-3 line-clamp-2" style={{ color: textColor }}>
-                          {video.title}
-                        </h4>
+                        <EditableText
+                          value={video.title}
+                          path={`contentStrategy.videoIdeas.${i}.title`}
+                          as="h4"
+                          className="font-semibold text-xs sm:text-sm mb-2 sm:mb-3 line-clamp-2"
+                          style={{ color: textColor }}
+                        />
                         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                           <span 
                             className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-medium text-white flex items-center gap-1 sm:gap-1.5"
@@ -407,25 +458,37 @@ export const ContentStrategy = ({
                     <MessageSquare className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 text-white" />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-base sm:text-lg md:text-xl font-display font-bold truncate" style={{ color: textColor }}>
-                      Social Post Ideas
-                    </h3>
-                    <p className="text-xs sm:text-sm truncate" style={{ color: textMutedColor }}>Click to copy any idea</p>
+                    <EditableText
+                      value="Social Post Ideas"
+                      path="contentStrategy.socialPostsTitle"
+                      as="h3"
+                      className="text-base sm:text-lg md:text-xl font-display font-bold truncate"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value="Click to copy any idea"
+                      path="contentStrategy.socialPostsSubtitle"
+                      as="p"
+                      className="text-xs sm:text-sm truncate"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
 
-                <div className="space-y-2 sm:space-y-3">
-                  {socialPosts.map((post, i) => (
-                    <div 
-                      key={i}
+                <EditableList
+                  items={socialPosts}
+                  basePath="contentStrategy.socialPosts"
+                  className="space-y-2 sm:space-y-3"
+                  renderItem={(post, i) => (
+                    <div
                       className="group flex items-start gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg sm:rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.02]"
-                      style={{ 
+                      style={{
                         background: 'linear-gradient(135deg, rgba(225, 48, 108, 0.05), rgba(64, 93, 230, 0.03))',
                         border: '1px solid rgba(225, 48, 108, 0.1)'
                       }}
                       onClick={() => copyToClipboard(post, `social-${i}`)}
                     >
-                      <div 
+                      <div
                         className="w-6 h-6 sm:w-8 sm:h-8 rounded-md sm:rounded-lg flex items-center justify-center flex-shrink-0"
                         style={{ background: 'linear-gradient(135deg, #E1306C20, #405DE620)' }}
                       >
@@ -440,8 +503,8 @@ export const ContentStrategy = ({
                         )}
                       </button>
                     </div>
-                  ))}
-                </div>
+                  )}
+                />
               </div>
             </AnimatedSection>
           )}
@@ -473,27 +536,39 @@ export const ContentStrategy = ({
                     <Mail className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 text-white" />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-base sm:text-lg md:text-xl font-display font-bold truncate" style={{ color: textColor }}>
-                      Email Subject Lines
-                    </h3>
-                    <p className="text-xs sm:text-sm truncate" style={{ color: textMutedColor }}>High-open-rate subjects</p>
+                    <EditableText
+                      value="Email Subject Lines"
+                      path="contentStrategy.emailSubjectLinesTitle"
+                      as="h3"
+                      className="text-base sm:text-lg md:text-xl font-display font-bold truncate"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value="High-open-rate subjects"
+                      path="contentStrategy.emailSubjectLinesSubtitle"
+                      as="p"
+                      className="text-xs sm:text-sm truncate"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
 
-                <div className="space-y-2 sm:space-y-3">
-                  {emailSubjectLines.map((subject, i) => (
-                    <div 
-                      key={i}
+                <EditableList
+                  items={emailSubjectLines}
+                  basePath="contentStrategy.emailSubjectLines"
+                  className="space-y-2 sm:space-y-3"
+                  renderItem={(subject, i) => (
+                    <div
                       className="group flex items-center gap-2 sm:gap-3 md:gap-4 p-3 sm:p-4 rounded-lg sm:rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.02]"
-                      style={{ 
+                      style={{
                         background: `linear-gradient(135deg, color-mix(in srgb, ${primaryColor} 6%, transparent), color-mix(in srgb, ${secondaryColor} 4%, transparent))`,
                         border: `1px solid ${borderColor}`
                       }}
                       onClick={() => copyToClipboard(subject, `email-${i}`)}
                     >
-                      <span 
+                      <span
                         className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-md sm:rounded-lg flex items-center justify-center text-xs sm:text-sm font-bold flex-shrink-0"
-                        style={{ 
+                        style={{
                           background: `linear-gradient(135deg, ${secondaryColor}, color-mix(in srgb, ${secondaryColor} 60%, ${primaryColor}))`,
                           color: 'white'
                         }}
@@ -511,8 +586,8 @@ export const ContentStrategy = ({
                         )}
                       </button>
                     </div>
-                  ))}
-                </div>
+                  )}
+                />
               </div>
             </AnimatedSection>
           )}
@@ -755,6 +830,7 @@ export const ContentStrategy = ({
           </div>
         </AnimatedSection>
       </div>
+      </EditableContainer>
     </section>
   );
 };

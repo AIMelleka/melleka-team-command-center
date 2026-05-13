@@ -402,7 +402,7 @@ export function AdPanel({ brandContext, onGenerated, prefill }: AdPanelProps) {
         if (hasComparison) {
           toast.success("A/B comparison ready! Both Nano Banana and Runware images generated.");
         } else if (data.generator === "nano-banana") {
-          toast.success("Image generated with Nano Banana (Gemini)!");
+          toast.success("Image generated with OpenAI gpt-image-2!");
         } else if (data.generator === "runware") {
           toast.success("Image generated with Runware (Flux)!");
         } else {

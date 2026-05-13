@@ -3,6 +3,9 @@ import { AnimatedSection } from '@/components/AnimatedSection';
 import { AnimatedCounter } from '@/components/AnimatedCounter';
 import { PlatformBadge } from '@/components/PlatformLogos';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableText } from '@/components/editor/EditableText';
 interface WebsitePackageServices {
   revisions?: {
     included: boolean;
@@ -232,8 +235,11 @@ export const YourPackageSection = ({
   borderColor,
   backgroundColor
 }: WebsiteSectionProps) => {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
   const services = websitePackage?.services || {};
   const tier = websitePackage?.tier || 1;
+
+  if (!isEditMode && isSectionHidden('your-package')) return null;
 
   // Get package-specific features based on tier - descriptions are client-contextual
   const getPackageFeatures = () => {
@@ -304,19 +310,32 @@ export const YourPackageSection = ({
   return <section id="your-package" className="py-24" style={{
     backgroundColor: 'transparent'
   }}>
+      <EditableContainer sectionId="your-package" sectionName="Your Package" onDelete={() => hideSection('your-package')} onVisibilityToggle={() => hideSection('your-package')} isHidden={isSectionHidden('your-package')}>
       <div className="container max-w-6xl mx-auto px-4">
 
         <AnimatedSection delay={100}>
           <div className="text-center mb-16">
-            <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{ color: secondaryColor }}>
-              What's Included
-            </p>
-            <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{ color: textColor }}>
-              Your Investment
-            </h2>
-            <p className="text-lg max-w-3xl mx-auto" style={{ color: textMutedColor }}>
-              Everything you get with this package
-            </p>
+            <EditableText
+              value="What's Included"
+              path="yourPackage.subtitle"
+              as="p"
+              className="font-medium uppercase tracking-widest text-sm mb-4"
+              style={{ color: secondaryColor }}
+            />
+            <EditableText
+              value="Your Investment"
+              path="yourPackage.title"
+              as="h2"
+              className="text-3xl md:text-5xl font-display font-bold mb-6"
+              style={{ color: textColor }}
+            />
+            <EditableText
+              value="Everything you get with this package"
+              path="yourPackage.description"
+              as="p"
+              className="text-lg max-w-3xl mx-auto"
+              style={{ color: textMutedColor }}
+            />
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {features.map((feature, i) => {
@@ -351,6 +370,7 @@ export const YourPackageSection = ({
         </AnimatedSection>
 
       </div>
+      </EditableContainer>
     </section>;
 };
 
@@ -369,6 +389,10 @@ export const DesignProcessSection = ({
   borderColor,
   backgroundColor
 }: DesignProcessSectionProps) => {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('design-process')) return null;
+
   // Use AI-generated steps if available, otherwise fall back to defaults
   const aiSteps = designApproach?.steps || [];
   const hasAiSteps = aiSteps.length >= 4;
@@ -403,25 +427,33 @@ export const DesignProcessSection = ({
   return <section id="design-process" className="py-24" style={{
     backgroundColor: 'transparent'
   }}>
+      <EditableContainer sectionId="design-process" sectionName="Design Process" onDelete={() => hideSection('design-process')} onVisibilityToggle={() => hideSection('design-process')} isHidden={isSectionHidden('design-process')}>
       <div className="container max-w-6xl mx-auto px-4">
         {/* Section Header - Our Process */}
         <AnimatedSection>
           <div className="text-center mb-16">
-            <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{
-            color: secondaryColor
-          }}>
-              Our Process
-            </p>
-            <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{
-            color: textColor
-          }}>
-              {designApproach?.headline || 'From Concept to Launch'}
-            </h2>
-            <p className="text-lg max-w-3xl mx-auto" style={{
-            color: textMutedColor
-          }}>
-              {philosophy || `Our proven 4-phase process ensures your website is built right: on time, on brand, and optimized for conversions.`}
-            </p>
+            <EditableText
+              value="Our Process"
+              path="designProcess.subtitle"
+              as="p"
+              className="font-medium uppercase tracking-widest text-sm mb-4"
+              style={{ color: secondaryColor }}
+            />
+            <EditableText
+              value={designApproach?.headline || 'From Concept to Launch'}
+              path="websiteDesign.designApproach.headline"
+              as="h2"
+              className="text-3xl md:text-5xl font-display font-bold mb-6"
+              style={{ color: textColor }}
+            />
+            <EditableText
+              value={philosophy || `Our proven 4-phase process ensures your website is built right: on time, on brand, and optimized for conversions.`}
+              path="websiteDesign.designApproach.philosophy"
+              as="p"
+              className="text-lg max-w-3xl mx-auto"
+              style={{ color: textMutedColor }}
+              multiline
+            />
           </div>
         </AnimatedSection>
 
@@ -452,16 +484,23 @@ export const DesignProcessSection = ({
                       color: primaryColor
                     }} />
                       </div>
-                      <h3 className="font-display font-bold text-lg" style={{
-                    color: textColor
-                  }}>{phase.name}</h3>
+                      <EditableText
+                        value={phase.name}
+                        path={`websiteDesign.designApproach.steps.${i}.title`}
+                        as="h3"
+                        className="font-display font-bold text-lg"
+                        style={{ color: textColor }}
+                      />
                     </div>
 
-                    <p className="text-sm" style={{
-                  color: textMutedColor
-                }}>
-                      {phase.description}
-                    </p>
+                    <EditableText
+                      value={phase.description}
+                      path={`websiteDesign.designApproach.steps.${i}.description`}
+                      as="p"
+                      className="text-sm"
+                      style={{ color: textMutedColor }}
+                      multiline
+                    />
                   </div>
 
                   {/* Arrow to next */}
@@ -478,11 +517,13 @@ export const DesignProcessSection = ({
         {/* Proposed Website Pages */}
         {pages && pages.length > 0 && <AnimatedSection delay={200}>
             <div className="mt-16">
-              <h3 className="text-xl font-display font-semibold mb-6" style={{
-            color: textColor
-          }}>
-                Proposed Website Pages
-              </h3>
+              <EditableText
+                value="Proposed Website Pages"
+                path="designProcess.pagesTitle"
+                as="h3"
+                className="text-xl font-display font-semibold mb-6"
+                style={{ color: textColor }}
+              />
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {pages.map((page, i) => <div key={i} className="p-4 rounded-xl transition-all duration-300 hover:scale-[1.02]" style={{
               backgroundColor: cardBackground,
@@ -493,9 +534,13 @@ export const DesignProcessSection = ({
                         <Layout className="w-4 h-4" style={{
                     color: primaryColor
                   }} />
-                        <h4 className="font-medium" style={{
-                    color: textColor
-                  }}>{page.name}</h4>
+                        <EditableText
+                          value={page.name}
+                          path={`websiteDesign.pages.${i}.name`}
+                          as="h4"
+                          className="font-medium"
+                          style={{ color: textColor }}
+                        />
                       </div>
                       <span className="px-2 py-0.5 rounded text-xs" style={{
                   backgroundColor: page.priority === 'high' ? `color-mix(in srgb, ${secondaryColor} 15%, transparent)` : `color-mix(in srgb, ${textColor} 10%, transparent)`,
@@ -504,14 +549,20 @@ export const DesignProcessSection = ({
                         {page.priority}
                       </span>
                     </div>
-                    <p className="text-sm" style={{
-                color: textMutedColor
-              }}>{page.description}</p>
+                    <EditableText
+                      value={page.description}
+                      path={`websiteDesign.pages.${i}.description`}
+                      as="p"
+                      className="text-sm"
+                      style={{ color: textMutedColor }}
+                      multiline
+                    />
                   </div>)}
               </div>
             </div>
           </AnimatedSection>}
       </div>
+      </EditableContainer>
     </section>;
 };
 
@@ -527,7 +578,11 @@ export const WhatsIncludedSection = ({
   borderColor,
   backgroundColor
 }: WebsiteSectionProps) => {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
   const services = websitePackage?.services || {};
+
+  if (!isEditMode && isSectionHidden('whats-included')) return null;
+
   const includedItems = [{
     category: 'Design & Development',
     items: [{
@@ -580,24 +635,31 @@ export const WhatsIncludedSection = ({
   return <section id="whats-included" className="py-24" style={{
     backgroundColor: 'transparent'
   }}>
+      <EditableContainer sectionId="whats-included" sectionName="What's Included" onDelete={() => hideSection('whats-included')} onVisibilityToggle={() => hideSection('whats-included')} isHidden={isSectionHidden('whats-included')}>
       <div className="container max-w-6xl mx-auto px-4">
         <AnimatedSection>
           <div className="text-center mb-16">
-            <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{
-            color: secondaryColor
-          }}>
-              Full Breakdown
-            </p>
-            <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{
-            color: textColor
-          }}>
-              What's Included
-            </h2>
-            <p className="text-lg max-w-2xl mx-auto" style={{
-            color: textMutedColor
-          }}>
-              Everything {clientName} gets with the {websitePackage?.name || 'website'} package.
-            </p>
+            <EditableText
+              value="Full Breakdown"
+              path="whatsIncluded.subtitle"
+              as="p"
+              className="font-medium uppercase tracking-widest text-sm mb-4"
+              style={{ color: secondaryColor }}
+            />
+            <EditableText
+              value="What's Included"
+              path="whatsIncluded.title"
+              as="h2"
+              className="text-3xl md:text-5xl font-display font-bold mb-6"
+              style={{ color: textColor }}
+            />
+            <EditableText
+              value={`Everything ${clientName} gets with the ${websitePackage?.name || 'website'} package.`}
+              path="whatsIncluded.description"
+              as="p"
+              className="text-lg max-w-2xl mx-auto"
+              style={{ color: textMutedColor }}
+            />
           </div>
         </AnimatedSection>
 
@@ -627,6 +689,7 @@ export const WhatsIncludedSection = ({
             </AnimatedSection>)}
         </div>
       </div>
+      </EditableContainer>
     </section>;
 };
 
@@ -648,7 +711,11 @@ export const SeoAnalyticsSection = ({
   onFetchSeo,
   isLightBackground
 }: SeoAnalyticsSectionProps) => {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
   const services = websitePackage?.services || {};
+
+  if (!isEditMode && isSectionHidden('seo-analytics')) return null;
+
   const seoMetrics = liveSeoData?.seoMetrics;
   const topKeywords = liveSeoData?.topKeywords;
   const competitors = liveSeoData?.competitors;
@@ -686,6 +753,7 @@ export const SeoAnalyticsSection = ({
   return <section id="seo-analytics" className="py-24" style={{
     backgroundColor: 'transparent'
   }}>
+      <EditableContainer sectionId="seo-analytics" sectionName="SEO & Analytics" onDelete={() => hideSection('seo-analytics')} onVisibilityToggle={() => hideSection('seo-analytics')} isHidden={isSectionHidden('seo-analytics')}>
       <div className="container max-w-6xl mx-auto px-4">
         {/* Hero Header */}
         <AnimatedSection>
@@ -696,21 +764,29 @@ export const SeoAnalyticsSection = ({
               <BarChart3 className="w-4 h-4" style={{
               color: secondaryColor
             }} />
-              <span className="text-sm font-medium" style={{
-              color: secondaryColor
-            }}>Live SEO Dashboard</span>
+              <EditableText
+                value="Live SEO Dashboard"
+                path="seoAnalytics.badgeText"
+                as="span"
+                className="text-sm font-medium"
+                style={{ color: secondaryColor }}
+              />
             </div>
-            <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{
-            color: textColor
-          }}>
-              SEO Strategy for{' '}
-              <span style={{
-              color: primaryColor
-            }}>{clientName}</span>
-            </h2>
-            <p className="text-lg max-w-2xl mx-auto" style={{
-            color: textMutedColor
-          }}>Real-time SEO analysis. See exactly where you stand and the opportunities waiting to be captured.</p>
+            <EditableText
+              value={`SEO Strategy for ${clientName}`}
+              path="seoAnalytics.title"
+              as="h2"
+              className="text-3xl md:text-5xl font-display font-bold mb-6"
+              style={{ color: textColor }}
+            />
+            <EditableText
+              value="Real-time SEO analysis. See exactly where you stand and the opportunities waiting to be captured."
+              path="seoAnalytics.description"
+              as="p"
+              className="text-lg max-w-2xl mx-auto"
+              style={{ color: textMutedColor }}
+              multiline
+            />
           </div>
         </AnimatedSection>
 
@@ -736,16 +812,20 @@ export const SeoAnalyticsSection = ({
                     <Search className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-display font-bold" style={{
-                  color: textColor
-                }}>
-                      Analyze Any Domain
-                    </h3>
-                    <p className="text-sm" style={{
-                  color: textMutedColor
-                }}>
-                      Pre-filled with your website • Pull live Semrush data instantly
-                    </p>
+                    <EditableText
+                      value="Analyze Any Domain"
+                      path="seoAnalytics.domainSearchTitle"
+                      as="h3"
+                      className="text-xl font-display font-bold"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value="Pre-filled with your website • Pull live Semrush data instantly"
+                      path="seoAnalytics.domainSearchSubtitle"
+                      as="p"
+                      className="text-sm"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
 
@@ -853,11 +933,13 @@ export const SeoAnalyticsSection = ({
           }}>
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                     <div>
-                      <h3 className="text-2xl font-display font-bold mb-2" style={{
-                  color: textColor
-                }}>
-                        Your Top Ranking Keywords
-                      </h3>
+                      <EditableText
+                        value="Your Top Ranking Keywords"
+                        path="seoAnalytics.topKeywordsTitle"
+                        as="h3"
+                        className="text-2xl font-display font-bold mb-2"
+                        style={{ color: textColor }}
+                      />
                       <p className="text-sm" style={{
                   color: textMutedColor
                 }}>
@@ -932,11 +1014,13 @@ export const SeoAnalyticsSection = ({
               background: cardBackground,
               border: `1px solid ${borderColor}`
             }}>
-                    <h3 className="text-xl font-display font-bold mb-6" style={{
-                color: textColor
-              }}>
-                      Your SEO Competitors
-                    </h3>
+                    <EditableText
+                      value="Your SEO Competitors"
+                      path="seoAnalytics.competitorsTitle"
+                      as="h3"
+                      className="text-xl font-display font-bold mb-6"
+                      style={{ color: textColor }}
+                    />
                     <div className="space-y-4">
                       {competitors.slice(0, 4).map((comp, i) => <div key={i} className="flex items-center justify-between p-4 rounded-xl" style={{
                   background: isLightBackground ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.03)',
@@ -979,11 +1063,13 @@ export const SeoAnalyticsSection = ({
               background: cardBackground,
               border: `1px solid ${borderColor}`
             }}>
-                    <h3 className="text-xl font-display font-bold mb-6" style={{
-                color: textColor
-              }}>
-                      Traffic Comparison
-                    </h3>
+                    <EditableText
+                      value="Traffic Comparison"
+                      path="seoAnalytics.trafficCompTitle"
+                      as="h3"
+                      className="text-xl font-display font-bold mb-6"
+                      style={{ color: textColor }}
+                    />
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={[{
@@ -1031,16 +1117,20 @@ export const SeoAnalyticsSection = ({
                       <Target className="w-7 h-7 text-white" />
                     </div>
                     <div>
-                      <h3 className="text-2xl font-display font-bold mb-2" style={{
-                  color: textColor
-                }}>
-                        🎯 Keyword Opportunities for {clientName}
-                      </h3>
-                      <p style={{
-                  color: textMutedColor
-                }}>
-                        These are keywords your competitors rank for that you're missing. Each represents untapped traffic potential.
-                      </p>
+                      <EditableText
+                        value={`Keyword Opportunities for ${clientName}`}
+                        path="seoAnalytics.keywordOppTitle"
+                        as="h3"
+                        className="text-2xl font-display font-bold mb-2"
+                        style={{ color: textColor }}
+                      />
+                      <EditableText
+                        value="These are keywords your competitors rank for that you're missing. Each represents untapped traffic potential."
+                        path="seoAnalytics.keywordOppDescription"
+                        as="p"
+                        style={{ color: textMutedColor }}
+                        multiline
+                      />
                     </div>
                   </div>
 
@@ -1170,9 +1260,13 @@ export const SeoAnalyticsSection = ({
               }}>
                   <Search className="w-6 h-6 text-white" />
                 </div>
-                <h3 className="text-2xl font-display font-bold" style={{
-                color: textColor
-              }}>SEO Optimization</h3>
+                <EditableText
+                  value="SEO Optimization"
+                  path="seoAnalytics.seoOptTitle"
+                  as="h3"
+                  className="text-2xl font-display font-bold"
+                  style={{ color: textColor }}
+                />
               </div>
               <ul className="space-y-4">
                 {seoFeatures.map((feature, i) => <li key={i}>
@@ -1207,9 +1301,13 @@ export const SeoAnalyticsSection = ({
               }}>
                   <BarChart3 className="w-6 h-6 text-white" />
                 </div>
-                <h3 className="text-2xl font-display font-bold" style={{
-                color: textColor
-              }}>Analytics Setup</h3>
+                <EditableText
+                  value="Analytics Setup"
+                  path="seoAnalytics.analyticsTitle"
+                  as="h3"
+                  className="text-2xl font-display font-bold"
+                  style={{ color: textColor }}
+                />
               </div>
               <ul className="space-y-4">
                 {analyticsFeatures.filter(f => f.included).map((feature, i) => <li key={i}>
@@ -1232,6 +1330,7 @@ export const SeoAnalyticsSection = ({
           </AnimatedSection>
         </div>
       </div>
+      </EditableContainer>
     </section>;
 };
 
@@ -1247,6 +1346,10 @@ export const AutomationsSection = ({
   borderColor,
   backgroundColor
 }: AutomationsSectionProps) => {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('automations')) return null;
+
   // Use AI-generated workflows if available
   const aiWorkflows = automationWorkflows?.workflows || [];
   const hasAiWorkflows = aiWorkflows.length > 0;
@@ -1280,6 +1383,7 @@ export const AutomationsSection = ({
   return <section id="automations" className="py-24" style={{
     backgroundColor: 'transparent'
   }}>
+      <EditableContainer sectionId="automations" sectionName="Automations" onDelete={() => hideSection('automations')} onVisibilityToggle={() => hideSection('automations')} isHidden={isSectionHidden('automations')}>
       <div className="container max-w-6xl mx-auto px-4">
         <AnimatedSection>
           <div className="text-center mb-16">
@@ -1289,20 +1393,29 @@ export const AutomationsSection = ({
               <Sparkles className="w-4 h-4" style={{
               color: secondaryColor
             }} />
-              <span className="text-sm font-medium" style={{
-              color: secondaryColor
-            }}>Ultra Premium Exclusive</span>
+              <EditableText
+                value="Ultra Premium Exclusive"
+                path="automations.badgeText"
+                as="span"
+                className="text-sm font-medium"
+                style={{ color: secondaryColor }}
+              />
             </div>
-            <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{
-            color: textColor
-          }}>
-              {automationWorkflows?.headline || 'Automations Included'}
-            </h2>
-            <p className="text-lg max-w-2xl mx-auto" style={{
-            color: textMutedColor
-          }}>
-              {automationWorkflows?.description || `Save time and never miss a lead with powerful automations built directly into your website.`}
-            </p>
+            <EditableText
+              value={automationWorkflows?.headline || 'Automations Included'}
+              path="websiteDesign.automations.headline"
+              as="h2"
+              className="text-3xl md:text-5xl font-display font-bold mb-6"
+              style={{ color: textColor }}
+            />
+            <EditableText
+              value={automationWorkflows?.description || `Save time and never miss a lead with powerful automations built directly into your website.`}
+              path="websiteDesign.automations.description"
+              as="p"
+              className="text-lg max-w-2xl mx-auto"
+              style={{ color: textMutedColor }}
+              multiline
+            />
           </div>
         </AnimatedSection>
 
@@ -1320,12 +1433,21 @@ export const AutomationsSection = ({
               }}>
                     <AutoIcon className="w-7 h-7 text-white" />
                   </div>
-                  <h3 className="font-semibold mb-2" style={{
-                color: textColor
-              }}>{automation.name}</h3>
-                  <p className="text-sm" style={{
-                color: textMutedColor
-              }}>{automation.description}</p>
+                  <EditableText
+                    value={automation.name}
+                    path={`websiteDesign.automations.workflows.${i}.name`}
+                    as="h3"
+                    className="font-semibold mb-2"
+                    style={{ color: textColor }}
+                  />
+                  <EditableText
+                    value={automation.description}
+                    path={`websiteDesign.automations.workflows.${i}.description`}
+                    as="p"
+                    className="text-sm"
+                    style={{ color: textMutedColor }}
+                    multiline
+                  />
                   {'benefit' in automation && (automation as {
                 benefit?: string;
               }).benefit && <p className="text-xs mt-2 font-medium" style={{
@@ -1338,6 +1460,7 @@ export const AutomationsSection = ({
         })}
         </div>
       </div>
+      </EditableContainer>
     </section>;
 };
 
@@ -1354,6 +1477,10 @@ export const BlogContentSection = ({
   borderColor,
   backgroundColor
 }: BlogContentSectionProps) => {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('blog-content')) return null;
+
   const blogCount = websitePackage?.services?.blogs?.count || 2;
   const allTopics = blogContent?.topics || [];
   
@@ -1381,6 +1508,7 @@ export const BlogContentSection = ({
   return <section id="blog-content" className="py-24" style={{
     backgroundColor: 'transparent'
   }}>
+      <EditableContainer sectionId="blog-content" sectionName="Blog Content" onDelete={() => hideSection('blog-content')} onVisibilityToggle={() => hideSection('blog-content')} isHidden={isSectionHidden('blog-content')}>
       <div className="container max-w-6xl mx-auto px-4">
         <AnimatedSection>
           <div className="text-center mb-16">
@@ -1390,20 +1518,29 @@ export const BlogContentSection = ({
               <Award className="w-4 h-4" style={{
               color: secondaryColor
             }} />
-              <span className="text-sm font-medium" style={{
-              color: secondaryColor
-            }}>Ultra Premium Exclusive</span>
+              <EditableText
+                value="Ultra Premium Exclusive"
+                path="blogContent.badgeText"
+                as="span"
+                className="text-sm font-medium"
+                style={{ color: secondaryColor }}
+              />
             </div>
-            <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{
-            color: textColor
-          }}>
-              {blogContent?.headline || `${blogCount} Blog Posts Included`}
-            </h2>
-            <p className="text-lg max-w-2xl mx-auto" style={{
-            color: textMutedColor
-          }}>
-              {blogContent?.description || `Professionally written, SEO-optimized blog content to boost your search rankings and establish ${clientName} as an industry authority.`}
-            </p>
+            <EditableText
+              value={blogContent?.headline || `${blogCount} Blog Posts Included`}
+              path="websiteDesign.blogContent.headline"
+              as="h2"
+              className="text-3xl md:text-5xl font-display font-bold mb-6"
+              style={{ color: textColor }}
+            />
+            <EditableText
+              value={blogContent?.description || `Professionally written, SEO-optimized blog content to boost your search rankings and establish ${clientName} as an industry authority.`}
+              path="websiteDesign.blogContent.description"
+              as="p"
+              className="text-lg max-w-2xl mx-auto"
+              style={{ color: textMutedColor }}
+              multiline
+            />
           </div>
         </AnimatedSection>
 
@@ -1424,12 +1561,21 @@ export const BlogContentSection = ({
                   backgroundColor: `color-mix(in srgb, ${secondaryColor} 15%, transparent)`,
                   color: secondaryColor
                 }}>{topic.category}</span>
-                      <h3 className="font-display font-bold text-lg mt-2 mb-1" style={{
-                  color: textColor
-                }}>{topic.title}</h3>
-                      <p className="text-sm mb-2" style={{
-                  color: textMutedColor
-                }}>{topic.purpose}</p>
+                      <EditableText
+                        value={topic.title}
+                        path={`websiteDesign.blogContent.topics.${i}.title`}
+                        as="h3"
+                        className="font-display font-bold text-lg mt-2 mb-1"
+                        style={{ color: textColor }}
+                      />
+                      <EditableText
+                        value={topic.purpose}
+                        path={`websiteDesign.blogContent.topics.${i}.purpose`}
+                        as="p"
+                        className="text-sm mb-2"
+                        style={{ color: textMutedColor }}
+                        multiline
+                      />
                       <p className="text-xs" style={{
                   color: secondaryColor
                 }}>Target: {topic.targetKeyword}</p>
@@ -1483,6 +1629,7 @@ export const BlogContentSection = ({
             </div>
           </AnimatedSection>}
       </div>
+      </EditableContainer>
     </section>;
 };
 
@@ -1496,6 +1643,10 @@ export const WebsiteTimelineSection = ({
   borderColor,
   backgroundColor
 }: Omit<WebsiteSectionProps, 'websitePackage' | 'clientName'>) => {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('timeline')) return null;
+
   const milestones = [{
     week: 'Week 1',
     title: 'Discovery & Strategy',
@@ -1539,6 +1690,7 @@ export const WebsiteTimelineSection = ({
   return <section id="timeline" className="py-24 relative overflow-hidden" style={{
     backgroundColor: 'transparent'
   }}>
+      <EditableContainer sectionId="timeline" sectionName="Website Timeline" onDelete={() => hideSection('timeline')} onVisibilityToggle={() => hideSection('timeline')} isHidden={isSectionHidden('timeline')}>
       {/* Animated background elements with unified neon glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 right-10 w-80 h-80 rounded-full blur-3xl animate-pulse" style={{
@@ -1564,18 +1716,24 @@ export const WebsiteTimelineSection = ({
                 4-6 WEEKS
               </span>
             </div>
-            <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{
-            color: textColor,
-            textShadow: isDarkBg ? `0 0 30px ${primaryColor}20` : 'none'
-          }}>
-              Your Website Development Roadmap
-            </h2>
-            <p className="text-lg max-w-2xl mx-auto leading-relaxed" style={{
-            color: textMutedColor
-          }}>
-              A streamlined 6-week journey from concept to launch. Each phase includes client review 
-              checkpoints, ensuring your vision comes to life exactly as you imagined.
-            </p>
+            <EditableText
+              value="Your Website Development Roadmap"
+              path="websiteTimeline.title"
+              as="h2"
+              className="text-3xl md:text-5xl font-display font-bold mb-6"
+              style={{
+                color: textColor,
+                textShadow: isDarkBg ? `0 0 30px ${primaryColor}20` : 'none'
+              }}
+            />
+            <EditableText
+              value="A streamlined 6-week journey from concept to launch. Each phase includes client review checkpoints, ensuring your vision comes to life exactly as you imagined."
+              path="websiteTimeline.description"
+              as="p"
+              className="text-lg max-w-2xl mx-auto leading-relaxed"
+              style={{ color: textMutedColor }}
+              multiline
+            />
           </div>
         </AnimatedSection>
 
@@ -1629,12 +1787,16 @@ export const WebsiteTimelineSection = ({
                   }}>
                         {milestone.week}
                       </span>
-                      <h3 className="font-display font-bold text-xl" style={{
-                    color: textColor,
-                    textShadow: isDarkBg ? `0 0 15px ${textColor}10` : 'none'
-                  }}>
-                        {milestone.title}
-                      </h3>
+                      <EditableText
+                        value={milestone.title}
+                        path={`websiteTimeline.milestones.${i}.title`}
+                        as="h3"
+                        className="font-display font-bold text-xl"
+                        style={{
+                          color: textColor,
+                          textShadow: isDarkBg ? `0 0 15px ${textColor}10` : 'none'
+                        }}
+                      />
                       {/* Step number badge with neon */}
                       <div className="ml-auto w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style={{
                     background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
@@ -1643,9 +1805,14 @@ export const WebsiteTimelineSection = ({
                         {i + 1}
                       </div>
                     </div>
-                    <p className="text-base leading-relaxed relative mb-4" style={{
-                  color: textMutedColor
-                }}>{milestone.description}</p>
+                    <EditableText
+                      value={milestone.description}
+                      path={`websiteTimeline.milestones.${i}.description`}
+                      as="p"
+                      className="text-base leading-relaxed relative mb-4"
+                      style={{ color: textMutedColor }}
+                      multiline
+                    />
                     
                     {/* Deliverables */}
                     {milestone.deliverables && <div className="flex flex-wrap gap-2">
@@ -1665,5 +1832,6 @@ export const WebsiteTimelineSection = ({
         
         {/* Clean ending without redundant "6 weeks" messaging */}
       </div>
+      </EditableContainer>
     </section>;
 };

@@ -21,6 +21,7 @@ import {
 } from 'recharts';
 import { Slider } from '@/components/ui/slider';
 import { AnimatedCounter } from './AnimatedCounter';
+import { EditableText } from '@/components/editor/EditableText';
 
 interface BudgetScalingCalculatorProps {
   primaryColor?: string;
@@ -129,11 +130,19 @@ export const BudgetScalingCalculator = ({
         <div>
           <h3 className="text-2xl font-display font-bold flex items-center gap-2" style={{ color: textColor }}>
             <BarChart3 className="w-6 h-6" style={{ color: primaryColor }} />
-            Strategic Budget Calculator
+            <EditableText
+              value="Strategic Budget Calculator"
+              path="budgetCalculator.title"
+              as="span"
+            />
           </h3>
-          <p style={{ color: textMutedColor }} className="mt-1">
-            See how our $5/day testing approach scales to profitable campaigns
-          </p>
+          <EditableText
+            value="See how our $5/day testing approach scales to profitable campaigns"
+            path="budgetCalculator.subtitle"
+            as="p"
+            className="mt-1"
+            style={{ color: textMutedColor }}
+          />
         </div>
         <div 
           className="px-4 py-2 rounded-full text-sm font-medium"
@@ -217,7 +226,13 @@ export const BudgetScalingCalculator = ({
         className="p-6 rounded-2xl"
         style={{ backgroundColor: `color-mix(in srgb, ${primaryColor} 5%, var(--background))`, border: '1px solid var(--border)' }}
       >
-        <h4 className="text-lg font-semibold mb-6" style={{ color: textColor }}>Budget Scaling Over 6 Months</h4>
+        <EditableText
+          value="Budget Scaling Over 6 Months"
+          path="budgetCalculator.chartTitle"
+          as="h4"
+          className="text-lg font-semibold mb-6"
+          style={{ color: textColor }}
+        />
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={budgetData}>
@@ -338,7 +353,13 @@ export const BudgetScalingCalculator = ({
             <Info className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h4 className="text-lg font-semibold mb-2" style={{ color: textColor }}>Why This Approach Saves Money</h4>
+            <EditableText
+              value="Why This Approach Saves Money"
+              path="budgetCalculator.savingsTitle"
+              as="h4"
+              className="text-lg font-semibold mb-2"
+              style={{ color: textColor }}
+            />
             <p className="mb-4" style={{ color: textMutedColor }}>
               Traditional agencies would spend <strong style={{ color: textColor }}>${traditionalSpend.toLocaleString()}</strong> over 6 months 
               by starting at full budget from day one. Our strategic testing approach spends only <strong style={{ color: textColor }}>${totalSpend6Months.toLocaleString()}</strong> while 

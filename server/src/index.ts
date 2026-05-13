@@ -29,6 +29,7 @@ import metaAdsRouter from "./routes/meta-ads.js";
 import clientUpdatesRouter from "./routes/client-updates.js";
 import cronJobsRouter from "./routes/cron-jobs.js";
 import publicRouter from "./routes/public.js";
+import proposalsRouter from "./routes/proposals.js";
 import { getActiveSseConnections } from "./routes/chat.js";
 import { warmCaches } from "./services/claude.js";
 
@@ -158,6 +159,7 @@ app.use("/api/meta-ads", metaAdsRouter);
 app.use("/api/client-updates", clientUpdatesRouter);
 app.use("/api/cron-jobs", cronJobsRouter);
 app.use("/api/public", publicRouter);
+app.use("/api/proposals", proposalsRouter);
 
 // ── Global error safety net (MUST be after all routes) ───────────────────
 // Catches ANY unhandled error thrown by middleware or route handlers so one

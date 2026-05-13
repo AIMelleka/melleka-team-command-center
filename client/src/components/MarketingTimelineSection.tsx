@@ -1,6 +1,9 @@
 import { AnimatedSection } from "@/components/AnimatedSection";
 import { Calendar, Rocket, Target, Crown } from "lucide-react";
 import type { CSSProperties } from "react";
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableText } from '@/components/editor/EditableText';
 
 const FIXED_TIMELINE_PHASES = [
   {
@@ -39,20 +42,38 @@ export function MarketingTimelineSection({
   cardBackground,
   borderColor
 }: MarketingTimelineSectionProps) {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('timeline')) return null;
+
   return (
     <section id="timeline" className="py-24" style={sectionStyle}>
+      <EditableContainer sectionId="timeline" sectionName="Marketing Timeline" onDelete={() => hideSection('timeline')} onVisibilityToggle={() => hideSection('timeline')} isHidden={isSectionHidden('timeline')}>
       <div className="container max-w-6xl mx-auto px-4">
         <AnimatedSection>
           <div className="text-center mb-16">
-            <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{ color: secondaryColor }}>
-              Timeline
-            </p>
-            <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{ color: textColor }}>
-              Project Timeline
-            </h2>
-            <p className="text-lg max-w-3xl mx-auto" style={{ color: textMutedColor }}>
-              A proven 12-month roadmap to build, optimize, and dominate your market.
-            </p>
+            <EditableText
+              value="Timeline"
+              path="timeline.subtitle"
+              as="p"
+              className="font-medium uppercase tracking-widest text-sm mb-4"
+              style={{ color: secondaryColor }}
+            />
+            <EditableText
+              value="Project Timeline"
+              path="timeline.title"
+              as="h2"
+              className="text-3xl md:text-5xl font-display font-bold mb-6"
+              style={{ color: textColor }}
+            />
+            <EditableText
+              value="A proven 12-month roadmap to build, optimize, and dominate your market."
+              path="timeline.description"
+              as="p"
+              className="text-lg max-w-3xl mx-auto"
+              style={{ color: textMutedColor }}
+              multiline
+            />
           </div>
         </AnimatedSection>
 
@@ -71,18 +92,28 @@ export function MarketingTimelineSection({
                   >
                     <Icon className="w-6 h-6" style={{ color: primaryColor }} />
                   </div>
-                  <h4 className="text-lg font-semibold mb-2" style={{ color: textColor }}>
-                    {phase.name}
-                  </h4>
-                  <p className="text-sm leading-relaxed" style={{ color: textMutedColor }}>
-                    {phase.description}
-                  </p>
+                  <EditableText
+                    value={phase.name}
+                    path={`timeline.phases.${i}.name`}
+                    as="h4"
+                    className="text-lg font-semibold mb-2"
+                    style={{ color: textColor }}
+                  />
+                  <EditableText
+                    value={phase.description}
+                    path={`timeline.phases.${i}.description`}
+                    as="p"
+                    className="text-sm leading-relaxed"
+                    style={{ color: textMutedColor }}
+                    multiline
+                  />
                 </div>
               </AnimatedSection>
             );
           })}
         </div>
       </div>
+      </EditableContainer>
     </section>
   );
 }

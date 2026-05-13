@@ -3,6 +3,9 @@ import { AnimatedSection } from './AnimatedSection';
 import { CalloutBadge } from './ProposalAnnotations';
 import { useState } from 'react';
 import { isLightColor } from './PlatformLogos';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableText } from '@/components/editor/EditableText';
 
 interface PortfolioWebsite {
   url: string;
@@ -148,16 +151,24 @@ export const WebsiteDesignSection = ({
 }: WebsiteDesignSectionProps) => {
   // Get dynamic features based on selected package
   const includedFeatures = getIncludedFeatures(selectedPackage);
-  
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('website-design')) return null;
+
   return (
     <section id="website-design" className="py-24">
+      <EditableContainer sectionId="website-design" sectionName="Website Design" onDelete={() => hideSection('website-design')} onVisibilityToggle={() => hideSection('website-design')} isHidden={isSectionHidden('website-design')}>
       <div className="container max-w-6xl mx-auto px-4">
         {/* Header */}
         <AnimatedSection>
           <div className="text-center mb-8">
-            <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{ color: secondaryColor }}>
-              Professional Web Design
-            </p>
+            <EditableText
+              value="Professional Web Design"
+              path="websiteDesign.subtitle"
+              as="p"
+              className="font-medium uppercase tracking-widest text-sm mb-4"
+              style={{ color: secondaryColor }}
+            />
             <div className="flex items-center justify-center gap-4 mb-4 flex-wrap">
               <div 
                 className="w-14 h-14 rounded-2xl flex items-center justify-center"
@@ -165,9 +176,13 @@ export const WebsiteDesignSection = ({
               >
                 <Globe className="w-7 h-7 text-white" />
               </div>
-              <h2 className="text-3xl md:text-5xl font-display font-bold" style={{ color: textColor }}>
-                {content.headline || `Custom Website for ${clientName}`}
-              </h2>
+              <EditableText
+                value={content.headline || `Custom Website for ${clientName}`}
+                path="websiteDesign.headline"
+                as="h2"
+                className="text-3xl md:text-5xl font-display font-bold"
+                style={{ color: textColor }}
+              />
             </div>
             <div className="flex items-center justify-center gap-4 flex-wrap">
               <CalloutBadge text={selectedPackage?.name || 'Professional Web Design'} variant="important" />
@@ -178,10 +193,14 @@ export const WebsiteDesignSection = ({
         </AnimatedSection>
 
         <AnimatedSection delay={100}>
-          <p className="text-lg max-w-3xl mx-auto text-center mt-6" style={{ color: textMutedColor }}>
-            {content.description || 
-              `We'll create a stunning, high-converting website for ${clientName} that captures your brand essence and drives results. Every page is custom-designed to engage your visitors and turn them into customers.`}
-          </p>
+          <EditableText
+            value={content.description || `We'll create a stunning, high-converting website for ${clientName} that captures your brand essence and drives results. Every page is custom-designed to engage your visitors and turn them into customers.`}
+            path="websiteDesign.description"
+            as="p"
+            className="text-lg max-w-3xl mx-auto text-center mt-6"
+            style={{ color: textMutedColor }}
+            multiline
+          />
         </AnimatedSection>
 
         {/* Design Approach removed - now handled by DesignProcessSection */}
@@ -201,9 +220,13 @@ export const WebsiteDesignSection = ({
             >
               <div className="flex items-center gap-3 mb-6">
                 <CheckCircle2 className="w-6 h-6" style={{ color: secondaryColor }} />
-                <h3 className="text-xl font-display font-semibold" style={{ color: textColor }}>
-                  What's Included
-                </h3>
+                <EditableText
+                  value="What's Included"
+                  path="websiteDesign.whatsIncludedTitle"
+                  as="h3"
+                  className="text-xl font-display font-semibold"
+                  style={{ color: textColor }}
+                />
               </div>
               
               <div className="grid sm:grid-cols-2 gap-3">
@@ -233,21 +256,41 @@ export const WebsiteDesignSection = ({
             >
               <div className="flex items-center gap-3 mb-6">
                 <Code className="w-6 h-6" style={{ color: primaryColor }} />
-                <h3 className="text-xl font-display font-semibold" style={{ color: textColor }}>
-                  Technology & Integrations
-                </h3>
+                <EditableText
+                  value="Technology & Integrations"
+                  path="websiteDesign.techIntegrationsTitle"
+                  as="h3"
+                  className="text-xl font-display font-semibold"
+                  style={{ color: textColor }}
+                />
               </div>
               
               <div className="space-y-6">
                 <div>
-                  <h4 className="font-medium mb-3" style={{ color: textColor }}>Platform</h4>
-                  <p className="text-sm" style={{ color: textMutedColor }}>
-                    {content.techStack?.platform || 'Modern CMS tailored to your needs (WordPress, Webflow, or custom)'}
-                  </p>
+                  <EditableText
+                    value="Platform"
+                    path="websiteDesign.platformLabel"
+                    as="h4"
+                    className="font-medium mb-3"
+                    style={{ color: textColor }}
+                  />
+                  <EditableText
+                    value={content.techStack?.platform || 'Modern CMS tailored to your needs (WordPress, Webflow, or custom)'}
+                    path="websiteDesign.techStack.platform"
+                    as="p"
+                    className="text-sm"
+                    style={{ color: textMutedColor }}
+                  />
                 </div>
 
                 <div>
-                  <h4 className="font-medium mb-3" style={{ color: textColor }}>Built With</h4>
+                  <EditableText
+                    value="Built With"
+                    path="websiteDesign.builtWithLabel"
+                    as="h4"
+                    className="font-medium mb-3"
+                    style={{ color: textColor }}
+                  />
                   <div className="flex flex-wrap gap-2">
                     {(content.techStack?.technologies || ['Responsive CSS', 'Modern JavaScript', 'SEO Structure', 'Fast Hosting']).map((tech, i) => (
                       <span 
@@ -265,7 +308,13 @@ export const WebsiteDesignSection = ({
                 </div>
 
                 <div>
-                  <h4 className="font-medium mb-3" style={{ color: textColor }}>Integrations</h4>
+                  <EditableText
+                    value="Integrations"
+                    path="websiteDesign.integrationsLabel"
+                    as="h4"
+                    className="font-medium mb-3"
+                    style={{ color: textColor }}
+                  />
                   <div className="flex flex-wrap gap-2">
                     {(content.techStack?.integrations || ['Email Marketing', 'CRM', 'Social Media', 'Payment Processing']).map((integration, i) => (
                       <span 
@@ -303,7 +352,13 @@ export const WebsiteDesignSection = ({
                 >
                   <div className="flex items-center gap-2 mb-4">
                     <Search className="w-5 h-5" style={{ color: primaryColor }} />
-                    <h4 className="font-medium" style={{ color: textColor }}>SEO Optimization</h4>
+                    <EditableText
+                      value="SEO Optimization"
+                      path="websiteDesign.seoTitle"
+                      as="h4"
+                      className="font-medium"
+                      style={{ color: textColor }}
+                    />
                   </div>
                   <ul className="space-y-2">
                     {(content.seoFeatures?.features || [
@@ -335,7 +390,13 @@ export const WebsiteDesignSection = ({
                 >
                   <div className="flex items-center gap-2 mb-4">
                     <BarChart3 className="w-5 h-5" style={{ color: primaryColor }} />
-                    <h4 className="font-medium" style={{ color: textColor }}>Analytics Setup</h4>
+                    <EditableText
+                      value="Analytics Setup"
+                      path="websiteDesign.analyticsTitle"
+                      as="h4"
+                      className="font-medium"
+                      style={{ color: textColor }}
+                    />
                   </div>
                   <ul className="space-y-2">
                     {(content.analyticsSetup?.tools || [
@@ -367,7 +428,13 @@ export const WebsiteDesignSection = ({
                 >
                   <div className="flex items-center gap-2 mb-4">
                     <Zap className="w-5 h-5" style={{ color: primaryColor }} />
-                    <h4 className="font-medium" style={{ color: textColor }}>Automations</h4>
+                    <EditableText
+                      value="Automations"
+                      path="websiteDesign.automationsTitle"
+                      as="h4"
+                      className="font-medium"
+                      style={{ color: textColor }}
+                    />
                   </div>
                   <ul className="space-y-2">
                     {(content.automations?.workflows || [
@@ -452,14 +519,23 @@ export const WebsiteDesignSection = ({
               <div className="mt-12">
                 <div className="flex items-center gap-3 mb-6">
                   <Monitor className="w-6 h-6" style={{ color: primaryColor }} />
-                  <h3 className="text-xl font-display font-semibold" style={{ color: textColor }}>
-                    Similar Projects We've Built
-                  </h3>
+                  <EditableText
+                    value="Similar Projects We've Built"
+                    path="websiteDesign.portfolioTitle"
+                    as="h3"
+                    className="text-xl font-display font-semibold"
+                    style={{ color: textColor }}
+                  />
                   <CalloutBadge text="OUR WORK" variant="highlight" />
                 </div>
-                <p className="mb-8" style={{ color: textMutedColor }}>
-                  Explore examples of websites we've created for businesses like yours. Click "View Full Site" to see them live.
-                </p>
+                <EditableText
+                  value={`Explore examples of websites we've created for businesses like yours. Click "View Full Site" to see them live.`}
+                  path="websiteDesign.portfolioDescription"
+                  as="p"
+                  className="mb-8"
+                  style={{ color: textMutedColor }}
+                  multiline
+                />
                 
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {portfolioSites.map((site, idx) => (
@@ -546,9 +622,13 @@ export const WebsiteDesignSection = ({
         {/* Deliverables */}
         <AnimatedSection delay={1000}>
           <div className="mt-12">
-            <h3 className="text-xl font-display font-semibold mb-6" style={{ color: textColor }}>
-              What You'll Receive
-            </h3>
+            <EditableText
+              value="What You'll Receive"
+              path="websiteDesign.deliverablesTitle"
+              as="h3"
+              className="text-xl font-display font-semibold mb-6"
+              style={{ color: textColor }}
+            />
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
               {(content.deliverables || [
                 'Fully custom website',
@@ -573,6 +653,7 @@ export const WebsiteDesignSection = ({
           </div>
         </AnimatedSection>
       </div>
+      </EditableContainer>
     </section>
   );
 };

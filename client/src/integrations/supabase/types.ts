@@ -465,6 +465,9 @@ export type Database = {
           site_audit_url: string | null
           tier: string
           tracked_conversion_types: string[]
+          match_aliases: string[]
+          match_exclude_patterns: string[]
+          match_exact_only: boolean
         }
         Insert: {
           client_name: string
@@ -482,6 +485,9 @@ export type Database = {
           site_audit_url?: string | null
           tier?: string
           tracked_conversion_types?: string[]
+          match_aliases?: string[]
+          match_exclude_patterns?: string[]
+          match_exact_only?: boolean
         }
         Update: {
           client_name?: string
@@ -499,6 +505,9 @@ export type Database = {
           site_audit_url?: string | null
           tier?: string
           tracked_conversion_types?: string[]
+          match_aliases?: string[]
+          match_exclude_patterns?: string[]
+          match_exact_only?: boolean
         }
         Relationships: []
       }

@@ -62,7 +62,7 @@ export const EditableText = ({
   };
 
   if (!isEditMode) {
-    return <Component className={className} style={style}>{displayValue || placeholder}</Component>;
+    return <Component className={className} style={style}>{displayValue}</Component>;
   }
 
   if (isEditing) {
@@ -113,19 +113,18 @@ export const EditableText = ({
   const hasChange = path in pendingChanges;
 
   return (
-    <div 
-      className="group relative inline-block cursor-pointer"
+    <div
+      className={`group relative inline cursor-pointer rounded transition-all duration-200 hover:outline hover:outline-2 hover:outline-dashed hover:outline-blue-400/60 hover:bg-blue-400/5 ${hasChange ? 'ring-2 ring-yellow-400/50 ring-offset-1' : ''}`}
       onClick={() => setIsEditing(true)}
+      title="Click to edit"
     >
-      <Component 
-        className={`${className} ${hasChange ? 'ring-2 ring-yellow-400/50 ring-offset-1' : ''}`} 
+      <Component
+        className={className}
         style={style}
       >
         {displayValue || <span className="opacity-50">{placeholder}</span>}
+        <Pencil className="w-3 h-3 text-blue-400 inline-block ml-1.5 opacity-0 group-hover:opacity-100 transition-opacity align-middle" />
       </Component>
-      <div className="absolute -right-6 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <Pencil className="w-3.5 h-3.5 text-primary" />
-      </div>
     </div>
   );
 };

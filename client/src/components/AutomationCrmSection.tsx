@@ -2,6 +2,9 @@ import { Workflow, Database, Settings, Zap, ArrowRight, CheckCircle2, MessageSqu
 import { AnimatedSection } from './AnimatedSection';
 import { CalloutBadge, FloatingAnnotation } from './ProposalAnnotations';
 import { isLightColor } from './PlatformLogos';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableText } from '@/components/editor/EditableText';
 
 
 interface AutomationContent {
@@ -94,12 +97,16 @@ export const AutomationCrmSection = ({
   showTextMarketing = true
 }: AutomationCrmSectionProps) => {
   const { workflowAutomation, automatedSystems } = automationContent;
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('automation')) return null;
 
   // Detect dark background for neon effects
   const isDarkBg = cardBackground.includes('rgba') && cardBackground.includes('0.') && parseFloat(cardBackground.match(/[\d.]+/g)?.[3] || '1') < 0.8;
 
   return (
     <section id="automation-crm" className="py-24 relative overflow-hidden" style={{ backgroundColor: `color-mix(in srgb, ${cardBackground} 50%, transparent)` }}>
+      <EditableContainer sectionId="automation" sectionName="Automation & CRM" onDelete={() => hideSection('automation')} onVisibilityToggle={() => hideSection('automation')} isHidden={isSectionHidden('automation')}>
       {/* Animated circuit-like background pattern - enhanced for dark mode */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none" style={{ opacity: isDarkBg ? 0.08 : 0.05 }}>
         <svg className="absolute w-full h-full" viewBox="0 0 1000 800">
@@ -164,28 +171,37 @@ export const AutomationCrmSection = ({
                   />
                 </div>
                 <div>
-                  <h2 
-                    className="text-3xl md:text-4xl font-display font-bold" 
-                    style={{ 
+                  <EditableText
+                    value={workflowAutomation?.headline || "Workflow Automation"}
+                    path="automationContent.workflowAutomation.headline"
+                    as="h2"
+                    className="text-3xl md:text-4xl font-display font-bold"
+                    style={{
                       color: textColor,
                       textShadow: isDarkBg ? `0 0 30px ${primaryColor}20` : 'none'
                     }}
-                  >
-                    {workflowAutomation?.headline || "Workflow Automation"}
-                  </h2>
-                  <p className="text-lg" style={{ color: textMutedColor }}>
-                    Automate repetitive tasks for {clientName}
-                  </p>
+                  />
+                  <EditableText
+                    value={`Automate repetitive tasks for ${clientName}`}
+                    path="automationContent.workflowAutomation.subtitle"
+                    as="p"
+                    className="text-lg"
+                    style={{ color: textMutedColor }}
+                  />
                 </div>
                 <CalloutBadge text="TIME-SAVER" variant="highlight" />
               </div>
             </AnimatedSection>
 
             <AnimatedSection delay={100}>
-              <p className="text-lg mb-10 max-w-3xl leading-relaxed" style={{ color: textMutedColor }}>
-                {workflowAutomation?.description || 
-                  `We'll set up intelligent automations tailored to ${clientName}'s specific business processes, handling repetitive tasks, nurturing leads, and keeping operations running smoothly around the clock.`}
-              </p>
+              <EditableText
+                value={workflowAutomation?.description || `We'll set up intelligent automations tailored to ${clientName}'s specific business processes, handling repetitive tasks, nurturing leads, and keeping operations running smoothly around the clock.`}
+                path="automationContent.workflowAutomation.description"
+                as="p"
+                className="text-lg mb-10 max-w-3xl leading-relaxed"
+                style={{ color: textMutedColor }}
+                multiline
+              />
             </AnimatedSection>
 
             {/* Premium Workflow Cards with 3D Effect - Uses AI-generated or client-contextual workflows */}
@@ -252,12 +268,24 @@ export const AutomationCrmSection = ({
                         >
                           <Zap className="w-5 h-5 text-white" />
                         </div>
-                        <h3 className="font-bold text-lg" style={{ color: textColor }}>{workflow.name}</h3>
+                        <EditableText
+                          value={workflow.name}
+                          path={`automationContent.workflowAutomation.workflows.${i}.name`}
+                          as="h3"
+                          className="font-bold text-lg"
+                          style={{ color: textColor }}
+                        />
                       </div>
                       
                       <div className="mb-5 p-3 rounded-xl" style={{ background: `color-mix(in srgb, ${primaryColor} 8%, transparent)` }}>
                         <p className="text-xs uppercase tracking-wider mb-1 font-medium" style={{ color: primaryColor }}>⚡ Trigger</p>
-                        <p className="font-semibold" style={{ color: textColor }}>{workflow.trigger}</p>
+                        <EditableText
+                          value={workflow.trigger}
+                          path={`automationContent.workflowAutomation.workflows.${i}.trigger`}
+                          as="p"
+                          className="font-semibold"
+                          style={{ color: textColor }}
+                        />
                       </div>
 
                       <div className="space-y-3 mb-5">
@@ -283,7 +311,11 @@ export const AutomationCrmSection = ({
                           border: `1px solid color-mix(in srgb, ${secondaryColor} 30%, transparent)`
                         }}
                       >
-                        ✨ {workflow.benefit}
+                        <EditableText
+                          value={`✨ ${workflow.benefit}`}
+                          path={`automationContent.workflowAutomation.workflows.${i}.benefit`}
+                          as="span"
+                        />
                       </div>
                     </div>
                   </div>
@@ -338,21 +370,32 @@ export const AutomationCrmSection = ({
                   <Database className="w-6 h-6" style={{ color: isLightColor(primaryColor) ? '#1a1a2e' : 'white' }} />
                 </div>
                 <div>
-                  <h2 className="text-3xl md:text-4xl font-display font-bold" style={{ color: textColor }}>
-                    {crmContent?.headline || "CRM & Lead Management"}
-                  </h2>
-                  <p style={{ color: textMutedColor }}>
-                    Your customer relationships, organized
-                  </p>
+                  <EditableText
+                    value={crmContent?.headline || "CRM & Lead Management"}
+                    path="crmContent.headline"
+                    as="h2"
+                    className="text-3xl md:text-4xl font-display font-bold"
+                    style={{ color: textColor }}
+                  />
+                  <EditableText
+                    value="Your customer relationships, organized"
+                    path="crmContent.subtitle"
+                    as="p"
+                    style={{ color: textMutedColor }}
+                  />
                 </div>
               </div>
             </AnimatedSection>
 
             <AnimatedSection delay={showWorkflowAutomation ? 400 : 50}>
-              <p className="text-lg mb-8 max-w-3xl" style={{ color: textMutedColor }}>
-                {crmContent?.description || 
-                  `We'll set up and manage a CRM system that keeps track of every lead, customer interaction, and opportunity - so nothing falls through the cracks.`}
-              </p>
+              <EditableText
+                value={crmContent?.description || `We'll set up and manage a CRM system that keeps track of every lead, customer interaction, and opportunity - so nothing falls through the cracks.`}
+                path="crmContent.description"
+                as="p"
+                className="text-lg mb-8 max-w-3xl"
+                style={{ color: textMutedColor }}
+                multiline
+              />
             </AnimatedSection>
 
             <div className="grid lg:grid-cols-2 gap-8 mb-12">
@@ -451,9 +494,14 @@ export const AutomationCrmSection = ({
                         <RefreshCw className="w-4 h-4" style={{ color: primaryColor }} />
                         Smart Automation Features
                       </h4>
-                      <p className="text-sm mb-3" style={{ color: textMutedColor }}>
-                        {crmContent.aiCapabilities.description || "Let AI handle the heavy lifting"}
-                      </p>
+                      <EditableText
+                        value={crmContent.aiCapabilities.description || "Let AI handle the heavy lifting"}
+                        path="crmContent.aiCapabilities.description"
+                        as="p"
+                        className="text-sm mb-3"
+                        style={{ color: textMutedColor }}
+                        multiline
+                      />
                       <div className="space-y-2">
                         {(crmContent.aiCapabilities.features || [
                           "Lead scoring & prioritization",
@@ -486,22 +534,33 @@ export const AutomationCrmSection = ({
                   <Phone className="w-6 h-6" style={{ color: isLightColor(primaryColor) ? '#1a1a2e' : 'white' }} />
                 </div>
                 <div>
-                  <h2 className="text-3xl md:text-4xl font-display font-bold" style={{ color: textColor }}>
-                    {textMarketingContent?.headline || "SMS & Text Marketing"}
-                  </h2>
-                  <p style={{ color: textMutedColor }}>
-                    Direct connection to your customers
-                  </p>
+                  <EditableText
+                    value={textMarketingContent?.headline || "SMS & Text Marketing"}
+                    path="textMarketingContent.headline"
+                    as="h2"
+                    className="text-3xl md:text-4xl font-display font-bold"
+                    style={{ color: textColor }}
+                  />
+                  <EditableText
+                    value="Direct connection to your customers"
+                    path="textMarketingContent.subtitle"
+                    as="p"
+                    style={{ color: textMutedColor }}
+                  />
                 </div>
                 <CalloutBadge text="98% OPEN RATE" variant="highlight" />
               </div>
             </AnimatedSection>
 
             <AnimatedSection delay={showCrm ? 600 : 50}>
-              <p className="text-lg mb-8 max-w-3xl" style={{ color: textMutedColor }}>
-                {textMarketingContent?.description || 
-                  `Text messages have a 98% open rate vs. 20% for email. We'll create compliant SMS campaigns that drive action and keep ${clientName} top-of-mind.`}
-              </p>
+              <EditableText
+                value={textMarketingContent?.description || `Text messages have a 98% open rate vs. 20% for email. We'll create compliant SMS campaigns that drive action and keep ${clientName} top-of-mind.`}
+                path="textMarketingContent.description"
+                as="p"
+                className="text-lg mb-8 max-w-3xl"
+                style={{ color: textMutedColor }}
+                multiline
+              />
             </AnimatedSection>
 
             <div className="grid md:grid-cols-2 gap-8">
@@ -570,21 +629,33 @@ export const AutomationCrmSection = ({
                     </h3>
                     <div className="grid grid-cols-3 gap-4 text-center">
                       <div>
-                        <p className="text-3xl font-bold" style={{ color: primaryColor }}>
-                          {textMarketingContent?.expectedResults?.openRate || "98%"}
-                        </p>
+                        <EditableText
+                          value={textMarketingContent?.expectedResults?.openRate || "98%"}
+                          path="textMarketingContent.expectedResults.openRate"
+                          as="p"
+                          className="text-3xl font-bold"
+                          style={{ color: primaryColor }}
+                        />
                         <p className="text-xs" style={{ color: textMutedColor }}>Open Rate</p>
                       </div>
                       <div>
-                        <p className="text-3xl font-bold" style={{ color: primaryColor }}>
-                          {textMarketingContent?.expectedResults?.responseRate || "45%"}
-                        </p>
+                        <EditableText
+                          value={textMarketingContent?.expectedResults?.responseRate || "45%"}
+                          path="textMarketingContent.expectedResults.responseRate"
+                          as="p"
+                          className="text-3xl font-bold"
+                          style={{ color: primaryColor }}
+                        />
                         <p className="text-xs" style={{ color: textMutedColor }}>Response Rate</p>
                       </div>
                       <div>
-                        <p className="text-3xl font-bold" style={{ color: primaryColor }}>
-                          {textMarketingContent?.expectedResults?.conversionRate || "12%"}
-                        </p>
+                        <EditableText
+                          value={textMarketingContent?.expectedResults?.conversionRate || "12%"}
+                          path="textMarketingContent.expectedResults.conversionRate"
+                          as="p"
+                          className="text-3xl font-bold"
+                          style={{ color: primaryColor }}
+                        />
                         <p className="text-xs" style={{ color: textMutedColor }}>Conv. Rate</p>
                       </div>
                     </div>
@@ -617,22 +688,24 @@ export const AutomationCrmSection = ({
                   </div>
 
                   {/* Compliance Note */}
-                  <div 
+                  <EditableText
+                    value={textMarketingContent?.complianceNote || "✓ All SMS campaigns are TCPA compliant with proper opt-in/opt-out management"}
+                    path="textMarketingContent.complianceNote"
+                    as="div"
                     className="p-4 rounded-xl text-sm"
-                    style={{ 
+                    style={{
                       backgroundColor: `color-mix(in srgb, ${primaryColor} 10%, transparent)`,
                       color: textMutedColor
                     }}
-                  >
-                    {textMarketingContent?.complianceNote || 
-                      "✓ All SMS campaigns are TCPA compliant with proper opt-in/opt-out management"}
-                  </div>
+                    multiline
+                  />
                 </div>
               </AnimatedSection>
             </div>
           </>
         )}
       </div>
+      </EditableContainer>
     </section>
   );
 };

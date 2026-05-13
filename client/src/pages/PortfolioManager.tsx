@@ -4,27 +4,28 @@ import { supabase } from '@/integrations/supabase/client';
 import AdminHeader from '@/components/AdminHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Upload, Trash2, Image, Loader2, Copy, Check, ExternalLink, Video, Play, Link } from 'lucide-react';
+import { Upload, Trash2, Image, Loader2, Copy, Check, ExternalLink, Video, Play } from 'lucide-react';
+
+const API_BASE = import.meta.env.PROD
+  ? (import.meta.env.VITE_API_URL || "https://api.teams.melleka.com/api")
+  : "/api";
+
+async function getFreshToken(): Promise<string> {
+  let { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token || (session.expires_at && session.expires_at * 1000 - Date.now() < 60_000)) {
+    const { data } = await supabase.auth.refreshSession();
+    session = data.session;
+  }
+  return session?.access_token || "";
+}
 
 interface PortfolioItem {
   type: 'image' | 'video';
   name: string;
   url: string;
-  thumbnail?: string;
   created_at: string;
 }
-
-const VIDEO_STORAGE_KEY = 'portfolio-video-urls';
-
-// Get YouTube/Vimeo thumbnail from URL
-const getVideoThumbnail = (url: string): string | undefined => {
-  const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
-  if (ytMatch) return `https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`;
-  return undefined;
-};
 
 const PortfolioManager = () => {
   const navigate = useNavigate();
@@ -32,7 +33,6 @@ const PortfolioManager = () => {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
-  const [videoUrlInput, setVideoUrlInput] = useState('');
 
   useEffect(() => {
     fetchItems();
@@ -40,29 +40,15 @@ const PortfolioManager = () => {
 
   const fetchItems = async () => {
     try {
-      // Fetch only from proposal-assets/portfolio (your curated showcase images)
-      const { data, error } = await supabase.storage
-        .from('proposal-assets')
-        .list('portfolio', {
-          limit: 100,
-          sortBy: { column: 'created_at', order: 'desc' }
-        });
+      const token = await getFreshToken();
+      const res = await fetch(`${API_BASE}/uploads/portfolio`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-      if (error) throw error;
+      if (!res.ok) throw new Error('Failed to load portfolio');
 
-      const allStorage: PortfolioItem[] = (data || [])
-        .filter(file => file.name !== '.emptyFolderPlaceholder')
-        .map(file => ({
-          type: (file.metadata?.mimetype?.startsWith('video/') ? 'video' : 'image') as 'image' | 'video',
-          name: file.name,
-          url: supabase.storage.from('proposal-assets').getPublicUrl(`portfolio/${file.name}`).data.publicUrl,
-          created_at: file.created_at || '',
-        }));
-
-      // Fetch video URLs from localStorage
-      const savedVideos: PortfolioItem[] = JSON.parse(localStorage.getItem(VIDEO_STORAGE_KEY) || '[]');
-
-      setItems([...savedVideos, ...allStorage]);
+      const data: PortfolioItem[] = await res.json();
+      setItems(data);
     } catch (error) {
       console.error('Error fetching items:', error);
       toast.error('Failed to load portfolio');
@@ -76,26 +62,27 @@ const PortfolioManager = () => {
     if (!files || files.length === 0) return;
 
     setUploading(true);
-    let uploadCount = 0;
 
     try {
+      const token = await getFreshToken();
+      const formData = new FormData();
       for (const file of Array.from(files)) {
-        const timestamp = Date.now();
-        const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '-').toLowerCase();
-        const fileName = `${timestamp}-${cleanName}`;
-
-        const { error } = await supabase.storage
-          .from('proposal-assets')
-          .upload(`portfolio/${fileName}`, file, {
-            cacheControl: '3600',
-            upsert: false
-          });
-
-        if (error) throw error;
-        uploadCount++;
+        formData.append('files', file);
       }
 
-      toast.success(`Uploaded ${uploadCount} file(s) successfully!`);
+      const res = await fetch(`${API_BASE}/uploads/portfolio`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Upload failed');
+      }
+
+      const result = await res.json();
+      toast.success(`Uploaded ${result.successful} of ${result.total} file(s)`);
       fetchItems();
     } catch (error: any) {
       console.error('Upload error:', error);
@@ -106,48 +93,18 @@ const PortfolioManager = () => {
     }
   };
 
-  const handleAddVideo = () => {
-    const url = videoUrlInput.trim();
-    if (!url) return;
-
-    const thumbnail = getVideoThumbnail(url);
-    const newVideo: PortfolioItem = {
-      type: 'video',
-      name: url,
-      url,
-      thumbnail,
-      created_at: new Date().toISOString(),
-    };
-
-    const savedVideos: PortfolioItem[] = JSON.parse(localStorage.getItem(VIDEO_STORAGE_KEY) || '[]');
-    const updated = [newVideo, ...savedVideos];
-    localStorage.setItem(VIDEO_STORAGE_KEY, JSON.stringify(updated));
-
-    setItems(prev => [newVideo, ...prev]);
-    setVideoUrlInput('');
-    toast.success('Video added');
-  };
-
   const handleDelete = async (item: PortfolioItem) => {
-    // Video URL from localStorage
-    if (item.url.startsWith('http') && !item.url.includes('supabase.co/storage')) {
-      const savedVideos: PortfolioItem[] = JSON.parse(localStorage.getItem(VIDEO_STORAGE_KEY) || '[]');
-      const updated = savedVideos.filter(v => v.url !== item.url);
-      localStorage.setItem(VIDEO_STORAGE_KEY, JSON.stringify(updated));
-      setItems(prev => prev.filter(i => i.url !== item.url));
-      toast.success('Video removed');
-      return;
-    }
-
     try {
-      const { error } = await supabase.storage
-        .from('proposal-assets')
-        .remove([`portfolio/${item.name}`]);
+      const token = await getFreshToken();
+      const res = await fetch(`${API_BASE}/uploads/portfolio/${encodeURIComponent(item.name)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-      if (error) throw error;
+      if (!res.ok) throw new Error('Failed to delete');
 
       toast.success('File deleted');
-      setItems(prev => prev.filter(i => i.url !== item.url));
+      setItems(prev => prev.filter(i => i.name !== item.name));
     } catch (error: any) {
       console.error('Delete error:', error);
       toast.error(error.message || 'Failed to delete');
@@ -184,27 +141,27 @@ const PortfolioManager = () => {
           </div>
         </div>
 
-        {/* Upload Images Card */}
-        <Card className="mb-6">
+        {/* Upload Card */}
+        <Card className="mb-8">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Upload className="w-5 h-5 text-primary" />
-              Upload Images
+              Upload Images & Videos
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 transition-colors">
-              <Input
+              <input
                 type="file"
-                accept="image/*,video/*"
+                accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm"
                 multiple
                 onChange={handleUpload}
                 disabled={uploading}
                 className="hidden"
-                id="image-upload"
+                id="portfolio-upload"
               />
-              <Label
-                htmlFor="image-upload"
+              <label
+                htmlFor="portfolio-upload"
                 className="cursor-pointer flex flex-col items-center gap-3"
               >
                 {uploading ? (
@@ -216,37 +173,9 @@ const PortfolioManager = () => {
                   <p className="font-medium">
                     {uploading ? 'Uploading...' : 'Click to upload images or videos'}
                   </p>
-                  <p className="text-muted-foreground text-sm">PNG, JPG, WebP, MP4 up to 10MB each</p>
+                  <p className="text-muted-foreground text-sm">PNG, JPG, WebP, GIF, MP4, WebM up to 50MB each</p>
                 </div>
-              </Label>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Add Video URL Card */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Video className="w-5 h-5 text-primary" />
-              Add Video Links
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-3">
-              <div className="relative flex-1">
-                <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  value={videoUrlInput}
-                  onChange={(e) => setVideoUrlInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddVideo()}
-                  placeholder="Paste YouTube or Vimeo URL"
-                  className="pl-9"
-                />
-              </div>
-              <Button onClick={handleAddVideo} disabled={!videoUrlInput.trim()}>
-                <Video className="w-4 h-4 mr-2" />
-                Add Video
-              </Button>
+              </label>
             </div>
           </CardContent>
         </Card>
@@ -274,7 +203,7 @@ const PortfolioManager = () => {
               <div className="text-center py-12 text-muted-foreground">
                 <Image className="w-12 h-12 mx-auto mb-3 opacity-50" />
                 <p>No portfolio items yet</p>
-                <p className="text-sm">Upload images or add video links above</p>
+                <p className="text-sm">Upload images or videos above</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -291,13 +220,12 @@ const PortfolioManager = () => {
                       />
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center bg-card relative">
-                        {item.thumbnail ? (
-                          <img
-                            src={item.thumbnail}
-                            alt="Video thumbnail"
-                            className="w-full h-full object-cover absolute inset-0"
-                          />
-                        ) : null}
+                        <video
+                          src={item.url}
+                          className="w-full h-full object-cover absolute inset-0"
+                          muted
+                          preload="metadata"
+                        />
                         <div className="relative z-10 flex flex-col items-center gap-2">
                           <div className="w-14 h-14 rounded-full bg-primary/90 flex items-center justify-center shadow-lg">
                             <Play className="w-6 h-6 text-white ml-0.5" />
@@ -350,11 +278,7 @@ const PortfolioManager = () => {
                     </div>
                     {/* Filename */}
                     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
-                      <p className="text-xs text-white/80 truncate">
-                        {item.type === 'video' && item.url.length > 40
-                          ? item.url.slice(0, 40) + '...'
-                          : item.name}
-                      </p>
+                      <p className="text-xs text-white/80 truncate">{item.name}</p>
                     </div>
                   </div>
                 ))}
@@ -367,9 +291,9 @@ const PortfolioManager = () => {
         <div className="mt-8 p-6 rounded-xl bg-primary/5 border border-primary/20">
           <h3 className="text-lg font-semibold text-primary mb-2">How this works</h3>
           <ul className="text-muted-foreground text-sm space-y-1.5">
-            <li>Images uploaded here appear in the "Creative Excellence" carousel on ALL proposals (unless a proposal has its own showcase media).</li>
+            <li>Images and videos uploaded here appear in the "Creative Excellence" carousel on ALL proposals.</li>
+            <li>Supported formats: PNG, JPG, WebP, GIF, MP4, WebM (up to 50MB each).</li>
             <li>You can also add showcase media per-proposal in the Proposal Builder (Step 2).</li>
-            <li>Video links open in a new tab when clicked in the proposal.</li>
           </ul>
         </div>
       </div>

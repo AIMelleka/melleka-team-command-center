@@ -41,6 +41,9 @@ import { ScrollDebugOverlay } from '@/components/ScrollDebugOverlay';
 import { TextingCampaignsSection } from '@/components/TextingCampaignsSection';
 import { EmailCampaignsSection } from '@/components/EmailCampaignsSection';
 import { MellekaAppSection } from '@/components/MellekaAppSection';
+import { SectionReorderPanel } from '@/components/editor/SectionReorderPanel';
+import { AddSectionModal } from '@/components/editor/AddSectionModal';
+import { CustomSectionsRenderer } from '@/components/editor/CustomSectionsRenderer';
 
 // Melleka Services - Full list of what we offer
 const MELLEKA_SERVICES = [{
@@ -757,6 +760,22 @@ const TESTIMONIALS = [{
   result: '280% traffic growth'
 }];
 
+// Default section order for marketing proposals
+const DEFAULT_MARKETING_ORDER = [
+  'hero', 'executive', 'services-overview', 'phases', 'business-audit',
+  'target-personas', 'keyword-strategy', 'ad-copy', 'competitive-ads',
+  'website-design', 'google-ads', 'meta-ads', 'seo', 'live-dashboard',
+  'content-strategy', 'analytics', 'social', 'email', 'texting',
+  'melleka-app', 'ai-solutions', 'automation-crm', 'reputation',
+  'influencer', 'tv-ads', 'budget', 'timeline', 'portfolio', 'cta'
+];
+
+// Default section order for website-only proposals
+const DEFAULT_WEBSITE_ORDER = [
+  'hero', 'your-package', 'design-process', 'seo-analytics',
+  'automations', 'blog-content', 'portfolio', 'budget', 'timeline', 'cta'
+];
+
 // Inner component that uses the admin edit context
 const ProposalViewInner = () => {
   const {
@@ -767,7 +786,10 @@ const ProposalViewInner = () => {
     isAdmin
   } = useAuth();
   const {
-    isAdminVerified
+    isAdminVerified, isEditMode,
+    sectionOrder, initSectionOrder, setSectionOrder,
+    customSections, initCustomSections, addCustomSection, removeCustomSection, updateCustomSection,
+    initHiddenSections, isSectionHidden, hideSection, showSection,
   } = useAdminEdit();
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [loading, setLoading] = useState(true);
@@ -777,6 +799,9 @@ const ProposalViewInner = () => {
   const [selectedWebsitePackage, setSelectedWebsitePackage] = useState<WebsitePackage | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showReorderPanel, setShowReorderPanel] = useState(false);
+  const [showAddSection, setShowAddSection] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
   const [liveSeoData, setLiveSeoData] = useState<{
     seoMetrics?: {
       keywords?: string;
@@ -877,6 +902,20 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
       const logoUrl = proposal.content.hero?.clientLogo || proposal.content.brandStyles?.logo;
       if (logoUrl) setCurrentLogo(logoUrl);
     }
+    // Initialize editor state from saved proposal content
+    if (proposal?.content) {
+      const c = proposal.content as Record<string, unknown>;
+      if (Array.isArray(c._sectionOrder)) {
+        initSectionOrder(c._sectionOrder as string[]);
+      }
+      if (Array.isArray(c._hiddenSections)) {
+        initHiddenSections(c._hiddenSections as string[]);
+      }
+      if (Array.isArray(c._customSections)) {
+        initCustomSections(c._customSections as import('@/components/editor/AdminEditContext').CustomProposalSection[]);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proposal]);
 
   // Pre-fill SEO search with client's website URL and auto-fetch (admins only)
@@ -1591,6 +1630,39 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
     return true; // Always show hero, executive, phases, business-audit, target-personas, budget, timeline, trusted, cta
   });
 
+  // Section ordering helpers
+  const defaultOrder = isWebsiteOnly ? DEFAULT_WEBSITE_ORDER : DEFAULT_MARKETING_ORDER;
+  const effectiveOrder = sectionOrder.length > 0 ? sectionOrder : defaultOrder;
+  const getOrderIndex = (id: string): number => {
+    const idx = effectiveOrder.indexOf(id);
+    return idx >= 0 ? idx : effectiveOrder.length;
+  };
+
+  // Sort nav items by section order for sidebar display
+  const orderedNavItems = [...visibleNavItems].sort(
+    (a, b) => getOrderIndex(a.id) - getOrderIndex(b.id)
+  );
+
+  // DOM-based CSS order: apply order to each section element via the DOM
+  // instead of wrapping in <div> tags (which causes esbuild parser issues in large files)
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    // Apply order to every direct-child section (or element containing a section)
+    for (let i = 0; i < effectiveOrder.length; i++) {
+      const el = document.getElementById(effectiveOrder[i]);
+      if (!el) continue;
+      // Walk up to find the direct child of main
+      let target: HTMLElement | null = el;
+      while (target && target.parentElement !== main) {
+        target = target.parentElement as HTMLElement | null;
+      }
+      if (target) {
+        target.style.order = String(i);
+      }
+    }
+  }, [effectiveOrder, proposal, selectedPackage, selectedWebsitePackage]);
+
   const brandStyle = {
     '--brand-primary': primaryColor,
     '--brand-secondary': secondaryColor,
@@ -1647,7 +1719,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
   };
   return <div className="min-h-screen min-h-[100dvh] flex flex-col lg:flex-row overflow-x-hidden overflow-y-auto" style={brandStyle}>
       {/* Admin Toolbar */}
-      <AdminToolbar onSave={handleSaveChanges} primaryColor={primaryColor} isAdmin={isAdmin} />
+      <AdminToolbar onSave={handleSaveChanges} primaryColor={primaryColor} isAdmin={isAdmin} onAddSection={() => setShowAddSection(true)} onReorderSections={() => setShowReorderPanel(true)} />
       
       {/* Floating Package Selector */}
       <FloatingPackageSelector basePackageId={currentPackageId} currentPackageId={displayPackage?.id || currentPackageId} onPackageChange={handlePackageChange} baseWebsitePackageId={content.selectedWebsitePackage?.id} onWebsitePackageChange={handleWebsitePackageChange} proposalType={proposalType} currentWebsitePackageId={displayWebsitePackage?.id || content.selectedWebsitePackage?.id} />
@@ -1697,7 +1769,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
         {/* Sidebar Navigation */}
         <nav className="flex-1 overflow-y-auto p-2">
           <div className="space-y-1">
-            {visibleNavItems.map(({
+            {orderedNavItems.map(({
             id,
             label,
             icon: Icon
@@ -1845,7 +1917,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
           }}>Navigation</SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto p-3 space-y-1" style={{ WebkitOverflowScrolling: 'touch' }}>
-            {visibleNavItems.map(({
+            {orderedNavItems.map(({
             id,
             label
           }) => {
@@ -1922,7 +1994,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
       </Sheet>
 
       {/* Main Content - Offset for sidebar */}
-      <main className={`flex-1 pt-14 lg:pt-0 transition-all duration-300 overflow-x-hidden overflow-y-auto ${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
+      <main ref={mainRef} className={`flex-1 pt-14 lg:pt-0 transition-all duration-300 overflow-x-hidden overflow-y-auto flex flex-col ${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
         {/* Hero Section - Premium Futuristic Design with Neon Glow */}
         <section id="hero" className="relative min-h-[90vh] flex items-center overflow-hidden" style={{
         backgroundColor
@@ -4798,6 +4870,17 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
           </div>
         </section>
 
+        {/* Custom Sections (added via admin editor) */}
+        <CustomSectionsRenderer
+          primaryColor={primaryColor}
+          secondaryColor={secondaryColor}
+          backgroundColor={backgroundColor}
+          textColor={textColor}
+          textMutedColor={textMutedColor}
+          cardBackground={cardBackground}
+          borderColor={borderColor}
+        />
+
         {/* Footer */}
         <footer className="relative overflow-hidden" style={{
         background: `linear-gradient(180deg, ${backgroundColor} 0%, color-mix(in srgb, ${primaryColor} 8%, ${backgroundColor}) 100%)`,
@@ -4915,6 +4998,24 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
           isEnabled={debugEnabled}
         />
       </main>
+
+      {/* Section Reorder Panel */}
+      {showReorderPanel && (
+        <SectionReorderPanel
+          navItems={orderedNavItems}
+          customSections={customSections}
+          defaultOrder={defaultOrder}
+          onClose={() => setShowReorderPanel(false)}
+        />
+      )}
+
+      {/* Add Section Modal */}
+      <AddSectionModal
+        open={showAddSection}
+        onClose={() => setShowAddSection(false)}
+        clientName={proposal.client_name}
+        proposalContext={`Proposal type: ${proposalType}. Services: ${content.packageDetails?.includedServices?.join(', ') || 'N/A'}`}
+      />
     </div>;
 };
 

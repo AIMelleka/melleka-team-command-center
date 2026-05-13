@@ -44,6 +44,9 @@ type ManagedClient = {
   tier: string;
   primary_conversion_goal: string;
   tracked_conversion_types: string[];
+  match_aliases: string[];
+  match_exclude_patterns: string[];
+  match_exact_only: boolean;
   multi_account_enabled: boolean;
   is_active: boolean;
   created_at: string;
@@ -110,9 +113,41 @@ const emptyForm = (): Partial<ManagedClient> => ({
   tier: 'basic',
   primary_conversion_goal: 'all',
   tracked_conversion_types: ['leads', 'purchases', 'calls'],
+  match_aliases: [],
+  match_exclude_patterns: [],
+  match_exact_only: false,
   multi_account_enabled: false,
   is_active: true,
 });
+
+const TagInput = ({ tags, onAdd, onRemove, placeholder }: { tags: string[]; onAdd: (tag: string) => void; onRemove: (index: number) => void; placeholder?: string }) => {
+  const [value, setValue] = useState('');
+  const handleAdd = () => {
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed && !tags.includes(trimmed)) {
+      onAdd(trimmed);
+      setValue('');
+    }
+  };
+  return (
+    <div className="space-y-1.5">
+      <div className="flex gap-1.5">
+        <Input value={value} onChange={e => setValue(e.target.value)} placeholder={placeholder} className="h-8 text-sm" onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAdd(); } }} />
+        <Button type="button" variant="outline" size="sm" className="h-8 px-2.5" onClick={handleAdd}><Plus className="h-3.5 w-3.5" /></Button>
+      </div>
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {tags.map((tag, i) => (
+            <Badge key={i} variant="secondary" className="text-xs gap-1 pr-1">
+              {tag}
+              <button type="button" className="hover:text-red-400" onClick={() => onRemove(i)}><X className="h-3 w-3" /></button>
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function ClientSettings() {
   const { toast } = useToast();
@@ -254,6 +289,9 @@ export default function ClientSettings() {
         tier: addForm.tier || 'basic',
         primary_conversion_goal: addForm.primary_conversion_goal || 'all',
         tracked_conversion_types: addForm.tracked_conversion_types || ['leads', 'purchases', 'calls'],
+        match_aliases: addForm.match_aliases || [],
+        match_exclude_patterns: addForm.match_exclude_patterns || [],
+        match_exact_only: addForm.match_exact_only || false,
         multi_account_enabled: addForm.multi_account_enabled || false,
         is_active: true,
       });
@@ -281,6 +319,9 @@ export default function ClientSettings() {
         tier: editForm.tier || 'basic',
         primary_conversion_goal: editForm.primary_conversion_goal || 'all',
         tracked_conversion_types: editForm.tracked_conversion_types || ['leads', 'purchases', 'calls'],
+        match_aliases: editForm.match_aliases || [],
+        match_exclude_patterns: editForm.match_exclude_patterns || [],
+        match_exact_only: editForm.match_exact_only || false,
         multi_account_enabled: editForm.multi_account_enabled || false,
       }).eq('id', id);
       if (error) throw error;
@@ -403,6 +444,35 @@ export default function ClientSettings() {
               {ct.label}
             </label>
           ))}
+        </div>
+      </div>
+      {/* Client Matching Rules */}
+      <div className="space-y-3 md:col-span-2 pt-2 border-t border-border/50">
+        <Label className="text-xs text-muted-foreground font-medium">Client Matching Rules</Label>
+        <p className="text-xs text-muted-foreground">Configure how this client is matched in Notion task queries. Aliases are names/acronyms that map to this client. Exclude patterns prevent cross-client confusion.</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Aliases</Label>
+            <TagInput
+              tags={form.match_aliases || []}
+              onAdd={tag => setForm({ ...form, match_aliases: [...(form.match_aliases || []), tag] })}
+              onRemove={i => setForm({ ...form, match_aliases: (form.match_aliases || []).filter((_, idx) => idx !== i) })}
+              placeholder="e.g. ggis, global guard"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Exclude Patterns</Label>
+            <TagInput
+              tags={form.match_exclude_patterns || []}
+              onAdd={tag => setForm({ ...form, match_exclude_patterns: [...(form.match_exclude_patterns || []), tag] })}
+              onRemove={i => setForm({ ...form, match_exclude_patterns: (form.match_exclude_patterns || []).filter((_, idx) => idx !== i) })}
+              placeholder="e.g. gsp, global staffing"
+            />
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Switch checked={form.match_exact_only || false} onCheckedChange={v => setForm({ ...form, match_exact_only: v })} />
+          <Label className="text-xs">Exact match only (CLIENTS field must exactly equal an alias)</Label>
         </div>
       </div>
     </div>

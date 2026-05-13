@@ -309,7 +309,7 @@ export default function ImageGenerator() {
             </div>
             <div>
               <h1 className="text-3xl font-bold">AI Image Studio</h1>
-              <p className="text-muted-foreground">Powered by Gemini 3 Pro Image Preview</p>
+              <p className="text-muted-foreground">Powered by OpenAI gpt-image-2</p>
             </div>
           </div>
         </div>

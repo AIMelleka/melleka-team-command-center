@@ -684,6 +684,318 @@ export function validateDeckContent(deckContent: Record<string, unknown>): QAChe
   return checks;
 }
 
+// =============================================================================
+// PRE-LAUNCH DATA INTEGRITY VALIDATOR
+// Runs before ANY deck is saved/published. Catches every data issue.
+// =============================================================================
+
+/**
+ * Comprehensive pre-launch validator that ensures deck data integrity.
+ * This is the final gate — if this fails, the deck MUST NOT be published.
+ */
+export function validateDeckDataIntegrity(
+  deckContent: Record<string, unknown>,
+  supermetricsData: Record<string, unknown> | null,
+  dateRangeStart: string,
+  dateRangeEnd: string,
+): QACheckResult[] {
+  const checks: QACheckResult[] = [];
+  const hero = deckContent.hero as Record<string, unknown> | undefined;
+  const googleAds = deckContent.googleAds as Record<string, unknown> | undefined;
+  const metaAds = deckContent.metaAds as Record<string, unknown> | undefined;
+  const dataSourceLog = deckContent._dataSourceLog as Record<string, string> | undefined;
+
+  // ── CHECK 1: Hero totals match sum of platform breakdowns ──
+  const heroSpend = Number(hero?.totalSpend ?? 0);
+  const platformSpendSum = Number(googleAds?.spend ?? 0) + Number(metaAds?.spend ?? 0)
+    + Number((deckContent.tiktokAds as any)?.spend ?? 0)
+    + Number((deckContent.bingAds as any)?.spend ?? 0)
+    + Number((deckContent.linkedinAds as any)?.spend ?? 0);
+
+  // If we have adPlatforms, use that as the authoritative total instead
+  const adPlatforms = deckContent.adPlatforms as any[] | undefined;
+  const adPlatformSpendSum = adPlatforms?.reduce((sum: number, p: any) => sum + (p.spend ?? 0), 0) ?? 0;
+  const referenceSpend = adPlatformSpendSum > 0 ? adPlatformSpendSum : platformSpendSum;
+
+  if (heroSpend > 0 && referenceSpend > 0) {
+    const spendDrift = Math.abs(heroSpend - referenceSpend);
+    const driftPct = (spendDrift / Math.max(heroSpend, referenceSpend)) * 100;
+    if (driftPct > 5) {
+      checks.push({
+        passed: false,
+        checkName: 'HERO_SPEND_MATCHES_PLATFORMS',
+        severity: 'critical',
+        message: `Hero total spend ($${heroSpend.toFixed(2)}) differs from platform sum ($${referenceSpend.toFixed(2)}) by ${driftPct.toFixed(1)}%`,
+        suggestion: 'Check for double-counting or missing platform data',
+      });
+    } else {
+      checks.push({
+        passed: true,
+        checkName: 'HERO_SPEND_MATCHES_PLATFORMS',
+        severity: 'info',
+        message: `Hero spend matches platform breakdown (drift: ${driftPct.toFixed(1)}%)`,
+      });
+    }
+  }
+
+  // ── CHECK 2: No fabricated data (no hardcoded fallback sources) ──
+  if (dataSourceLog) {
+    const fabricatedMetrics = Object.entries(dataSourceLog)
+      .filter(([, source]) => source.includes('fabricated') || source.includes('hardcoded'));
+    if (fabricatedMetrics.length > 0) {
+      checks.push({
+        passed: false,
+        checkName: 'NO_FABRICATED_DATA',
+        severity: 'critical',
+        message: `${fabricatedMetrics.length} metrics used fabricated data: ${fabricatedMetrics.map(([k]) => k).join(', ')}`,
+        suggestion: 'All metrics must come from real data sources',
+      });
+    } else {
+      checks.push({
+        passed: true,
+        checkName: 'NO_FABRICATED_DATA',
+        severity: 'info',
+        message: 'All metrics sourced from real data',
+      });
+    }
+
+    // Log how many metrics came from each source type
+    const sourceCounts: Record<string, number> = {};
+    for (const source of Object.values(dataSourceLog)) {
+      const baseSource = source.replace(/ \(zero\)$/, '');
+      sourceCounts[baseSource] = (sourceCounts[baseSource] ?? 0) + 1;
+    }
+    checks.push({
+      passed: true,
+      checkName: 'DATA_SOURCE_SUMMARY',
+      severity: 'info',
+      message: `Data sources: ${Object.entries(sourceCounts).map(([s, c]) => `${s}=${c}`).join(', ')}`,
+      details: sourceCounts,
+    });
+  }
+
+  // ── CHECK 3: Spend/Conversions/CPA consistency ──
+  const gSpend = Number(googleAds?.spend ?? 0);
+  const gConv = Number(googleAds?.conversions ?? 0);
+  const gCpa = Number(googleAds?.cpa ?? 0);
+  if (gSpend > 0 && gConv > 0 && gCpa > 0) {
+    const expectedCpa = gSpend / gConv;
+    const cpaDrift = Math.abs(gCpa - expectedCpa);
+    const cpaDriftPct = (cpaDrift / expectedCpa) * 100;
+    if (cpaDriftPct > 10) {
+      checks.push({
+        passed: false,
+        checkName: 'GOOGLE_CPA_CONSISTENT',
+        severity: 'warning',
+        message: `Google CPA ($${gCpa.toFixed(2)}) doesn't match spend/conversions ($${expectedCpa.toFixed(2)}) — ${cpaDriftPct.toFixed(1)}% drift`,
+        suggestion: 'CPA may have been pulled from a different data source than spend/conversions',
+      });
+    } else {
+      checks.push({
+        passed: true,
+        checkName: 'GOOGLE_CPA_CONSISTENT',
+        severity: 'info',
+        message: `Google CPA is consistent with spend/conversions`,
+      });
+    }
+  }
+
+  const mSpend = Number(metaAds?.spend ?? 0);
+  const mConv = Number(metaAds?.conversions ?? 0);
+  const mCpa = Number(metaAds?.cpa ?? 0);
+  if (mSpend > 0 && mConv > 0 && mCpa > 0) {
+    const expectedCpa = mSpend / mConv;
+    const cpaDrift = Math.abs(mCpa - expectedCpa);
+    const cpaDriftPct = (cpaDrift / expectedCpa) * 100;
+    if (cpaDriftPct > 10) {
+      checks.push({
+        passed: false,
+        checkName: 'META_CPA_CONSISTENT',
+        severity: 'warning',
+        message: `Meta CPA ($${mCpa.toFixed(2)}) doesn't match spend/conversions ($${expectedCpa.toFixed(2)}) — ${cpaDriftPct.toFixed(1)}% drift`,
+        suggestion: 'CPA may have been pulled from a different data source than spend/conversions',
+      });
+    } else {
+      checks.push({
+        passed: true,
+        checkName: 'META_CPA_CONSISTENT',
+        severity: 'info',
+        message: `Meta CPA is consistent with spend/conversions`,
+      });
+    }
+  }
+
+  // ── CHECK 4: CTR sanity (must be 0-100%) ──
+  for (const [name, ctr] of [['Google CTR', Number(googleAds?.ctr ?? 0)], ['Meta CTR', Number(metaAds?.ctr ?? 0)]] as [string, number][]) {
+    if (ctr > 100) {
+      checks.push({
+        passed: false,
+        checkName: `${name.replace(' ', '_').toUpperCase()}_RANGE`,
+        severity: 'critical',
+        message: `${name} is ${ctr}% — impossible value, likely wrong unit`,
+        suggestion: 'CTR should be 0-100%. Check if source returns decimal (0.05) vs percentage (5)',
+      });
+    } else if (ctr > 30) {
+      checks.push({
+        passed: false,
+        checkName: `${name.replace(' ', '_').toUpperCase()}_RANGE`,
+        severity: 'warning',
+        message: `${name} is ${ctr}% — unusually high, verify accuracy`,
+      });
+    }
+  }
+
+  // ── CHECK 5: Period-over-period sanity ──
+  const changes = hero?.changes as Record<string, number | null> | undefined;
+  if (changes) {
+    for (const [metric, pctChange] of Object.entries(changes)) {
+      if (pctChange !== null && Math.abs(pctChange) > 500) {
+        checks.push({
+          passed: false,
+          checkName: `CHANGE_${metric.toUpperCase()}_SANITY`,
+          severity: 'warning',
+          message: `${metric} changed by ${pctChange.toFixed(0)}% period-over-period — verify this is accurate`,
+          suggestion: 'Changes over 500% may indicate data mismatch between periods',
+        });
+      }
+    }
+  }
+
+  // ── CHECK 6: Zero-value audit — flag if ALL major metrics are zero ──
+  const allZero = heroSpend === 0 && Number(hero?.totalClicks ?? 0) === 0
+    && Number(hero?.totalLeads ?? 0) === 0 && Number(hero?.totalImpressions ?? 0) === 0;
+  if (allZero && supermetricsData && Object.keys(supermetricsData).length > 0) {
+    checks.push({
+      passed: false,
+      checkName: 'ALL_METRICS_ZERO',
+      severity: 'critical',
+      message: 'All hero metrics are zero despite having Supermetrics data — data extraction likely failed',
+      suggestion: 'Check Supermetrics API responses and summary field names',
+    });
+  } else if (allZero) {
+    checks.push({
+      passed: false,
+      checkName: 'ALL_METRICS_ZERO',
+      severity: 'warning',
+      message: 'All hero metrics are zero — deck will appear empty',
+      suggestion: 'Verify data sources are configured for this client',
+    });
+  }
+
+  // ── CHECK 7: Supermetrics data completeness (if provided) ──
+  if (supermetricsData) {
+    for (const [key, data] of Object.entries(supermetricsData)) {
+      const smData = data as any;
+      if (!smData?.summary) {
+        checks.push({
+          passed: false,
+          checkName: `SM_${key.toUpperCase()}_HAS_SUMMARY`,
+          severity: 'critical',
+          message: `Supermetrics platform "${key}" has no summary object — metrics will all be zero`,
+          suggestion: 'Check Supermetrics API response structure',
+        });
+      } else {
+        const summaryKeys = Object.keys(smData.summary);
+        if (summaryKeys.length === 0) {
+          checks.push({
+            passed: false,
+            checkName: `SM_${key.toUpperCase()}_SUMMARY_EMPTY`,
+            severity: 'critical',
+            message: `Supermetrics "${key}" summary is empty — no metrics available`,
+          });
+        }
+      }
+    }
+  }
+
+  // ── CHECK 8: Spend without conversions or vice versa ──
+  if (gSpend > 100 && gConv === 0) {
+    checks.push({
+      passed: false,
+      checkName: 'GOOGLE_SPEND_NO_CONVERSIONS',
+      severity: 'warning',
+      message: `Google Ads spent $${gSpend.toFixed(2)} but shows 0 conversions — verify conversion tracking`,
+      suggestion: 'May indicate conversion tracking is broken or data source mismatch',
+    });
+  }
+  if (mSpend > 100 && mConv === 0) {
+    checks.push({
+      passed: false,
+      checkName: 'META_SPEND_NO_CONVERSIONS',
+      severity: 'warning',
+      message: `Meta Ads spent $${mSpend.toFixed(2)} but shows 0 conversions — verify conversion tracking`,
+      suggestion: 'May indicate conversion pixel is broken or data source mismatch',
+    });
+  }
+
+  // ── CHECK 9: CPC sanity (should never exceed total spend) ──
+  const gCpc = Number(googleAds?.cpc ?? 0);
+  const mCpc = Number(metaAds?.cpc ?? 0);
+  if (gCpc > gSpend && gSpend > 0) {
+    checks.push({
+      passed: false,
+      checkName: 'GOOGLE_CPC_SANITY',
+      severity: 'critical',
+      message: `Google CPC ($${gCpc.toFixed(2)}) exceeds total spend ($${gSpend.toFixed(2)}) — impossible`,
+    });
+  }
+  if (mCpc > mSpend && mSpend > 0) {
+    checks.push({
+      passed: false,
+      checkName: 'META_CPC_SANITY',
+      severity: 'critical',
+      message: `Meta CPC ($${mCpc.toFixed(2)}) exceeds total spend ($${mSpend.toFixed(2)}) — impossible`,
+    });
+  }
+
+  // ── CHECK 10: Date range in content matches requested ──
+  // (Catches cases where cached/stale data from a different period slips in)
+  const adPlatformsList = deckContent.adPlatforms as any[] | undefined;
+  if (adPlatformsList) {
+    for (const platform of adPlatformsList) {
+      if (platform.dailyData && Array.isArray(platform.dailyData) && platform.dailyData.length > 0) {
+        const firstDate = platform.dailyData[0]?.date;
+        const lastDate = platform.dailyData[platform.dailyData.length - 1]?.date;
+        if (firstDate && lastDate) {
+          const requestedStart = new Date(dateRangeStart).getTime();
+          const requestedEnd = new Date(dateRangeEnd).getTime();
+          const dataStart = new Date(firstDate).getTime();
+          const dataEnd = new Date(lastDate).getTime();
+
+          // Allow 2 days tolerance (weekends, delayed reporting)
+          const tolerance = 2 * 24 * 60 * 60 * 1000;
+          if (dataStart > requestedStart + tolerance || dataEnd < requestedEnd - tolerance) {
+            checks.push({
+              passed: false,
+              checkName: `DATE_RANGE_MATCH_${platform.key?.toUpperCase()}`,
+              severity: 'warning',
+              message: `${platform.label} daily data (${firstDate} to ${lastDate}) doesn't fully cover requested range (${dateRangeStart} to ${dateRangeEnd})`,
+              suggestion: 'Data may be stale or from a different reporting period',
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // ── CHECK 11: Narrative/insights reference real data ──
+  const narrative = deckContent.narrative as Record<string, unknown> | undefined;
+  if (narrative) {
+    const wins = narrative.wins as string[] | undefined;
+    if (wins && wins.length > 0 && allZero) {
+      checks.push({
+        passed: false,
+        checkName: 'NARRATIVE_MATCHES_DATA',
+        severity: 'critical',
+        message: 'AI generated wins/narrative but all metrics are zero — narrative is fabricated',
+        suggestion: 'Narrative should be regenerated after data issues are fixed',
+      });
+    }
+  }
+
+  return checks;
+}
+
 /**
  * Generate final QA report from all checks
  */

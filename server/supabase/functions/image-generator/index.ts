@@ -7,10 +7,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 function parseDataUrl(dataUrl: string) {
   const m = dataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.*)$/);
   if (!m) throw new Error("Invalid data URL");
@@ -32,28 +28,6 @@ async function uploadToStorage(dataUrl: string, prefix: string): Promise<string>
   if (error) { console.warn("Upload failed:", error); return dataUrl; }
   const { data } = sb.storage.from("creative-images").getPublicUrl(path);
   return data?.publicUrl || dataUrl;
-}
-
-/** Fetch a URL and return base64 inline data for Gemini */
-async function urlToInlineData(url: string): Promise<{ mimeType: string; data: string } | null> {
-  if (url.startsWith("data:image/")) {
-    const match = url.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.*)$/);
-    if (match) return { mimeType: match[1], data: match[2] };
-    return null;
-  }
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
-    const buf = await resp.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let b64 = "";
-    for (let i = 0; i < bytes.length; i++) b64 += String.fromCharCode(bytes[i]);
-    const mimeType = resp.headers.get("content-type") || "image/png";
-    return { mimeType, data: btoa(b64) };
-  } catch (e) {
-    console.error("Failed to fetch image URL:", e);
-    return null;
-  }
 }
 
 /** Map arbitrary width/height to OpenAI's supported sizes */
@@ -110,107 +84,7 @@ async function rephrasePromptForSafety(
   return originalPrompt;
 }
 
-// Generate image with Gemini via direct Google AI API
-async function generateWithGemini(
-  prompt: string,
-  mode: string,
-  referenceImageUrl?: string,
-): Promise<{ imageUrl: string; generator: string } | { finishReason: string } | null> {
-  const apiKey = Deno.env.get("GOOGLE_AI_API_KEY") || Deno.env.get("GOOGLE_AI_STUDIO_API_KEY");
-  if (!apiKey) { console.error("No GOOGLE_AI_API_KEY"); return null; }
-
-  console.log(`[GEMINI] mode=${mode}, hasRef=${!!referenceImageUrl}`);
-
-  const parts: any[] = [];
-
-  switch (mode) {
-    case "generate":
-      parts.push({ text: "Generate this image with stunning quality and professional composition: " + prompt });
-      break;
-    case "edit":
-      if (referenceImageUrl) {
-        const inline = await urlToInlineData(referenceImageUrl);
-        if (inline) parts.push({ inlineData: inline });
-      }
-      parts.push({ text: "Edit this image with precision. Apply the following changes: " + prompt });
-      break;
-    case "background":
-      if (referenceImageUrl) {
-        const inline = await urlToInlineData(referenceImageUrl);
-        if (inline) parts.push({ inlineData: inline });
-      }
-      parts.push({ text: prompt || "Remove the background and make it transparent white" });
-      break;
-    case "upscale":
-      if (referenceImageUrl) {
-        const inline = await urlToInlineData(referenceImageUrl);
-        if (inline) parts.push({ inlineData: inline });
-      }
-      parts.push({ text: "Enhance this image to higher quality with more detail, sharper edges, and better clarity while preserving the original composition exactly. " + (prompt || "") });
-      break;
-    default:
-      parts.push({ text: prompt });
-  }
-
-  const model = "gemini-2.0-flash-exp";
-  let lastFinishReason: string | undefined;
-
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      console.log(`[GEMINI] Trying ${model} (attempt ${attempt})`);
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts }],
-            generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
-          }),
-        }
-      );
-
-      if (!resp.ok) {
-        const errText = await resp.text();
-        console.error(`[GEMINI] ${model} error ${resp.status}:`, errText.slice(0, 300));
-        if (resp.status === 429 && attempt < 2) { await sleep(1000); continue; }
-        break;
-      }
-
-      const data = await resp.json();
-      const candidate = data.candidates?.[0];
-      const finishReason = candidate?.finishReason;
-
-      if (finishReason === "SAFETY" || finishReason === "PROHIBITED_CONTENT") {
-        lastFinishReason = finishReason;
-        console.warn(`[GEMINI] Blocked by ${finishReason}`);
-        break;
-      }
-
-      for (const part of candidate?.content?.parts || []) {
-        if (part.inlineData?.data) {
-          const mimeType = part.inlineData.mimeType || "image/png";
-          const imageUrl = `data:${mimeType};base64,${part.inlineData.data}`;
-          const publicUrl = await uploadToStorage(imageUrl, "gemini");
-          console.log(`[GEMINI] Generated successfully`);
-          return { imageUrl: publicUrl, generator: "gemini-flash-image" };
-        }
-      }
-
-      if (finishReason) lastFinishReason = finishReason;
-      console.warn(`[GEMINI] No image in response; finish=${finishReason || "unknown"}`);
-      break;
-    } catch (e) {
-      console.error(`[GEMINI] Error:`, e);
-      if (attempt < 2) { await sleep(500); continue; }
-    }
-  }
-
-  if (lastFinishReason) return { finishReason: lastFinishReason };
-  return null;
-}
-
-// Generate image with OpenAI gpt-image-1
+// Generate image with OpenAI gpt-image-2
 async function generateWithOpenAI(
   prompt: string,
   mode: string,
@@ -234,7 +108,7 @@ async function generateWithOpenAI(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-image-1",
+          model: "gpt-image-2",
           prompt,
           n: 1,
           size,
@@ -258,11 +132,11 @@ async function generateWithOpenAI(
       const imageUrl = `data:image/png;base64,${b64}`;
       const publicUrl = await uploadToStorage(imageUrl, "openai");
       console.log("[OPENAI] Generated successfully (generations)");
-      return { imageUrl: publicUrl, generator: "gpt-image-1" };
+      return { imageUrl: publicUrl, generator: "gpt-image-2" };
     } else {
       // Edit/Background/Upscale or generate-with-reference: use /v1/images/edits
       const formData = new FormData();
-      formData.append("model", "gpt-image-1");
+      formData.append("model", "gpt-image-2");
       formData.append("prompt", prompt);
       formData.append("n", "1");
       formData.append("size", size);
@@ -270,16 +144,34 @@ async function generateWithOpenAI(
 
       if (referenceImageUrl) {
         // Fetch reference image and attach as PNG blob
+        // FIXED: OpenAI expects field name "image" (singular), not "image[]"
         let imgBytes: Uint8Array | null = null;
         if (referenceImageUrl.startsWith("data:image/")) {
           const match = referenceImageUrl.match(/^data:image\/[a-zA-Z0-9+.-]+;base64,(.*)$/);
-          if (match) imgBytes = Uint8Array.from(atob(match[1]), (c) => c.charCodeAt(0));
+          if (match) {
+            const raw = atob(match[1]);
+            imgBytes = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) imgBytes[i] = raw.charCodeAt(i);
+          }
         } else {
-          const imgResp = await fetch(referenceImageUrl);
-          if (imgResp.ok) imgBytes = new Uint8Array(await imgResp.arrayBuffer());
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const imgResp = await fetch(referenceImageUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (imgResp.ok) {
+              imgBytes = new Uint8Array(await imgResp.arrayBuffer());
+            } else {
+              console.warn(`[OPENAI] Failed to fetch reference image: ${imgResp.status}`);
+            }
+          } catch (fetchErr) {
+            console.warn("[OPENAI] Reference image fetch error:", fetchErr);
+          }
         }
         if (imgBytes) {
-          formData.append("image[]", new Blob([imgBytes], { type: "image/png" }), "reference.png");
+          formData.append("image", new Blob([imgBytes], { type: "image/png" }), "reference.png");
+        } else {
+          console.warn("[OPENAI] Reference image failed to load — proceeding without it");
         }
       }
 
@@ -304,7 +196,7 @@ async function generateWithOpenAI(
       const imageUrl = `data:image/png;base64,${b64}`;
       const publicUrl = await uploadToStorage(imageUrl, "openai");
       console.log("[OPENAI] Generated successfully (edits)");
-      return { imageUrl: publicUrl, generator: "gpt-image-1" };
+      return { imageUrl: publicUrl, generator: "gpt-image-2" };
     }
   } catch (e) {
     console.error("[OPENAI] Error:", e);
@@ -379,22 +271,11 @@ serve(async (req) => {
     let blockedReason: string | null = null;
 
     for (let i = 0; i < Math.min(numberOfImages, 4); i++) {
-      // Try OpenAI first, fall back to Gemini
-      let result = await generateWithOpenAI(enhancedPrompt, mode, refUrl, width, height);
+      const result = await generateWithOpenAI(enhancedPrompt, mode, refUrl, width, height);
 
-      // If OpenAI returned a safety block, respect it — do NOT fall back
       if (result && "finishReason" in result && result.finishReason) {
         blockedReason = result.finishReason;
-      } else if (!result || !("imageUrl" in result)) {
-        // OpenAI failed (not safety) — try Gemini as fallback
-        console.log(`[GEN] OpenAI failed for image ${i + 1}, falling back to Gemini`);
-        result = await generateWithGemini(enhancedPrompt, mode, refUrl);
-        if (result && "finishReason" in result && result.finishReason) {
-          blockedReason = result.finishReason;
-        }
-      }
-
-      if (result && "imageUrl" in result && result.imageUrl) {
+      } else if (result && "imageUrl" in result && result.imageUrl) {
         results.push({ imageUrl: result.imageUrl, generator: result.generator });
       } else {
         console.warn(`[GEN] Image ${i + 1} failed`);

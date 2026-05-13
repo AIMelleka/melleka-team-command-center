@@ -2,6 +2,9 @@ import { Phone, MessageSquare, Clock, Users, Zap, TrendingUp, CheckCircle2, Arro
 import { AnimatedSection } from './AnimatedSection';
 import { AnimatedCounter } from './AnimatedCounter';
 import { CalloutBadge } from './ProposalAnnotations';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableText } from '@/components/editor/EditableText';
 interface SMSCampaign {
   type: string;
   purpose: string;
@@ -135,6 +138,10 @@ export const TextingCampaignsSection = ({
   backgroundColor,
   content
 }: TextingCampaignsSectionProps) => {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('texting')) return null;
+
   // Helper to convert AI campaign to SMS conversation format
   const convertCampaignToConversation = (campaign: SMSCampaign, index: number) => {
     // If no sample message, create a generic one based on type and purpose
@@ -283,6 +290,7 @@ export const TextingCampaignsSection = ({
   return <section id="texting" className="py-24 relative overflow-hidden" style={{
     background: `linear-gradient(180deg, ${backgroundColor}, color-mix(in srgb, ${primaryColor} 5%, ${backgroundColor}))`
   }}>
+      <EditableContainer sectionId="texting" sectionName="Texting Campaigns" onDelete={() => hideSection('texting')} onVisibilityToggle={() => hideSection('texting')} isHidden={isSectionHidden('texting')}>
       {/* Animated background elements */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute top-20 right-20 w-64 h-64 rounded-full blur-3xl opacity-10 animate-pulse" style={{
@@ -298,24 +306,31 @@ export const TextingCampaignsSection = ({
         {/* Header */}
         <AnimatedSection>
           <div className="text-center mb-16">
-            <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{
-            color: secondaryColor
-          }}>
-              Direct Response Marketing
-            </p>
+            <EditableText
+              value="Direct Response Marketing"
+              path="textingCampaigns.subtitle"
+              as="p"
+              className="font-medium uppercase tracking-widest text-sm mb-4"
+              style={{ color: secondaryColor }}
+            />
             <div className="flex items-center justify-center gap-3 flex-wrap mb-6">
-              <h2 className="text-3xl md:text-5xl font-display font-bold" style={{
-              color: textColor
-            }}>Texting Campaigns</h2>
+              <EditableText
+                value="Texting Campaigns"
+                path="textingCampaigns.title"
+                as="h2"
+                className="text-3xl md:text-5xl font-display font-bold"
+                style={{ color: textColor }}
+              />
               <CalloutBadge text="98% Open Rate" variant="highlight" />
             </div>
-            <p className="text-lg max-w-3xl mx-auto leading-relaxed" style={{
-            color: textMutedColor
-          }}>
-              While emails sit unopened, SMS delivers instant engagement. We'll build automated text campaigns 
-              specifically for {clientName}'s sales cycle, from demo reminders to renewal nudges, with 
-              personalized messaging that drives action.
-            </p>
+            <EditableText
+              value={`While emails sit unopened, SMS delivers instant engagement. We'll build automated text campaigns specifically for ${clientName}'s sales cycle, from demo reminders to renewal nudges, with personalized messaging that drives action.`}
+              path="textingCampaigns.description"
+              as="p"
+              className="text-lg max-w-3xl mx-auto leading-relaxed"
+              style={{ color: textMutedColor }}
+              multiline
+            />
           </div>
         </AnimatedSection>
 
@@ -365,11 +380,13 @@ export const TextingCampaignsSection = ({
         <AnimatedSection delay={200}>
           <div className="mb-20">
             <div className="flex items-center gap-3 mb-12">
-              <h3 className="text-2xl font-display font-bold" style={{
-              color: textColor
-            }}>
-                Real Campaign Examples for {clientName}
-              </h3>
+              <EditableText
+                value={`Real Campaign Examples for ${clientName}`}
+                path="textingCampaigns.examplesTitle"
+                as="h3"
+                className="text-2xl font-display font-bold"
+                style={{ color: textColor }}
+              />
               <CalloutBadge text="Interactive" variant="new" />
             </div>
             
@@ -436,12 +453,20 @@ export const TextingCampaignsSection = ({
                   <RefreshCw className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold" style={{
-                  color: textColor
-                }}>Automated SMS Workflows</h3>
-                  <p className="text-sm" style={{
-                  color: textMutedColor
-                }}>Set it once, convert forever</p>
+                  <EditableText
+                    value="Automated SMS Workflows"
+                    path="textingCampaigns.workflowsTitle"
+                    as="h3"
+                    className="text-2xl font-bold"
+                    style={{ color: textColor }}
+                  />
+                  <EditableText
+                    value="Set it once, convert forever"
+                    path="textingCampaigns.workflowsSubtitle"
+                    as="p"
+                    className="text-sm"
+                    style={{ color: textMutedColor }}
+                  />
                 </div>
               </div>
               
@@ -487,18 +512,25 @@ export const TextingCampaignsSection = ({
             color: primaryColor
           }} />
             <div>
-              <p className="font-medium" style={{
-              color: textColor
-            }}>TCPA & 10DLC Compliant</p>
-              <p className="text-sm" style={{
-              color: textMutedColor
-            }}>
-                All campaigns include proper opt-in/opt-out, A2P 10DLC registration, and carrier compliance. 
-                We handle the technical setup so you can focus on results.
-              </p>
+              <EditableText
+                value="TCPA & 10DLC Compliant"
+                path="textingCampaigns.complianceTitle"
+                as="p"
+                className="font-medium"
+                style={{ color: textColor }}
+              />
+              <EditableText
+                value="All campaigns include proper opt-in/opt-out, A2P 10DLC registration, and carrier compliance. We handle the technical setup so you can focus on results."
+                path="textingCampaigns.complianceDescription"
+                as="p"
+                className="text-sm"
+                style={{ color: textMutedColor }}
+                multiline
+              />
             </div>
           </div>
         </AnimatedSection>
       </div>
+      </EditableContainer>
     </section>;
 };

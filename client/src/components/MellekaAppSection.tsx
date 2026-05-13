@@ -2,6 +2,9 @@ import { AnimatedSection } from "@/components/AnimatedSection";
 import { AnimatedCounter } from "@/components/AnimatedCounter";
 import { Smartphone, MessageCircle, Mail, Bell, Clock, Shield, Zap, CheckCircle, ArrowRight, Calendar } from "lucide-react";
 import { isLightColor } from './PlatformLogos';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableText } from '@/components/editor/EditableText';
 
 interface SampleMessage {
   initials: string;
@@ -74,7 +77,10 @@ export const MellekaAppSection = ({
   borderColor,
   backgroundColor,
 }: MellekaAppSectionProps) => {
-  
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('melleka-app')) return null;
+
   // Use AI-generated messages or industry-specific fallbacks
   const sampleMessages = content?.sampleMessages && content.sampleMessages.length > 0 
     ? content.sampleMessages 
@@ -114,6 +120,7 @@ export const MellekaAppSection = ({
 
   return (
     <section id="melleka-app" className="py-24 relative overflow-hidden" style={{ backgroundColor }}>
+      <EditableContainer sectionId="melleka-app" sectionName="Melleka App" onDelete={() => hideSection('melleka-app')} onVisibilityToggle={() => hideSection('melleka-app')} isHidden={isSectionHidden('melleka-app')}>
       {/* Subtle background pattern */}
       <div className="absolute inset-0 opacity-5" style={{
         backgroundImage: `radial-gradient(circle at 20% 50%, ${primaryColor} 0%, transparent 50%), radial-gradient(circle at 80% 50%, ${secondaryColor} 0%, transparent 50%)`,
@@ -122,16 +129,28 @@ export const MellekaAppSection = ({
       <div className="container max-w-6xl mx-auto px-4 relative z-10">
         <AnimatedSection>
           <div className="text-center mb-16">
-            <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{ color: secondaryColor }}>
-              Your Command Center
-            </p>
-            <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{ color: textColor }}>
-              The Melleka App
-            </h2>
-            <p className="text-lg max-w-3xl mx-auto" style={{ color: textMutedColor }}>
-              Every text and email response at your fingertips. Our dedicated mobile app puts you in complete control 
-              of your customer communications, so you can respond instantly from anywhere.
-            </p>
+            <EditableText
+              value="Your Command Center"
+              path="mellekaApp.subtitle"
+              as="p"
+              className="font-medium uppercase tracking-widest text-sm mb-4"
+              style={{ color: secondaryColor }}
+            />
+            <EditableText
+              value="The Melleka App"
+              path="mellekaApp.title"
+              as="h2"
+              className="text-3xl md:text-5xl font-display font-bold mb-6"
+              style={{ color: textColor }}
+            />
+            <EditableText
+              value="Every text and email response at your fingertips. Our dedicated mobile app puts you in complete control of your customer communications, so you can respond instantly from anywhere."
+              path="mellekaApp.description"
+              as="p"
+              className="text-lg max-w-3xl mx-auto"
+              style={{ color: textMutedColor }}
+              multiline
+            />
           </div>
         </AnimatedSection>
 
@@ -367,14 +386,21 @@ export const MellekaAppSection = ({
           {/* Features & Benefits */}
           <div className="space-y-8">
             <AnimatedSection delay={300}>
-              <h3 className="text-2xl font-display font-bold mb-6" style={{ color: textColor }}>
-                Stay Connected, Stay Responsive
-              </h3>
-              <p className="mb-8" style={{ color: textMutedColor }}>
-                With the Melleka App, {clientName} will have complete control over every customer interaction. 
-                Whether it's a text from a new lead or an email follow-up, you'll be able to respond 
-                instantly from your smartphone.
-              </p>
+              <EditableText
+                value="Stay Connected, Stay Responsive"
+                path="mellekaApp.featuresTitle"
+                as="h3"
+                className="text-2xl font-display font-bold mb-6"
+                style={{ color: textColor }}
+              />
+              <EditableText
+                value={`With the Melleka App, ${clientName} will have complete control over every customer interaction. Whether it's a text from a new lead or an email follow-up, you'll be able to respond instantly from your smartphone.`}
+                path="mellekaApp.featuresDescription"
+                as="p"
+                className="mb-8"
+                style={{ color: textMutedColor }}
+                multiline
+              />
             </AnimatedSection>
 
             {/* Feature Cards */}
@@ -432,18 +458,27 @@ export const MellekaAppSection = ({
                   <ArrowRight className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <p className="font-medium text-sm" style={{ color: textColor }}>
-                    Available on iOS & Android
-                  </p>
-                  <p className="text-xs" style={{ color: textMutedColor }}>
-                    Download links will be provided upon campaign launch
-                  </p>
+                  <EditableText
+                    value="Available on iOS & Android"
+                    path="mellekaApp.ctaTitle"
+                    as="p"
+                    className="font-medium text-sm"
+                    style={{ color: textColor }}
+                  />
+                  <EditableText
+                    value="Download links will be provided upon campaign launch"
+                    path="mellekaApp.ctaSubtitle"
+                    as="p"
+                    className="text-xs"
+                    style={{ color: textMutedColor }}
+                  />
                 </div>
               </div>
             </AnimatedSection>
           </div>
         </div>
       </div>
+      </EditableContainer>
     </section>
   );
 };

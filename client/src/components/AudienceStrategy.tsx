@@ -2,6 +2,10 @@ import { AnimatedSection } from './AnimatedSection';
 import { Users, Target, Heart, AlertCircle, Zap, Eye, ShoppingCart, Search, UserCheck, Sparkles, Brain, Crosshair, TrendingUp } from 'lucide-react';
 import { AnimatedCounter } from './AnimatedCounter';
 import { isLightColor } from './PlatformLogos';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableList } from '@/components/editor/EditableList';
+import { EditableText } from '@/components/editor/EditableText';
 
 interface AudienceStrategyProps {
   audienceStrategy: {
@@ -53,6 +57,9 @@ export const AudienceStrategy = ({
   clientName
 }: AudienceStrategyProps) => {
   const { primaryPersona, secondaryPersona, metaTargeting, googleAudiences } = audienceStrategy;
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('target-personas')) return null;
 
   // Calculate stats for the hero metrics
   const totalInterests = (metaTargeting?.interests?.length || 0) + (metaTargeting?.behaviors?.length || 0);
@@ -61,6 +68,7 @@ export const AudienceStrategy = ({
 
   return (
     <section id="target-personas" className="py-24 relative overflow-hidden" style={{ backgroundColor: 'transparent' }}>
+      <EditableContainer sectionId="target-personas" sectionName="Audience Strategy" onDelete={() => hideSection('target-personas')} onVisibilityToggle={() => hideSection('target-personas')} isHidden={isSectionHidden('target-personas')}>
       {/* Background Effects */}
       <div className="absolute inset-0 pointer-events-none">
         <div 
@@ -85,17 +93,29 @@ export const AudienceStrategy = ({
               }}
             >
               <Brain className="w-3.5 h-3.5 sm:w-4 sm:h-4" style={{ color: primaryColor }} />
-              <span className="text-xs sm:text-sm font-medium" style={{ color: primaryColor }}>In-Depth Audience Analysis</span>
+              <EditableText
+                value="In-Depth Audience Analysis"
+                path="audienceStrategy.badgeText"
+                as="span"
+                className="text-xs sm:text-sm font-medium"
+                style={{ color: primaryColor }}
+              />
             </div>
-            <h2 
+            <EditableText
+              value={`Know Your Ideal Customer`}
+              path="audienceStrategy.title"
+              as="h2"
               className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-display font-bold mb-4 sm:mb-6"
               style={{ color: textColor }}
-            >
-              Know Your <span style={{ color: primaryColor }}>Ideal Customer</span>
-            </h2>
-            <p className="text-sm sm:text-base md:text-lg max-w-3xl mx-auto mb-6 sm:mb-8" style={{ color: textMutedColor }}>
-              Deep psychographic profiling and precision targeting strategies designed specifically for {clientName}'s audience.
-            </p>
+            />
+            <EditableText
+              value={`Deep psychographic profiling and precision targeting strategies designed specifically for ${clientName}'s audience.`}
+              path="audienceStrategy.description"
+              as="p"
+              className="text-sm sm:text-base md:text-lg max-w-3xl mx-auto mb-6 sm:mb-8"
+              style={{ color: textMutedColor }}
+              multiline
+            />
 
             {/* Key Metrics Row */}
             <div className="flex flex-wrap justify-center gap-3 sm:gap-6">
@@ -188,12 +208,20 @@ export const AudienceStrategy = ({
                     />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold mb-1 line-clamp-2" style={{ color: textColor }}>
-                      {primaryPersona.name || 'Primary Customer'}
-                    </h3>
-                    <p className="text-xs sm:text-sm line-clamp-2" style={{ color: textMutedColor }}>
-                      {primaryPersona.demographics}
-                    </p>
+                    <EditableText
+                      value={primaryPersona.name || 'Primary Customer'}
+                      path="audienceStrategy.primaryPersona.name"
+                      as="h3"
+                      className="text-lg sm:text-xl md:text-2xl font-display font-bold mb-1 line-clamp-2"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value={primaryPersona.demographics || ''}
+                      path="audienceStrategy.primaryPersona.demographics"
+                      as="p"
+                      className="text-xs sm:text-sm line-clamp-2"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
 
@@ -207,9 +235,14 @@ export const AudienceStrategy = ({
                     }}
                   >
                     <Sparkles className="absolute top-3 right-3 w-5 h-5 opacity-40" style={{ color: primaryColor }} />
-                    <p className="text-sm italic" style={{ color: textMutedColor }}>
-                      "{primaryPersona.psychographics}"
-                    </p>
+                    <EditableText
+                      value={`"${primaryPersona.psychographics}"`}
+                      path="audienceStrategy.primaryPersona.psychographics"
+                      as="p"
+                      className="text-sm italic"
+                      style={{ color: textMutedColor }}
+                      multiline
+                    />
                   </div>
                 )}
 
@@ -227,18 +260,20 @@ export const AudienceStrategy = ({
                         Pain Points We'll Solve
                       </h4>
                     </div>
-                    <div className="space-y-3">
-                      {primaryPersona.painPoints.map((point, i) => (
-                        <div 
-                          key={i} 
+                    <EditableList
+                      items={primaryPersona.painPoints}
+                      basePath="audienceStrategy.primaryPersona.painPoints"
+                      className="space-y-3"
+                      renderItem={(point, i) => (
+                        <div
                           className="flex items-start gap-3 p-3 rounded-xl transition-all hover:scale-[1.02]"
                           style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)' }}
                         >
                           <span className="w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-red-400" />
                           <span className="text-sm" style={{ color: textColor }}>{point}</span>
                         </div>
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
 
@@ -256,12 +291,14 @@ export const AudienceStrategy = ({
                         Purchase Triggers
                       </h4>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {primaryPersona.triggers.map((trigger, i) => (
+                    <EditableList
+                      items={primaryPersona.triggers}
+                      basePath="audienceStrategy.primaryPersona.triggers"
+                      className="flex flex-wrap gap-2"
+                      renderItem={(trigger, i) => (
                         <span
-                          key={i}
                           className="px-4 py-2 rounded-full text-xs font-medium transition-all hover:scale-105"
-                          style={{ 
+                          style={{
                             background: `linear-gradient(135deg, color-mix(in srgb, ${secondaryColor} 20%, transparent), color-mix(in srgb, ${secondaryColor} 10%, transparent))`,
                             color: secondaryColor,
                             border: `1px solid color-mix(in srgb, ${secondaryColor} 30%, transparent)`
@@ -269,8 +306,8 @@ export const AudienceStrategy = ({
                         >
                           ⚡ {trigger}
                         </span>
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
 
@@ -278,7 +315,7 @@ export const AudienceStrategy = ({
                 {primaryPersona.objections && primaryPersona.objections.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-4">
-                      <div 
+                      <div
                         className="w-8 h-8 rounded-lg flex items-center justify-center"
                         style={{ backgroundColor: `color-mix(in srgb, ${borderColor} 50%, transparent)` }}
                       >
@@ -288,18 +325,20 @@ export const AudienceStrategy = ({
                         Objections We'll Overcome
                       </h4>
                     </div>
-                    <div className="space-y-2">
-                      {primaryPersona.objections.map((objection, i) => (
-                        <div 
-                          key={i} 
+                    <EditableList
+                      items={primaryPersona.objections}
+                      basePath="audienceStrategy.primaryPersona.objections"
+                      className="space-y-2"
+                      renderItem={(objection, i) => (
+                        <div
                           className="flex items-center gap-3 p-3 rounded-xl text-sm"
                           style={{ backgroundColor: `color-mix(in srgb, ${borderColor} 30%, transparent)` }}
                         >
                           <span className="text-lg">🎯</span>
                           <span style={{ color: textMutedColor }}>{objection}</span>
                         </div>
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
               </div>
@@ -336,12 +375,20 @@ export const AudienceStrategy = ({
                     <Users className="w-8 h-8 text-white" />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-display font-bold mb-1" style={{ color: textColor }}>
-                      {secondaryPersona.name || 'Secondary Customer'}
-                    </h3>
-                    <p className="text-sm" style={{ color: textMutedColor }}>
-                      {secondaryPersona.demographics}
-                    </p>
+                    <EditableText
+                      value={secondaryPersona.name || 'Secondary Customer'}
+                      path="audienceStrategy.secondaryPersona.name"
+                      as="h3"
+                      className="text-2xl font-display font-bold mb-1"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value={secondaryPersona.demographics || ''}
+                      path="audienceStrategy.secondaryPersona.demographics"
+                      as="p"
+                      className="text-sm"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
 
@@ -353,9 +400,14 @@ export const AudienceStrategy = ({
                       borderLeft: `4px solid ${secondaryColor}`
                     }}
                   >
-                    <p className="text-sm italic" style={{ color: textMutedColor }}>
-                      "{secondaryPersona.psychographics}"
-                    </p>
+                    <EditableText
+                      value={`"${secondaryPersona.psychographics}"`}
+                      path="audienceStrategy.secondaryPersona.psychographics"
+                      as="p"
+                      className="text-sm italic"
+                      style={{ color: textMutedColor }}
+                      multiline
+                    />
                   </div>
                 )}
 
@@ -372,18 +424,20 @@ export const AudienceStrategy = ({
                         Pain Points
                       </h4>
                     </div>
-                    <div className="space-y-3">
-                      {secondaryPersona.painPoints.map((point, i) => (
-                        <div 
-                          key={i} 
+                    <EditableList
+                      items={secondaryPersona.painPoints}
+                      basePath="audienceStrategy.secondaryPersona.painPoints"
+                      className="space-y-3"
+                      renderItem={(point, i) => (
+                        <div
                           className="flex items-start gap-3 p-3 rounded-xl"
                           style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)' }}
                         >
                           <span className="w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-red-400" />
                           <span className="text-sm" style={{ color: textColor }}>{point}</span>
                         </div>
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
 
@@ -401,12 +455,14 @@ export const AudienceStrategy = ({
                         Purchase Triggers
                       </h4>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {secondaryPersona.triggers.map((trigger, i) => (
+                    <EditableList
+                      items={secondaryPersona.triggers}
+                      basePath="audienceStrategy.secondaryPersona.triggers"
+                      className="flex flex-wrap gap-2"
+                      renderItem={(trigger, i) => (
                         <span
-                          key={i}
                           className="px-4 py-2 rounded-full text-xs font-medium transition-all hover:scale-105"
-                          style={{ 
+                          style={{
                             background: `linear-gradient(135deg, color-mix(in srgb, ${secondaryColor} 20%, transparent), color-mix(in srgb, ${secondaryColor} 10%, transparent))`,
                             color: secondaryColor,
                             border: `1px solid color-mix(in srgb, ${secondaryColor} 30%, transparent)`
@@ -414,8 +470,8 @@ export const AudienceStrategy = ({
                         >
                           ⚡ {trigger}
                         </span>
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
 
@@ -423,7 +479,7 @@ export const AudienceStrategy = ({
                 {secondaryPersona.objections && secondaryPersona.objections.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-4">
-                      <div 
+                      <div
                         className="w-8 h-8 rounded-lg flex items-center justify-center"
                         style={{ backgroundColor: `color-mix(in srgb, ${borderColor} 50%, transparent)` }}
                       >
@@ -433,18 +489,20 @@ export const AudienceStrategy = ({
                         Objections We'll Overcome
                       </h4>
                     </div>
-                    <div className="space-y-2">
-                      {secondaryPersona.objections.map((objection, i) => (
-                        <div 
-                          key={i} 
+                    <EditableList
+                      items={secondaryPersona.objections}
+                      basePath="audienceStrategy.secondaryPersona.objections"
+                      className="space-y-2"
+                      renderItem={(objection, i) => (
+                        <div
                           className="flex items-center gap-3 p-3 rounded-xl text-sm"
                           style={{ backgroundColor: `color-mix(in srgb, ${borderColor} 30%, transparent)` }}
                         >
                           <span className="text-lg">🎯</span>
                           <span style={{ color: textMutedColor }}>{objection}</span>
                         </div>
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
               </div>
@@ -479,10 +537,20 @@ export const AudienceStrategy = ({
                     <Heart className="w-7 h-7 text-white" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-display font-bold" style={{ color: textColor }}>
-                      Meta Targeting Matrix
-                    </h3>
-                    <p className="text-sm" style={{ color: textMutedColor }}>Facebook & Instagram Precision</p>
+                    <EditableText
+                      value="Meta Targeting Matrix"
+                      path="audienceStrategy.metaTargetingTitle"
+                      as="h3"
+                      className="text-xl font-display font-bold"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value="Facebook & Instagram Precision"
+                      path="audienceStrategy.metaTargetingSubtitle"
+                      as="p"
+                      className="text-sm"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
 
@@ -499,12 +567,14 @@ export const AudienceStrategy = ({
                         {metaTargeting.interests.length} signals
                       </span>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {metaTargeting.interests.map((interest, i) => (
+                    <EditableList
+                      items={metaTargeting.interests}
+                      basePath="audienceStrategy.metaTargeting.interests"
+                      className="flex flex-wrap gap-2"
+                      renderItem={(interest, i) => (
                         <span
-                          key={i}
                           className="px-3 py-2 rounded-xl text-xs font-medium transition-all hover:scale-105"
-                          style={{ 
+                          style={{
                             background: `linear-gradient(135deg, #E1306C15, #405DE610)`,
                             color: textColor,
                             border: '1px solid #E1306C20'
@@ -512,8 +582,8 @@ export const AudienceStrategy = ({
                         >
                           {interest}
                         </span>
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
 
@@ -524,12 +594,14 @@ export const AudienceStrategy = ({
                       <ShoppingCart className="w-5 h-5" style={{ color: '#405DE6' }} />
                       <h4 className="text-sm font-semibold" style={{ color: textMutedColor }}>Behavioral Signals</h4>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {metaTargeting.behaviors.map((behavior, i) => (
+                    <EditableList
+                      items={metaTargeting.behaviors}
+                      basePath="audienceStrategy.metaTargeting.behaviors"
+                      className="flex flex-wrap gap-2"
+                      renderItem={(behavior, i) => (
                         <span
-                          key={i}
                           className="px-3 py-2 rounded-xl text-xs font-medium"
-                          style={{ 
+                          style={{
                             background: `linear-gradient(135deg, #405DE615, #E1306C10)`,
                             color: textColor,
                             border: '1px solid #405DE620'
@@ -537,8 +609,8 @@ export const AudienceStrategy = ({
                         >
                           {behavior}
                         </span>
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
 
@@ -546,18 +618,20 @@ export const AudienceStrategy = ({
                 {metaTargeting.customAudiences && metaTargeting.customAudiences.length > 0 && (
                   <div className="mb-6">
                     <h4 className="text-sm font-semibold mb-4" style={{ color: textMutedColor }}>Custom Audiences</h4>
-                    <div className="space-y-2">
-                      {metaTargeting.customAudiences.map((audience, i) => (
-                        <div 
-                          key={i}
+                    <EditableList
+                      items={metaTargeting.customAudiences}
+                      basePath="audienceStrategy.metaTargeting.customAudiences"
+                      className="space-y-2"
+                      renderItem={(audience, i) => (
+                        <div
                           className="flex items-center gap-3 p-3 rounded-xl transition-all hover:scale-[1.02]"
                           style={{ background: `linear-gradient(135deg, #E1306C08, #405DE608)` }}
                         >
                           <Target className="w-5 h-5" style={{ color: '#E1306C' }} />
                           <span className="text-sm" style={{ color: textColor }}>{audience}</span>
                         </div>
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
 
@@ -574,7 +648,14 @@ export const AudienceStrategy = ({
                       <TrendingUp className="w-5 h-5" style={{ color: '#405DE6' }} />
                       <h4 className="text-sm font-semibold" style={{ color: '#405DE6' }}>Lookalike Strategy</h4>
                     </div>
-                    <p className="text-sm" style={{ color: textMutedColor }}>{metaTargeting.lookalikeStrategy}</p>
+                    <EditableText
+                      value={metaTargeting.lookalikeStrategy}
+                      path="audienceStrategy.metaTargeting.lookalikeStrategy"
+                      as="p"
+                      className="text-sm"
+                      style={{ color: textMutedColor }}
+                      multiline
+                    />
                   </div>
                 )}
               </div>
@@ -609,10 +690,20 @@ export const AudienceStrategy = ({
                     <Search className="w-7 h-7 text-white" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-display font-bold" style={{ color: textColor }}>
-                      Google Audience Stack
-                    </h3>
-                    <p className="text-sm" style={{ color: textMutedColor }}>Search, Display & YouTube</p>
+                    <EditableText
+                      value="Google Audience Stack"
+                      path="audienceStrategy.googleAudiencesTitle"
+                      as="h3"
+                      className="text-xl font-display font-bold"
+                      style={{ color: textColor }}
+                    />
+                    <EditableText
+                      value="Search, Display & YouTube"
+                      path="audienceStrategy.googleAudiencesSubtitle"
+                      as="p"
+                      className="text-sm"
+                      style={{ color: textMutedColor }}
+                    />
                   </div>
                 </div>
 
@@ -629,18 +720,20 @@ export const AudienceStrategy = ({
                         🔥 High Intent
                       </span>
                     </div>
-                    <div className="space-y-2">
-                      {googleAudiences.inMarket.map((audience, i) => (
-                        <div 
-                          key={i}
+                    <EditableList
+                      items={googleAudiences.inMarket}
+                      basePath="audienceStrategy.googleAudiences.inMarket"
+                      className="space-y-2"
+                      renderItem={(audience, i) => (
+                        <div
                           className="flex items-center gap-3 p-3 rounded-xl transition-all hover:scale-[1.02]"
                           style={{ backgroundColor: 'rgba(34, 197, 94, 0.08)' }}
                         >
                           <div className="w-2 h-2 rounded-full bg-green-500" />
                           <span className="text-sm" style={{ color: textColor }}>{audience}</span>
                         </div>
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
 
@@ -651,12 +744,14 @@ export const AudienceStrategy = ({
                       <Heart className="w-5 h-5" style={{ color: primaryColor }} />
                       <h4 className="text-sm font-semibold" style={{ color: textMutedColor }}>Affinity Audiences</h4>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {googleAudiences.affinity.map((audience, i) => (
+                    <EditableList
+                      items={googleAudiences.affinity}
+                      basePath="audienceStrategy.googleAudiences.affinity"
+                      className="flex flex-wrap gap-2"
+                      renderItem={(audience, i) => (
                         <span
-                          key={i}
                           className="px-3 py-2 rounded-xl text-xs"
-                          style={{ 
+                          style={{
                             backgroundColor: `color-mix(in srgb, ${primaryColor} 12%, transparent)`,
                             color: textColor,
                             border: `1px solid color-mix(in srgb, ${primaryColor} 20%, transparent)`
@@ -664,8 +759,8 @@ export const AudienceStrategy = ({
                         >
                           {audience}
                         </span>
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
 
@@ -682,20 +777,22 @@ export const AudienceStrategy = ({
                       <Crosshair className="w-5 h-5" style={{ color: secondaryColor }} />
                       <h4 className="text-sm font-semibold" style={{ color: secondaryColor }}>Custom Intent Keywords</h4>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {googleAudiences.customIntent.map((keyword, i) => (
+                    <EditableList
+                      items={googleAudiences.customIntent}
+                      basePath="audienceStrategy.googleAudiences.customIntent"
+                      className="flex flex-wrap gap-2"
+                      renderItem={(keyword, i) => (
                         <span
-                          key={i}
                           className="px-3 py-1.5 rounded-full text-xs font-medium"
-                          style={{ 
+                          style={{
                             backgroundColor: `color-mix(in srgb, ${secondaryColor} 20%, transparent)`,
                             color: secondaryColor
                           }}
                         >
                           {keyword}
                         </span>
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
               </div>
@@ -703,6 +800,7 @@ export const AudienceStrategy = ({
           )}
         </div>
       </div>
+      </EditableContainer>
     </section>
   );
 };

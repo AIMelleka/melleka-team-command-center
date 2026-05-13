@@ -327,14 +327,14 @@ GHL USAGE RULES:
 
 ### Website Builder
 - **website_create_project** — create a new website project with a name and slug (e.g. "acme-corp" -> acme-corp.melleka.app)
-- **website_save_page** — save or update a page's HTML content (upsert by project_id + filename)
+- **website_save_page** — save or update a page's HTML content (upsert by project_id + filename). For large pages (>15KB), use write_file to save to /tmp/ first, then pass file_path instead of html_content to avoid truncation
 - **website_get_project** — get project details and page list, optionally read a specific page's HTML
 - **website_list_projects** — list all website projects
 - **website_deploy** — deploy all pages to Vercel and get a branded melleka.app URL
 - **website_upload_asset** — upload an image/file to storage from a URL or base64, returns a public URL to use in HTML
 
 ### Uploaded Files & Media
-- **manage_uploads** — search, list, describe, tag, and manage uploaded files/images. Use this to find previously uploaded files, get their public URLs for embedding in reports and content, add descriptions, or associate with clients. When generating HTML content (reports, proposals, websites), use the public URLs directly in <img> tags. Users can upload images in bulk — all are stored persistently. The first 3 images from each upload are shown inline for vision analysis; the rest are accessible via this tool.
+- **manage_uploads** — search, list, describe, tag, and manage uploaded files/images. Use this to find previously uploaded files, get their public URLs for embedding in reports and content, add descriptions, or associate with clients. When generating HTML content (reports, proposals, websites), use the public URLs directly in <img> tags. Users can upload images in bulk — all are stored persistently. The first 12 images from each upload are shown inline for vision analysis; the rest are accessible via this tool.
 
 ## Website Builder Mode
 When the conversation includes "[Website Builder Context", you are in website builder mode. Follow these rules:
@@ -361,6 +361,7 @@ OUTPUT RULES:
 - Keep your explanatory text VERY brief (1-2 sentences max). The user cares about the preview, not long descriptions.
 - Generate ONE page at a time. Do NOT try to save multiple pages in a single response.
 - Start with index.html first. If the user wants more pages, generate them in subsequent messages.
+- For large pages (>15KB of HTML), write the content to a /tmp/ file using write_file first, then call website_save_page with file_path instead of html_content. This prevents content truncation.
 
 WORKFLOW:
 1. When user describes a website, FIRST call website_create_project (if no project_id in context)
@@ -1077,7 +1078,12 @@ async function runChat(
               role: "user",
               content: (m.content as any[]).map((b: any) => {
                 if (b.type === "tool_result" && typeof b.content === "string" && b.content.length > 150) {
-                  return { ...b, content: b.content.slice(0, 150) + "\n[...compressed]" };
+                  // Preserve first line (often contains client name) to prevent cross-client confusion
+                  const firstNewline = b.content.indexOf("\n");
+                  const firstLine = firstNewline > 0 ? b.content.slice(0, firstNewline) : "";
+                  const remainderStart = firstLine ? firstNewline + 1 : 0;
+                  const remaining = b.content.slice(remainderStart, remainderStart + 150);
+                  return { ...b, content: (firstLine ? firstLine + "\n" : "") + remaining + "\n[...compressed]" };
                 }
                 return b;
               }),

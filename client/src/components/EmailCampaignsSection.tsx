@@ -3,6 +3,9 @@ import { AnimatedSection } from './AnimatedSection';
 import { AnimatedCounter } from './AnimatedCounter';
 import { CalloutBadge } from './ProposalAnnotations';
 import { PlatformBadge } from './PlatformLogos';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableText } from '@/components/editor/EditableText';
 interface EmailCampaign {
   type: 'welcome' | 'nurture' | 'promo' | 'cart';
   subject: string;
@@ -289,6 +292,10 @@ export const EmailCampaignsSection = ({
   backgroundColor,
   content
 }: EmailCampaignsSectionProps) => {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
+  if (!isEditMode && isSectionHidden('email')) return null;
+
   // Check if we have AI-generated campaigns (array, not string)
   const aiCampaigns = content?.campaigns && Array.isArray(content.campaigns) ? content.campaigns : null;
   
@@ -367,6 +374,7 @@ export const EmailCampaignsSection = ({
   return <section id="email" className="py-24 relative overflow-hidden" style={{
     background: `linear-gradient(180deg, ${backgroundColor}, color-mix(in srgb, ${secondaryColor} 5%, ${backgroundColor}))`
   }}>
+      <EditableContainer sectionId="email" sectionName="Email Campaigns" onDelete={() => hideSection('email')} onVisibilityToggle={() => hideSection('email')} isHidden={isSectionHidden('email')}>
       {/* Animated background */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute top-20 left-20 w-64 h-64 rounded-full blur-3xl opacity-10 animate-pulse" style={{
@@ -382,24 +390,31 @@ export const EmailCampaignsSection = ({
         {/* Header */}
         <AnimatedSection>
           <div className="text-center mb-16">
-            <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{
-            color: secondaryColor
-          }}>
-              Automated Nurturing
-            </p>
+            <EditableText
+              value="Automated Nurturing"
+              path="emailCampaigns.subtitle"
+              as="p"
+              className="font-medium uppercase tracking-widest text-sm mb-4"
+              style={{ color: secondaryColor }}
+            />
             <div className="flex items-center justify-center gap-3 flex-wrap mb-6">
-              <h2 className="text-3xl md:text-5xl font-display font-bold" style={{
-              color: textColor
-            }}>
-                Email Marketing Campaigns
-              </h2>
+              <EditableText
+                value="Email Marketing Campaigns"
+                path="emailCampaigns.title"
+                as="h2"
+                className="text-3xl md:text-5xl font-display font-bold"
+                style={{ color: textColor }}
+              />
               <CalloutBadge text="Revenue Driver" variant="highlight" />
             </div>
-            <p className="text-lg max-w-3xl mx-auto leading-relaxed mb-8" style={{
-            color: textMutedColor
-          }}>
-              {content?.strategy || `Strategic email sequences that nurture leads, onboard customers, and drive revenue for ${clientName}. Every email is designed, written, and optimized to convert.`}
-            </p>
+            <EditableText
+              value={content?.strategy || `Strategic email sequences that nurture leads, onboard customers, and drive revenue for ${clientName}. Every email is designed, written, and optimized to convert.`}
+              path="emailCampaigns.strategy"
+              as="p"
+              className="text-lg max-w-3xl mx-auto leading-relaxed mb-8"
+              style={{ color: textMutedColor }}
+              multiline
+            />
             
             {/* Platform Logos */}
             
@@ -460,11 +475,13 @@ export const EmailCampaignsSection = ({
         <AnimatedSection delay={200}>
           <div className="mb-20">
             <div className="flex items-center gap-3 mb-8">
-              <h3 className="text-2xl font-display font-bold" style={{
-              color: textColor
-            }}>
-                Your Email Campaign Preview
-              </h3>
+              <EditableText
+                value="Your Email Campaign Preview"
+                path="emailCampaigns.previewTitle"
+                as="h3"
+                className="text-2xl font-display font-bold"
+                style={{ color: textColor }}
+              />
               <CalloutBadge text="Designed & Written" variant="new" />
             </div>
             
@@ -493,11 +510,13 @@ export const EmailCampaignsSection = ({
                   <Mail className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold" style={{
-                  color: textColor
-                }}>
-                    Automated Email Flows
-                  </h3>
+                  <EditableText
+                    value="Automated Email Flows"
+                    path="emailCampaigns.flowsTitle"
+                    as="h3"
+                    className="text-2xl font-bold"
+                    style={{ color: textColor }}
+                  />
                   
                 </div>
               </div>
@@ -527,13 +546,22 @@ export const EmailCampaignsSection = ({
                       color: primaryColor
                     }} />
                       </div>
-                      <h4 className="font-bold text-lg mb-2" style={{
-                    color: textColor
-                  }}>{flow.name}</h4>
-                      
-                      <p className="text-sm leading-relaxed" style={{
-                    color: textMutedColor
-                  }}>{flow.purpose}</p>
+                      <EditableText
+                        value={flow.name}
+                        path={`emailCampaigns.flows.${i}.name`}
+                        as="h4"
+                        className="font-bold text-lg mb-2"
+                        style={{ color: textColor }}
+                      />
+
+                      <EditableText
+                        value={flow.purpose}
+                        path={`emailCampaigns.flows.${i}.purpose`}
+                        as="p"
+                        className="text-sm leading-relaxed"
+                        style={{ color: textMutedColor }}
+                        multiline
+                      />
                     </div>
                   </div>)}
               </div>
@@ -577,5 +605,6 @@ export const EmailCampaignsSection = ({
           </div>
         </AnimatedSection>
       </div>
+      </EditableContainer>
     </section>;
 };

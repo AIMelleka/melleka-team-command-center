@@ -161,6 +161,119 @@ router.post("/proposal-logo", requireAuth, upload.single("file"), async (req: Au
   }
 });
 
+// POST /api/uploads/portfolio — upload files to proposal-assets/portfolio
+router.post("/portfolio", requireAuth, upload.array("files"), async (req: AuthRequest, res) => {
+  const files = (req.files as Express.Multer.File[]) ?? [];
+
+  if (files.length === 0) {
+    res.status(400).json({ error: "No files provided" });
+    return;
+  }
+
+  const results: Array<{ name: string; url: string; type: string; error?: string }> = [];
+
+  for (const file of files) {
+    try {
+      const fileBuffer = await fs.readFile(file.path);
+      const cleanName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, "-").toLowerCase();
+      const fileName = `${Date.now()}-${cleanName}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from("proposal-assets")
+        .upload(`portfolio/${fileName}`, fileBuffer, {
+          contentType: file.mimetype,
+          upsert: false,
+          cacheControl: "3600",
+        });
+
+      await fs.unlink(file.path).catch(() => {});
+
+      if (uploadErr) throw new Error(uploadErr.message);
+
+      const { data: urlData } = supabase.storage
+        .from("proposal-assets")
+        .getPublicUrl(`portfolio/${fileName}`);
+
+      results.push({
+        name: fileName,
+        url: urlData.publicUrl,
+        type: file.mimetype.startsWith("video/") ? "video" : "image",
+      });
+    } catch (err: any) {
+      await fs.unlink(file.path).catch(() => {});
+      results.push({ name: file.originalname, url: "", type: "image", error: err.message });
+    }
+  }
+
+  res.json({
+    total: files.length,
+    successful: results.filter((r) => !r.error).length,
+    uploads: results,
+  });
+});
+
+// DELETE /api/uploads/portfolio/:name — delete a portfolio file
+router.delete("/portfolio/:name", requireAuth, async (_req: AuthRequest, res) => {
+  const name = _req.params.name;
+
+  const { error } = await supabase.storage
+    .from("proposal-assets")
+    .remove([`portfolio/${name}`]);
+
+  if (error) {
+    res.status(500).json({ error: error.message });
+    return;
+  }
+
+  res.json({ ok: true });
+});
+
+// GET /api/uploads/portfolio — list portfolio files (authenticated, full details)
+router.get("/portfolio", requireAuth, async (_req: AuthRequest, res) => {
+  const { data, error } = await supabase.storage
+    .from("proposal-assets")
+    .list("portfolio", { limit: 100, sortBy: { column: "created_at", order: "desc" } });
+
+  if (error) {
+    res.status(500).json({ error: error.message });
+    return;
+  }
+
+  const items = (data || [])
+    .filter((file) => file.name !== ".emptyFolderPlaceholder")
+    .map((file) => ({
+      name: file.name,
+      url: supabase.storage.from("proposal-assets").getPublicUrl(`portfolio/${file.name}`).data.publicUrl,
+      type: file.metadata?.mimetype?.startsWith("video/") ? "video" : "image",
+      created_at: file.created_at || "",
+    }));
+
+  res.json(items);
+});
+
+// GET /api/uploads/portfolio-images — public endpoint returning image URLs for proposal carousel
+router.get("/portfolio-images", async (_req, res) => {
+  try {
+    const { data, error } = await supabase.storage
+      .from("proposal-assets")
+      .list("portfolio", { limit: 50, sortBy: { column: "created_at", order: "desc" } });
+
+    if (error) {
+      res.status(500).json([]);
+      return;
+    }
+
+    const IMAGE_EXTENSIONS = /\.(png|jpg|jpeg|webp|gif)$/i;
+    const urls = (data || [])
+      .filter((file) => file.name !== ".emptyFolderPlaceholder" && IMAGE_EXTENSIONS.test(file.name))
+      .map((file) => supabase.storage.from("proposal-assets").getPublicUrl(`portfolio/${file.name}`).data.publicUrl);
+
+    res.json(urls);
+  } catch {
+    res.json([]);
+  }
+});
+
 // GET /api/uploads — list uploads with filters
 router.get("/", requireAuth, async (req: AuthRequest, res) => {
   let query = supabase

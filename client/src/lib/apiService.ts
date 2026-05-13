@@ -342,6 +342,36 @@ export const apiService = {
     clear: () => cacheManager.clear(),
     stats: () => cacheManager.stats(),
   },
+
+  // Proposal section generation (calls Express backend directly)
+  async generateSection(params: {
+    prompt: string;
+    sectionType: string;
+    clientName: string;
+    proposalContext?: string;
+  }): Promise<{ content: Record<string, unknown>; title: string } | null> {
+    const apiBase = import.meta.env.PROD
+      ? (import.meta.env.VITE_API_URL || 'https://api.teams.melleka.com/api')
+      : '/api';
+
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const res = await fetch(`${apiBase}/proposals/generate-section`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session?.access_token}`,
+      },
+      body: JSON.stringify(params),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to generate section');
+    }
+
+    return res.json();
+  },
 };
 
 // ============================================================================

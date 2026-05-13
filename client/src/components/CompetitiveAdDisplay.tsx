@@ -1,15 +1,18 @@
 import { useRef, useEffect } from 'react';
-import { 
-  ArrowRight, 
-  AlertCircle, 
-  Lightbulb, 
-  X, 
+import {
+  ArrowRight,
+  AlertCircle,
+  Lightbulb,
+  X,
   CheckCircle2,
   Eye,
   Zap
 } from 'lucide-react';
 import { AnimatedSection } from './AnimatedSection';
 import { Annotation } from './ImageAnnotator';
+import { useAdminEdit } from '@/components/editor/AdminEditContext';
+import { EditableContainer } from '@/components/editor/EditableContainer';
+import { EditableText } from '@/components/editor/EditableText';
 
 export interface AdAnalysisItem {
   id: string;
@@ -154,31 +157,39 @@ export const CompetitiveAdDisplay = ({
   borderColor,
   clientName,
 }: CompetitiveAdDisplayProps) => {
+  const { isEditMode, hideSection, isSectionHidden } = useAdminEdit();
+
   if (!items || items.length === 0) return null;
+  if (!isEditMode && isSectionHidden('competitive-ads')) return null;
 
   return (
     <section className="py-24" style={{ background: `linear-gradient(180deg, ${cardBackground} 0%, transparent 100%)` }}>
+      <EditableContainer sectionId="competitive-ads" sectionName="Competitive Ad Analysis" onDelete={() => hideSection('competitive-ads')} onVisibilityToggle={() => hideSection('competitive-ads')} isHidden={isSectionHidden('competitive-ads')}>
       <div className="container max-w-6xl mx-auto px-4">
         <AnimatedSection>
           <div className="text-center mb-16">
-            <p 
+            <EditableText
+              value="Competitive Intelligence"
+              path="competitiveAds.subtitle"
+              as="p"
               className="font-medium uppercase tracking-widest text-sm mb-4"
               style={{ color: secondaryColor }}
-            >
-              Competitive Intelligence
-            </p>
-            <h2 
+            />
+            <EditableText
+              value="What Your Competitors Are Doing Wrong"
+              path="competitiveAds.title"
+              as="h2"
               className="text-3xl md:text-5xl font-display font-bold mb-6"
               style={{ color: textColor }}
-            >
-              What Your Competitors Are Doing Wrong
-            </h2>
-            <p 
+            />
+            <EditableText
+              value={`We analyzed the ad strategies of key competitors. Here's what we found, and how we'll help ${clientName} stand out.`}
+              path="competitiveAds.description"
+              as="p"
               className="text-lg max-w-3xl mx-auto"
               style={{ color: textMutedColor }}
-            >
-              We analyzed the ad strategies of key competitors. Here's what we found, and how we'll help {clientName} stand out.
-            </p>
+              multiline
+            />
           </div>
         </AnimatedSection>
 
@@ -207,12 +218,13 @@ export const CompetitiveAdDisplay = ({
                         <Eye className="w-6 h-6 text-white" />
                       </div>
                       <div>
-                        <h3 
+                        <EditableText
+                          value={item.competitorName}
+                          path={`competitiveAds.${index}.competitorName`}
+                          as="h3"
                           className="text-2xl font-display font-bold"
                           style={{ color: textColor }}
-                        >
-                          {item.competitorName}
-                        </h3>
+                        />
                         <p style={{ color: textMutedColor }} className="text-sm">
                           {item.platform === 'google' ? 'Google Ads Analysis' : 'Meta Ads Analysis'}
                         </p>
@@ -247,12 +259,13 @@ export const CompetitiveAdDisplay = ({
                       >
                         1
                       </div>
-                      <span 
+                      <EditableText
+                        value="Their Current Ad"
+                        path={`competitiveAds.${index}.panel1Label`}
+                        as="span"
                         className="font-semibold"
                         style={{ color: textColor }}
-                      >
-                        Their Current Ad
-                      </span>
+                      />
                     </div>
                     
                     {item.screenshot ? (
@@ -303,12 +316,13 @@ export const CompetitiveAdDisplay = ({
                       >
                         2
                       </div>
-                      <span 
+                      <EditableText
+                        value="Issues We Identified"
+                        path={`competitiveAds.${index}.panel2Label`}
+                        as="span"
                         className="font-semibold"
                         style={{ color: textColor }}
-                      >
-                        Issues We Identified
-                      </span>
+                      />
                       <AlertCircle className="w-4 h-4" style={{ color: '#fbbf24' }} />
                     </div>
                     
@@ -328,12 +342,13 @@ export const CompetitiveAdDisplay = ({
                           >
                             <X className="w-3 h-3" style={{ color: '#f87171' }} />
                           </div>
-                          <span 
+                          <EditableText
+                            value={issue}
+                            path={`competitiveAds.${index}.issues.${i}`}
+                            as="span"
                             className="text-sm"
                             style={{ color: textColor }}
-                          >
-                            {issue}
-                          </span>
+                          />
                         </div>
                       ))}
                     </div>
@@ -364,12 +379,13 @@ export const CompetitiveAdDisplay = ({
                       >
                         3
                       </div>
-                      <span 
+                      <EditableText
+                        value="Our Solution"
+                        path={`competitiveAds.${index}.panel3Label`}
+                        as="span"
                         className="font-semibold"
                         style={{ color: textColor }}
-                      >
-                        Our Solution
-                      </span>
+                      />
                       <Lightbulb className="w-4 h-4" style={{ color: secondaryColor }} />
                     </div>
                     
@@ -380,12 +396,14 @@ export const CompetitiveAdDisplay = ({
                         border: `1px solid ${primaryColor}40`
                       }}
                     >
-                      <p 
+                      <EditableText
+                        value={item.ourSolution}
+                        path={`competitiveAds.${index}.ourSolution`}
+                        as="p"
                         className="text-sm leading-relaxed"
                         style={{ color: textColor }}
-                      >
-                        {item.ourSolution}
-                      </p>
+                        multiline
+                      />
                     </div>
 
                     {/* Result indicator */}
@@ -397,12 +415,13 @@ export const CompetitiveAdDisplay = ({
                       }}
                     >
                       <CheckCircle2 className="w-5 h-5" style={{ color: '#22c55e' }} />
-                      <span 
+                      <EditableText
+                        value="Higher engagement & conversions"
+                        path={`competitiveAds.${index}.resultText`}
+                        as="span"
                         className="text-sm font-medium"
                         style={{ color: '#22c55e' }}
-                      >
-                        Higher engagement & conversions
-                      </span>
+                      />
                     </div>
                   </div>
                 </div>
@@ -417,12 +436,13 @@ export const CompetitiveAdDisplay = ({
                 >
                   <div className="flex items-center gap-2">
                     <Zap className="w-5 h-5" style={{ color: secondaryColor }} />
-                    <span 
+                    <EditableText
+                      value="We'll outperform this with data-driven creative strategies"
+                      path={`competitiveAds.${index}.footerText`}
+                      as="span"
                       className="text-sm font-medium"
                       style={{ color: textMutedColor }}
-                    >
-                      We'll outperform this with data-driven creative strategies
-                    </span>
+                    />
                   </div>
                 </div>
               </div>
@@ -430,6 +450,7 @@ export const CompetitiveAdDisplay = ({
           ))}
         </div>
       </div>
+      </EditableContainer>
     </section>
   );
 };
