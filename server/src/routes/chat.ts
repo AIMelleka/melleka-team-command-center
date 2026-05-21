@@ -20,8 +20,9 @@ const MAX_IMAGE_BYTES = 4.8 * 1024 * 1024; // 4.8MB — leaves headroom under An
 
 /**
  * Compress an image buffer to stay under Anthropic's 5MB per-image limit.
- * Progressive strategy: resize large dimensions first, then reduce JPEG quality.
- * Returns { buffer, mediaType } — may convert PNG/WebP to JPEG if needed.
+ * Strategy: prefer PNG (lossless) for screenshots/text-heavy images to preserve
+ * text clarity. Only fall back to JPEG as a last resort for very large images.
+ * Higher resolution is maintained (4096px max) to keep text readable.
  */
 async function compressImageForClaude(
   buffer: Buffer,
@@ -38,39 +39,65 @@ async function compressImageForClaude(
   console.log(`[chat] Image ${(buffer.length / 1024 / 1024).toFixed(1)}MB exceeds limit, compressing...`);
 
   try {
-    let img = sharp(buffer);
-    const metadata = await img.metadata();
-    const w = metadata.width || 3000;
-    const h = metadata.height || 3000;
+    const metadata = await sharp(buffer).metadata();
+    const w = metadata.width || 4096;
+    const h = metadata.height || 4096;
 
-    // Step 1: If dimensions are huge, resize to max 3000px (keeps quality high)
-    if (w > 3000 || h > 3000) {
-      img = img.resize({ width: 3000, height: 3000, fit: "inside", withoutEnlargement: true });
+    // Step 1: Try PNG with resize to 4096px max (lossless — best for screenshots with text)
+    if (w > 4096 || h > 4096) {
+      const pngCompressed = await sharp(buffer)
+        .resize({ width: 4096, height: 4096, fit: "inside", withoutEnlargement: true })
+        .png({ compressionLevel: 9 })
+        .toBuffer();
+      if (pngCompressed.length <= MAX_IMAGE_BYTES) {
+        console.log(`[chat] Compressed to ${(pngCompressed.length / 1024 / 1024).toFixed(1)}MB (PNG, 4096px)`);
+        return { data: pngCompressed.toString("base64"), mediaType: "image/png" };
+      }
+    } else {
+      // Same dimensions, just optimize PNG compression
+      const pngCompressed = await sharp(buffer).png({ compressionLevel: 9 }).toBuffer();
+      if (pngCompressed.length <= MAX_IMAGE_BYTES) {
+        console.log(`[chat] Compressed to ${(pngCompressed.length / 1024 / 1024).toFixed(1)}MB (PNG optimized)`);
+        return { data: pngCompressed.toString("base64"), mediaType: "image/png" };
+      }
     }
 
-    // Step 2: Convert to JPEG quality 82
-    let compressed = await img.jpeg({ quality: 82, mozjpeg: true }).toBuffer();
+    // Step 2: PNG at 3000px (still lossless, smaller)
+    const pngSmaller = await sharp(buffer)
+      .resize({ width: 3000, height: 3000, fit: "inside", withoutEnlargement: true })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+    if (pngSmaller.length <= MAX_IMAGE_BYTES) {
+      console.log(`[chat] Compressed to ${(pngSmaller.length / 1024 / 1024).toFixed(1)}MB (PNG, 3000px)`);
+      return { data: pngSmaller.toString("base64"), mediaType: "image/png" };
+    }
+
+    // Step 3: Fall back to high-quality JPEG at 3000px (for photos or very large screenshots)
+    let compressed = await sharp(buffer)
+      .resize({ width: 3000, height: 3000, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 90, mozjpeg: true })
+      .toBuffer();
     if (compressed.length <= MAX_IMAGE_BYTES) {
-      console.log(`[chat] Compressed to ${(compressed.length / 1024 / 1024).toFixed(1)}MB (q82)`);
+      console.log(`[chat] Compressed to ${(compressed.length / 1024 / 1024).toFixed(1)}MB (JPEG q90, 3000px)`);
       return { data: compressed.toString("base64"), mediaType: "image/jpeg" };
     }
 
-    // Step 3: Lower quality to 65
+    // Step 4: JPEG quality 80 at 2400px
     compressed = await sharp(buffer)
       .resize({ width: 2400, height: 2400, fit: "inside", withoutEnlargement: true })
-      .jpeg({ quality: 65, mozjpeg: true })
+      .jpeg({ quality: 80, mozjpeg: true })
       .toBuffer();
     if (compressed.length <= MAX_IMAGE_BYTES) {
-      console.log(`[chat] Compressed to ${(compressed.length / 1024 / 1024).toFixed(1)}MB (q65, 2400px)`);
+      console.log(`[chat] Compressed to ${(compressed.length / 1024 / 1024).toFixed(1)}MB (JPEG q80, 2400px)`);
       return { data: compressed.toString("base64"), mediaType: "image/jpeg" };
     }
 
-    // Step 4: Aggressive — quality 60, max 1920px
+    // Step 5: Last resort — JPEG quality 70 at 2000px
     compressed = await sharp(buffer)
-      .resize({ width: 1920, height: 1920, fit: "inside", withoutEnlargement: true })
-      .jpeg({ quality: 60, mozjpeg: true })
+      .resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 70, mozjpeg: true })
       .toBuffer();
-    console.log(`[chat] Compressed to ${(compressed.length / 1024 / 1024).toFixed(1)}MB (q60, 1920px)`);
+    console.log(`[chat] Compressed to ${(compressed.length / 1024 / 1024).toFixed(1)}MB (JPEG q70, 2000px)`);
     return { data: compressed.toString("base64"), mediaType: "image/jpeg" };
   } catch (err) {
     console.error("[chat] Image compression failed, using original:", err);
@@ -126,10 +153,11 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.flushHeaders();
 
-  // Send keepalive pings every 3s to prevent Railway/proxy timeout
+  // Send keepalive pings every 1s to prevent Railway/proxy timeout
+  // (more aggressive than 3s to survive proxy idle-connection culling)
   const keepalive = setInterval(() => {
     try { res.write(": keepalive\n\n"); } catch { /* connection gone */ }
-  }, 3000);
+  }, 1000);
 
   // Track if client disconnected so we still save the response
   let clientDisconnected = false;
@@ -539,10 +567,10 @@ router.get("/reconnect/:conversationId", requireAuth, async (req: AuthRequest, r
     return;
   }
 
-  // Subscribe to live events
+  // Subscribe to live events — keepalive every 1s to match main chat endpoint
   const keepalive = setInterval(() => {
     try { res.write(": keepalive\n\n"); } catch { /* gone */ }
-  }, 5000);
+  }, 1000);
 
   const removeListener = addListener(convId, (event) => {
     try {

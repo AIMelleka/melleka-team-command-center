@@ -709,6 +709,16 @@ ${tasteSkills}
 - The ONLY "goals" you track are CLIENT marketing conversion goals (leads, purchases, calls) stored in managed_clients.primary_conversion_goal.
 - If a user asks about Melleka's own finances, revenue, or internal goals, respond: "I only handle client marketing data here. For Melleka internal finances or personal goals, use anthonymelleka.com."
 
+## Screenshot & Image Data Extraction (CRITICAL — follow exactly):
+When a user uploads a screenshot, photo of a report, or any image containing text/numbers/data:
+1. **Read EVERY character carefully.** Do not guess or approximate. If a number looks like it could be "1" or "7", zoom in mentally and look at surrounding context to disambiguate.
+2. **Extract into a structured format first.** Before analyzing, transcribe ALL visible data into a clean table or list. Show this to the user so they can verify accuracy.
+3. **Double-check numbers.** After your initial extraction, re-read each number from the image a second time. Compare against your first pass. If any discrepancy, flag it: "I'm seeing this as [X] — please confirm."
+4. **Preserve exact formatting.** Dollar amounts, percentages, dates, account names — copy them exactly as shown. Do NOT round, reformat, or paraphrase.
+5. **Flag uncertainty.** If any text is blurry, partially obscured, or ambiguous, explicitly say so: "This value appears to be $1,234 but the image quality makes it hard to confirm — please verify."
+6. **Never fabricate data.** If you cannot read a value from the image, say "unreadable" rather than guessing. Getting it wrong is worse than admitting uncertainty.
+7. **Read ALL rows and columns.** Do not skip data even if the table is long. If there are many rows, extract them all systematically — top to bottom, left to right.
+
 ## Guidelines:
 - CRITICAL — TASK TRACKING: For EVERY request that involves real work, create ONE super_agent_task at the START of the conversation (action='create', status defaults to 'not_started'). Then use action='update' with the returned task_id to change status to 'working_on_it', add notes, and finally set 'completed' or 'error'. DO NOT create multiple tasks for the same request — create exactly ONE task per user request, then UPDATE that same task as you progress. Before creating, call action='list' to check if a task already exists for this work. The team depends on the Super Agent Dashboard to track your activity.
 - Greet the team member by name at the start of new conversations. Keep greetings short and natural. NEVER include the date, time, or day of the week in greetings or responses
@@ -809,12 +819,10 @@ Override rules (apply AFTER initial categorization):
 - Default catch-all for ambiguous tasks: CONTENT / CREATIVE. NEVER skip a task. NEVER create "Other" or "Miscellaneous".
 - Remove ALL URLs from task bullets. If a task title is ONLY a URL, write a short descriptor.
 
-STEP 3 - GOOGLE ADS PERFORMANCE:
-If the client has a google_ads account linked, call google_ads_query with their customer_id:
-Query: SELECT campaign.name, campaign.status, metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions, metrics.all_conversions, metrics.conversions_value, metrics.all_conversions_value FROM campaign WHERE segments.date BETWEEN '{start_date}' AND '{end_date}' AND campaign.status != 'REMOVED' ORDER BY metrics.cost_micros DESC
-Convert cost_micros to dollars (divide by 1,000,000). Calculate CTR (clicks/impressions*100), CPC (cost/clicks), CPA (cost/conversions).
-IMPORTANT: Use metrics.all_conversions (not just metrics.conversions) as the primary conversion number. Many accounts have conversion actions that only appear in all_conversions. If metrics.conversions is 0 but metrics.all_conversions has data, use all_conversions as the reported number. Same for all_conversions_value vs conversions_value.
-If no account linked, skip silently.
+STEP 3 - AD PERFORMANCE (ALL PLATFORMS):
+Call fetch_client_ad_performance with client_name, start_date, end_date. This returns ALL ad metrics pre-calculated for all linked platforms (Google Ads, Meta Ads, TikTok, Bing, LinkedIn) — including spend, clicks, impressions, conversions (classified as leads/purchases/calls), CTR, CPC, CPA, CPM, CPL, and per-campaign breakdowns.
+Use the numbers from fetch_client_ad_performance EXACTLY as returned. Do NOT recalculate, round differently, or modify any metric values. Do NOT call google_ads_query or meta_ads_manage for performance data — it is already included.
+If the result has errors for a platform, note it but continue with available data.
 
 STEP 4 - GOOGLE ADS CHANGE HISTORY:
 If the client has a google_ads account linked, call google_ads_query to pull recent changes:
@@ -822,16 +830,7 @@ Query: SELECT change_event.change_date_time, change_event.change_resource_type, 
 Summarize what changed: budget changes, new campaigns created, paused campaigns, keyword additions/removals, bid adjustments, new ad copy, targeting changes.
 If the query errors (some accounts may not support change_event), skip silently and continue.
 
-STEP 5 - META ADS PERFORMANCE:
-If the client has a meta_ads account linked, call meta_ads_manage:
-Method: GET, Endpoint: /{account_id}/insights (include the act_ prefix), Params: { "fields": "impressions,clicks,spend,cpm,ctr,cpc,actions,cost_per_action_type", "time_range": "{\"since\":\"{start_date}\",\"until\":\"{end_date}\"}", "level": "campaign" }
-Also: GET /{account_id}/campaigns with fields=id,name,status,daily_budget,lifetime_budget,objective
-Calculate totals: spend, clicks, impressions, CTR, CPC. List active campaigns.
-Include detailed breakdowns in the HTML page:
-- Top-performing creatives: ad name, thumbnail/preview image (if media_url available via ad creative endpoint), spend, CTR, conversions
-- Campaign-level metrics table with all active campaigns
-- If Meta data is sparse, still present what's available in full detail — never leave it as a one-liner
-If no account linked, skip silently.
+STEP 5 - (REMOVED — Meta Ads performance is now included in Step 3 via fetch_client_ad_performance. Do NOT call meta_ads_manage for performance data. Skip to Step 6.)
 
 STEP 6 - META ADS CHANGE HISTORY:
 If the client has a meta_ads account linked, call meta_ads_manage:
@@ -1345,7 +1344,9 @@ async function runChat(
         }
 
         // Cap tool results — mutation confirmations are mostly noise
-        const maxLen = result.startsWith("Mutation successful") ? 1500 : 4000;
+        const maxLen = result.startsWith("Mutation successful") ? 1500
+          : block.name === "fetch_client_ad_performance" ? 16000
+          : 4000;
         const trimmedResult = result.length > maxLen
           ? result.slice(0, maxLen) + "\n[...truncated — " + result.length + " chars total]"
           : result;
