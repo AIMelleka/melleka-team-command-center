@@ -205,10 +205,13 @@ async function validateCriticalTokens() {
       continue;
     }
     try {
+      const authHeaders = name === "ANTHROPIC_API_KEY"
+        ? { "x-api-key": token, ...headers }
+        : { Authorization: `Bearer ${token}`, ...headers };
       const res = await fetch(url, {
         method: name === "ANTHROPIC_API_KEY" ? "POST" : "GET",
-        headers: { Authorization: `Bearer ${token}`, ...headers },
-        ...(name === "ANTHROPIC_API_KEY" ? { body: JSON.stringify({ model: "claude-3-haiku-20240307", max_tokens: 1, messages: [{ role: "user", content: "hi" }] }) } : {}),
+        headers: authHeaders,
+        ...(name === "ANTHROPIC_API_KEY" ? { body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 1, messages: [{ role: "user", content: "hi" }] }) } : {}),
       });
       if (res.status === 401 || res.status === 403) {
         console.warn(`\n⚠️  ${name} is INVALID/EXPIRED! Update at ${name === "VERCEL_TOKEN" ? "https://vercel.com/account/tokens" : "https://console.anthropic.com/settings/keys"}\n`);
