@@ -15,6 +15,7 @@ import { getSecret, requireSecret } from "./secrets.js";
 import { listZapierTools, callZapierTool } from "./zapier-mcp.js";
 import { deployToVercel } from "./deployer.js";
 import { makeClientMatcher, generateClientAliases, getClientMatchingRules, isAmbiguousWord, CLIENT_ALIAS_REGISTRY, loadMatchingRegistry } from "./client-matching.js";
+import { fetchClientAdPerformance } from "./ad-metrics.js";
 
 const execAsync = promisify(exec);
 
@@ -2386,6 +2387,20 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ["action"],
     },
   },
+  {
+    name: "fetch_client_ad_performance",
+    description:
+      "Fetch pre-computed ad performance metrics from Supermetrics for a client. Returns spend, clicks, impressions, conversions (classified as leads/purchases/calls), CTR, CPC, CPA, CPM, CPL — per platform and per campaign. All calculations are done server-side. Use this instead of google_ads_query or meta_ads_manage for performance data in client updates.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        client_name: { type: "string", description: "Client name (as it appears in managed_clients)." },
+        start_date: { type: "string", description: "Start date in YYYY-MM-DD format." },
+        end_date: { type: "string", description: "End date in YYYY-MM-DD format." },
+      },
+      required: ["client_name", "start_date", "end_date"],
+    },
+  },
 ];
 
 /** Refresh a Canva OAuth access token and update the DB */
@@ -2867,7 +2882,7 @@ export async function executeTool(
         }
         const results = data.results ?? [];
         if (results.length === 0) return "Query returned no results.";
-        return JSON.stringify(results, null, 2).slice(0, 12000);
+        return JSON.stringify(results, null, 2).slice(0, 50000);
       }
 
       case "list_google_ads_accounts": {
@@ -2939,7 +2954,7 @@ export async function executeTool(
           return `Supermetrics API error (${resp.status}): ${JSON.stringify(data).slice(0, 3000)}`;
         }
         const result = JSON.stringify(data, null, 2);
-        return result.length > 12000 ? result.slice(0, 12000) + "\n[...truncated]" : result;
+        return result.length > 50000 ? result.slice(0, 50000) + "\n[...truncated]" : result;
       }
 
       case "supermetrics_accounts": {
@@ -2977,7 +2992,7 @@ export async function executeTool(
         if (error) return `Supabase query error: ${error.message}`;
         if (!data || (data as unknown[]).length === 0) return "Query returned no results.";
         const result = JSON.stringify(data, null, 2);
-        return result.length > 12000 ? result.slice(0, 12000) + "\n[...truncated]" : result;
+        return result.length > 50000 ? result.slice(0, 50000) + "\n[...truncated]" : result;
       }
 
       case "supabase_insert": {
@@ -3769,7 +3784,7 @@ export async function executeTool(
             const data = await resp.json();
             if (!resp.ok) return formatMetaError(resp.status, data);
             const resultStr = JSON.stringify(data, null, 2);
-            return resultStr.length > 8000 ? resultStr.slice(0, 8000) + "\n[...truncated]" : resultStr;
+            return resultStr.length > 50000 ? resultStr.slice(0, 50000) + "\n[...truncated]" : resultStr;
           } else if (method === "POST") {
             const resp = await fetch(`${baseUrl}${endpoint}`, {
               method: "POST",
@@ -6602,6 +6617,17 @@ export async function executeTool(
         } catch (err: any) {
           return `GHL Admin error (${clientName}): ${err.message}`;
         }
+      }
+
+      case "fetch_client_ad_performance": {
+        const clientName = toolInput.client_name as string;
+        const startDate = toolInput.start_date as string;
+        const endDate = toolInput.end_date as string;
+        if (!clientName || !startDate || !endDate) {
+          return "Error: client_name, start_date, and end_date are all required.";
+        }
+        const adResult = await fetchClientAdPerformance(clientName, startDate, endDate);
+        return JSON.stringify(adResult, null, 2);
       }
 
       default:
