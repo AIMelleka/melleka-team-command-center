@@ -895,7 +895,7 @@ If the result has errors for a platform, note it but continue with available dat
 
 STEP 4 - GOOGLE ADS CHANGE HISTORY:
 If the client has a google_ads account linked, call google_ads_query to pull recent changes:
-Query: SELECT change_event.change_date_time, change_event.change_resource_type, change_event.resource_change_operation, change_event.user_email, change_event.client_type, change_event.old_resource, change_event.new_resource, campaign.name FROM change_event WHERE change_event.change_date_time >= '{start_date}' AND change_event.change_date_time <= '{end_date}' ORDER BY change_event.change_date_time DESC LIMIT 500
+Query: SELECT change_event.change_date_time, change_event.change_resource_type, change_event.resource_change_operation, change_event.user_email, change_event.client_type, change_event.old_resource, change_event.new_resource, campaign.name FROM change_event WHERE change_event.change_date_time >= '{start_date}' AND change_event.change_date_time <= '{end_date}' ORDER BY change_event.change_date_time DESC LIMIT 100000
 CRITICAL RULES FOR CHANGE HISTORY — READ CAREFULLY:
 - List EVERY SINGLE change as its own bullet. NEVER summarize, group, combine, or skip changes.
 - NEVER paraphrase. Show the ACTUAL data from old_resource and new_resource fields.
@@ -910,7 +910,7 @@ CRITICAL RULES FOR CHANGE HISTORY — READ CAREFULLY:
 - If old_resource or new_resource contains detailed JSON, PARSE it and show the human-readable values.
 - NEVER use vague language like "targeting adjustments applied", "criteria updated", or "changes made". Always show WHAT specifically changed.
 - The client is paying us for this work — they need to see EVERY detail of what we did.
-- If there are more than 500 changes, note "Showing first 500 changes" and still list all 500.
+- Include ALL changes no matter how many there are. Never truncate.
 If the query errors (some accounts may not support change_event), skip silently and continue.
 
 STEP 4B - GOOGLE ADS KEYWORD PERFORMANCE:
