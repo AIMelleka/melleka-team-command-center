@@ -132,15 +132,17 @@ async function fetchMetaInsights(
   const rows: MetaCampaignRow[] = [];
   const fields = "campaign_name,impressions,clicks,spend,actions,reach,frequency";
   const timeRange = JSON.stringify({ since: startDate, until: endDate });
-  // Use 7-day click + 1-day view attribution to match Ads Manager defaults
-  const attributionSetting = encodeURIComponent(JSON.stringify(["7d_click", "1d_view"]));
 
   // Ensure account ID has act_ prefix
   const actId = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
 
+  // Do NOT specify action_attribution_windows — let Meta use the account's default
+  // attribution setting, which matches what Ads Manager displays. Specifying multiple
+  // windows (e.g. 7d_click + 1d_view) causes conversions to be summed across windows,
+  // inflating the count (e.g. 402 real leads → 840 reported).
   let url: string | null =
     `https://graph.facebook.com/${META_API_VERSION}/${actId}/insights` +
-    `?fields=${fields}&level=campaign&time_range=${encodeURIComponent(timeRange)}&action_attribution_windows=${attributionSetting}&limit=5000&access_token=${token}`;
+    `?fields=${fields}&level=campaign&time_range=${encodeURIComponent(timeRange)}&limit=5000&access_token=${token}`;
 
   while (url) {
     const resp = await fetch(url);
