@@ -2872,17 +2872,28 @@ export async function executeTool(
         };
         if (loginCustomerId) headers["login-customer-id"] = loginCustomerId.replace(/-/g, "");
 
+        // Use searchStream to get ALL results without pagination limits
         const resp = await fetch(
-          `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${customerId}/googleAds:search`,
+          `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${customerId}/googleAds:searchStream`,
           { method: "POST", headers, body: JSON.stringify({ query }) }
         );
-        const data = await resp.json() as { results?: unknown[]; error?: unknown };
+        const data = await resp.json() as Array<{ results?: unknown[] }> | { error?: unknown };
         if (!resp.ok) {
           return `Google Ads API error (${resp.status}): ${JSON.stringify(data).slice(0, 3000)}`;
         }
-        const results = data.results ?? [];
-        if (results.length === 0) return "Query returned no results.";
-        return JSON.stringify(results, null, 2).slice(0, 50000);
+        // searchStream returns array of batches
+        const allResults: unknown[] = [];
+        if (Array.isArray(data)) {
+          for (const batch of data) {
+            if (batch.results) allResults.push(...batch.results);
+          }
+        }
+        if (allResults.length === 0) return "Query returned no results.";
+        const output = JSON.stringify(allResults, null, 2);
+        if (output.length > 200000) {
+          return `${output.slice(0, 200000)}\n\n... [${allResults.length} total results, output truncated at 200KB]`;
+        }
+        return output;
       }
 
       case "list_google_ads_accounts": {
