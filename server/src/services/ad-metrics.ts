@@ -347,8 +347,9 @@ async function fetchGoogleAdsConversionBreakdown(
   const cleanCustomerId = customerId.replace(/-/g, "");
 
   // Only include PRIMARY conversion actions (those marked "Include in Conversions")
-  // to match what Google Ads UI shows in the Conversions column
-  const query = `SELECT conversion_action.name, metrics.conversions FROM conversion_action WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' AND conversion_action.primary_for_goal != 'NONE'`;
+  // to match what Google Ads UI shows in the Conversions column.
+  // primary_for_goal is a boolean: TRUE = primary (included in Conversions column), FALSE = secondary
+  const query = `SELECT conversion_action.name, metrics.conversions FROM conversion_action WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' AND conversion_action.primary_for_goal = TRUE`;
 
   const resp = await fetch(
     `https://googleads.googleapis.com/v18/customers/${cleanCustomerId}/googleAds:searchStream`,
