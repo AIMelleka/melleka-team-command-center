@@ -132,13 +132,15 @@ async function fetchMetaInsights(
   const rows: MetaCampaignRow[] = [];
   const fields = "campaign_name,impressions,clicks,spend,actions,reach,frequency";
   const timeRange = JSON.stringify({ since: startDate, until: endDate });
+  // Use 7-day click + 1-day view attribution to match Ads Manager defaults
+  const attributionSetting = encodeURIComponent(JSON.stringify(["7d_click", "1d_view"]));
 
   // Ensure account ID has act_ prefix
   const actId = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
 
   let url: string | null =
     `https://graph.facebook.com/${META_API_VERSION}/${actId}/insights` +
-    `?fields=${fields}&level=campaign&time_range=${encodeURIComponent(timeRange)}&limit=5000&access_token=${token}`;
+    `?fields=${fields}&level=campaign&time_range=${encodeURIComponent(timeRange)}&action_attribution_windows=${attributionSetting}&limit=5000&access_token=${token}`;
 
   while (url) {
     const resp = await fetch(url);
@@ -173,16 +175,36 @@ async function fetchMetaInsights(
             const t = action.action_type;
             const val = parseFloat(action.value) || 0;
 
-            // Leads
-            if (t === "lead" || t === "offsite_conversion.fb_pixel_lead" || t === "onsite_conversion.lead_grouped") {
+            // Leads (all lead-type actions)
+            if (
+              t === "lead" ||
+              t === "offsite_conversion.fb_pixel_lead" ||
+              t === "onsite_conversion.lead_grouped" ||
+              t === "onsite_conversion.leadgen_grouped" ||
+              t === "offsite_conversion.fb_pixel_complete_registration" ||
+              t === "complete_registration" ||
+              t === "contact" ||
+              t === "submit_application" ||
+              t === "offsite_conversion.fb_pixel_submit_application" ||
+              t === "onsite_conversion.messaging_conversation_started_7d"
+            ) {
               leads += val;
             }
-            // Purchases
-            else if (t === "purchase" || t === "offsite_conversion.fb_pixel_purchase") {
+            // Purchases (actual purchase/transaction events only)
+            else if (
+              t === "purchase" ||
+              t === "omni_purchase" ||
+              t === "offsite_conversion.fb_pixel_purchase" ||
+              t === "onsite_web_purchase" ||
+              t === "onsite_conversion.purchase"
+            ) {
               purchases += val;
             }
             // Calls
-            else if (t === "onsite_conversion.call_confirm") {
+            else if (
+              t === "onsite_conversion.call_confirm" ||
+              t === "phone_call"
+            ) {
               calls += val;
             }
           }
