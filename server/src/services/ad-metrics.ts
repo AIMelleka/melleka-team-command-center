@@ -171,43 +171,49 @@ async function fetchMetaInsights(
         let leads = 0, purchases = 0, calls = 0;
 
         if (row.actions) {
-          for (const action of row.actions) {
-            const t = action.action_type;
-            const val = parseFloat(action.value) || 0;
+          // Meta returns overlapping action types — "lead" is the AGGREGATE of
+          // "onsite_conversion.lead_grouped" + "offsite_conversion.fb_pixel_lead".
+          // Same for "purchase" vs its subtypes. We must NOT double-count.
+          // Strategy: prefer aggregate type; only use specifics if aggregate is absent.
 
-            // Leads (all lead-type actions)
-            if (
-              t === "lead" ||
-              t === "offsite_conversion.fb_pixel_lead" ||
-              t === "onsite_conversion.lead_grouped" ||
-              t === "onsite_conversion.leadgen_grouped" ||
-              t === "offsite_conversion.fb_pixel_complete_registration" ||
-              t === "complete_registration" ||
-              t === "contact" ||
-              t === "submit_application" ||
-              t === "offsite_conversion.fb_pixel_submit_application" ||
-              t === "onsite_conversion.messaging_conversation_started_7d"
-            ) {
-              leads += val;
-            }
-            // Purchases (actual purchase/transaction events only)
-            else if (
-              t === "purchase" ||
-              t === "omni_purchase" ||
-              t === "offsite_conversion.fb_pixel_purchase" ||
-              t === "onsite_web_purchase" ||
-              t === "onsite_conversion.purchase"
-            ) {
-              purchases += val;
-            }
-            // Calls
-            else if (
-              t === "onsite_conversion.call_confirm" ||
-              t === "phone_call"
-            ) {
-              calls += val;
-            }
+          // First pass: collect all action values by type
+          const actionMap: Record<string, number> = {};
+          for (const action of row.actions) {
+            actionMap[action.action_type] = (actionMap[action.action_type] || 0) + (parseFloat(action.value) || 0);
           }
+
+          // Leads: prefer "lead" aggregate; fall back to specifics
+          if (actionMap["lead"]) {
+            leads = actionMap["lead"];
+          } else {
+            leads =
+              (actionMap["offsite_conversion.fb_pixel_lead"] || 0) +
+              (actionMap["onsite_conversion.lead_grouped"] || 0) +
+              (actionMap["onsite_conversion.leadgen_grouped"] || 0) +
+              (actionMap["offsite_conversion.fb_pixel_complete_registration"] || 0) +
+              (actionMap["complete_registration"] || 0) +
+              (actionMap["contact"] || 0) +
+              (actionMap["submit_application"] || 0) +
+              (actionMap["offsite_conversion.fb_pixel_submit_application"] || 0) +
+              (actionMap["onsite_conversion.messaging_conversation_started_7d"] || 0);
+          }
+
+          // Purchases: prefer "purchase" or "omni_purchase" aggregate; fall back to specifics
+          if (actionMap["purchase"]) {
+            purchases = actionMap["purchase"];
+          } else if (actionMap["omni_purchase"]) {
+            purchases = actionMap["omni_purchase"];
+          } else {
+            purchases =
+              (actionMap["offsite_conversion.fb_pixel_purchase"] || 0) +
+              (actionMap["onsite_web_purchase"] || 0) +
+              (actionMap["onsite_conversion.purchase"] || 0);
+          }
+
+          // Calls: no aggregate exists, sum all call types
+          calls =
+            (actionMap["onsite_conversion.call_confirm"] || 0) +
+            (actionMap["phone_call"] || 0);
         }
 
         rows.push({
