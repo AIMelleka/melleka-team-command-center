@@ -896,8 +896,21 @@ If the result has errors for a platform, note it but continue with available dat
 STEP 4 - GOOGLE ADS CHANGE HISTORY:
 If the client has a google_ads account linked, call google_ads_query to pull recent changes:
 Query: SELECT change_event.change_date_time, change_event.change_resource_type, change_event.resource_change_operation, change_event.user_email, change_event.client_type, change_event.old_resource, change_event.new_resource, campaign.name FROM change_event WHERE change_event.change_date_time >= '{start_date}' AND change_event.change_date_time <= '{end_date}' ORDER BY change_event.change_date_time DESC LIMIT 50
-Summarize what changed: budget changes, new campaigns created, paused campaigns, keyword additions/removals, bid adjustments, new ad copy, targeting changes.
+List EVERY SINGLE change individually. Do NOT summarize or group changes. Each change must be its own bullet with:
+- Date/time of the change
+- What was changed (campaign name, keyword, budget, ad copy, etc.)
+- The old value → new value (e.g., "Budget: $50/day → $75/day", "Status: ENABLED → PAUSED")
 If the query errors (some accounts may not support change_event), skip silently and continue.
+
+STEP 4B - GOOGLE ADS KEYWORD PERFORMANCE:
+If the client has a google_ads account linked, call google_ads_query to pull keyword performance:
+Query: SELECT ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.ctr, metrics.average_cpc FROM keyword_view WHERE segments.date BETWEEN '{start_date}' AND '{end_date}' AND metrics.impressions > 0 ORDER BY metrics.cost_micros DESC LIMIT 30
+Include in the report:
+- Top performing keywords (highest clicks/conversions)
+- Keywords with high spend but low CTR (potential waste)
+- New keywords added during the period (from change history)
+Report each keyword with its campaign, match type, clicks, impressions, CTR, CPC, and spend.
+If the query errors, skip silently and continue.
 
 STEP 5 - (REMOVED — Meta Ads performance is now included in Step 3 via fetch_client_ad_performance. Do NOT call meta_ads_manage for performance data. Skip to Step 6.)
 
@@ -905,7 +918,10 @@ STEP 6 - META ADS CHANGE HISTORY:
 If the client has a meta_ads account linked, call meta_ads_manage:
 Method: GET, Endpoint: /{account_id}/activities, Params: { "fields": "event_time,event_type,extra_data,object_id,object_name" }
 Note: the activities endpoint uses UNIX timestamps for filtering if needed.
-Summarize what changed: campaign status changes, budget modifications, new ads created, targeting updates, bid strategy changes.
+List EVERY SINGLE change individually. Do NOT summarize or group changes. Each change must be its own bullet with:
+- Date/time of the change
+- What was changed (campaign name, ad set, budget, targeting, status, etc.)
+- The specific change made (e.g., "Daily budget: $30 → $50", "Status: Active → Paused", "New ad created: [ad name]")
 If the endpoint returns errors or no data, skip silently.
 
 STEP 7 - SOCIAL MEDIA POSTS:
