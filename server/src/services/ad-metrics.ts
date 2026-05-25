@@ -9,6 +9,7 @@
 
 import { requireSecret, getSecret } from "./secrets.js";
 import { supabase } from "./supabase.js";
+import { loadMatchingRegistry, getClientMatchingRules, isAmbiguousWord } from "./client-matching.js";
 
 const META_API_VERSION = process.env.META_API_VERSION || "v21.0";
 const SUPERMETRICS_API_URL = "https://api.supermetrics.com/enterprise/v2";
@@ -752,28 +753,90 @@ export async function fetchClientAdPerformance(
 ): Promise<AdPerformanceResult> {
   const errors: string[] = [];
 
-  // 1. Look up linked accounts from client_account_mappings
-  const { data: mappings, error: mapErr } = await supabase
-    .from("client_account_mappings")
-    .select("platform, account_id, account_name")
-    .ilike("client_name", clientName);
+  // 1. Resolve client name via managed_clients + registry (same logic as get_client_accounts)
+  const registry = await loadMatchingRegistry();
+  const search = clientName.toLowerCase().trim();
 
-  if (mapErr) {
-    errors.push(`Error querying client_account_mappings: ${mapErr.message}`);
+  const { data: allClients, error: clientErr } = await supabase
+    .from("managed_clients")
+    .select("client_name")
+    .eq("is_active", true);
+
+  if (clientErr) {
+    errors.push(`Error querying managed_clients: ${clientErr.message}`);
   }
 
-  // Also try fuzzy match if exact match found nothing
-  let effectiveMappings = mappings || [];
-  if (effectiveMappings.length === 0) {
-    const { data: allMappings } = await supabase
+  let resolvedNames: string[] = [];
+  if (allClients && allClients.length > 0) {
+    // Strategy 0: Registry aliases
+    const registryRules = getClientMatchingRules(clientName, registry);
+    if (registryRules) {
+      resolvedNames = allClients
+        .filter(c => {
+          const nameLower = c.client_name.toLowerCase();
+          if (registryRules.excludePatterns.some(ep => nameLower.includes(ep.toLowerCase()))) return false;
+          return registryRules.aliases.some(alias => nameLower.includes(alias.toLowerCase()) || alias.toLowerCase().includes(nameLower));
+        })
+        .map(c => c.client_name);
+    }
+    // Strategy 1: Exact match
+    if (resolvedNames.length === 0) {
+      resolvedNames = allClients.filter(c => c.client_name.toLowerCase() === search).map(c => c.client_name);
+    }
+    // Strategy 2: DB name contains search term
+    if (resolvedNames.length === 0) {
+      resolvedNames = allClients.filter(c => c.client_name.toLowerCase().includes(search)).map(c => c.client_name);
+    }
+    // Strategy 3: Search term contains DB name
+    if (resolvedNames.length === 0) {
+      resolvedNames = allClients.filter(c => search.includes(c.client_name.toLowerCase())).map(c => c.client_name);
+    }
+    // Strategy 4: Word overlap (filter ambiguous words)
+    if (resolvedNames.length === 0) {
+      const searchWords = search.split(/[\s\-_]+/).filter(Boolean).filter(w => !isAmbiguousWord(w));
+      if (searchWords.length > 0) {
+        resolvedNames = allClients.filter(c => {
+          const nameWords = c.client_name.toLowerCase().split(/[\s\-_]+/).filter(Boolean);
+          return searchWords.some((sw: string) => nameWords.some((nw: string) => nw.includes(sw) || sw.includes(nw)));
+        }).map(c => c.client_name);
+      }
+    }
+  }
+
+  if (resolvedNames.length > 0) {
+    console.log(`[ad-metrics] Resolved "${clientName}" -> ${resolvedNames.join(", ")}`);
+  }
+
+  // 2. Look up linked accounts using resolved names (or fall back to raw clientName)
+  let effectiveMappings: Array<{ platform: string; account_id: string; account_name: string | null }> = [];
+
+  if (resolvedNames.length > 0) {
+    const { data: mappings, error: mapErr } = await supabase
       .from("client_account_mappings")
-      .select("client_name, platform, account_id, account_name");
-    if (allMappings) {
-      const search = clientName.toLowerCase().trim();
-      effectiveMappings = allMappings.filter(m =>
-        m.client_name.toLowerCase().includes(search) ||
-        search.includes(m.client_name.toLowerCase())
-      );
+      .select("platform, account_id, account_name")
+      .in("client_name", resolvedNames);
+    if (mapErr) errors.push(`Error querying client_account_mappings: ${mapErr.message}`);
+    effectiveMappings = (mappings || []) as typeof effectiveMappings;
+  }
+
+  // Fall back to direct ilike + fuzzy if registry resolution found nothing
+  if (effectiveMappings.length === 0) {
+    const { data: ilikeMappings } = await supabase
+      .from("client_account_mappings")
+      .select("platform, account_id, account_name")
+      .ilike("client_name", clientName);
+    effectiveMappings = (ilikeMappings || []) as typeof effectiveMappings;
+
+    if (effectiveMappings.length === 0) {
+      const { data: allMappings } = await supabase
+        .from("client_account_mappings")
+        .select("client_name, platform, account_id, account_name");
+      if (allMappings) {
+        effectiveMappings = allMappings.filter(m =>
+          m.client_name.toLowerCase().includes(search) ||
+          search.includes(m.client_name.toLowerCase())
+        ) as typeof effectiveMappings;
+      }
     }
   }
 
