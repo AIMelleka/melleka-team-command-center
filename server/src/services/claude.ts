@@ -895,11 +895,22 @@ If the result has errors for a platform, note it but continue with available dat
 
 STEP 4 - GOOGLE ADS CHANGE HISTORY:
 If the client has a google_ads account linked, call google_ads_query to pull recent changes:
-Query: SELECT change_event.change_date_time, change_event.change_resource_type, change_event.resource_change_operation, change_event.user_email, change_event.client_type, change_event.old_resource, change_event.new_resource, campaign.name FROM change_event WHERE change_event.change_date_time >= '{start_date}' AND change_event.change_date_time <= '{end_date}' ORDER BY change_event.change_date_time DESC LIMIT 50
-List EVERY SINGLE change individually. Do NOT summarize or group changes. Each change must be its own bullet with:
-- Date/time of the change
-- What was changed (campaign name, keyword, budget, ad copy, etc.)
-- The old value → new value (e.g., "Budget: $50/day → $75/day", "Status: ENABLED → PAUSED")
+Query: SELECT change_event.change_date_time, change_event.change_resource_type, change_event.resource_change_operation, change_event.user_email, change_event.client_type, change_event.old_resource, change_event.new_resource, campaign.name FROM change_event WHERE change_event.change_date_time >= '{start_date}' AND change_event.change_date_time <= '{end_date}' ORDER BY change_event.change_date_time DESC LIMIT 500
+CRITICAL RULES FOR CHANGE HISTORY — READ CAREFULLY:
+- List EVERY SINGLE change as its own bullet. NEVER summarize, group, combine, or skip changes.
+- NEVER paraphrase. Show the ACTUAL data from old_resource and new_resource fields.
+- For EACH change, extract and show the SPECIFIC details from old_resource/new_resource JSON:
+  * Budget changes: show exact dollar amounts old → new (convert micros to dollars: divide by 1,000,000)
+  * Status changes: show "ENABLED → PAUSED" or "PAUSED → ENABLED"
+  * Keyword changes: show the exact keyword text, match type, and whether added/removed/modified
+  * Bid changes: show exact bid amounts old → new
+  * Ad copy changes: show the old headline/description → new headline/description
+  * Targeting changes: show what targeting was added/removed (locations, audiences, demographics)
+  * Campaign criteria: show the SPECIFIC criterion (keyword, placement, location, etc.) — NEVER say "targeting adjustments applied"
+- If old_resource or new_resource contains detailed JSON, PARSE it and show the human-readable values.
+- NEVER use vague language like "targeting adjustments applied", "criteria updated", or "changes made". Always show WHAT specifically changed.
+- The client is paying us for this work — they need to see EVERY detail of what we did.
+- If there are more than 500 changes, note "Showing first 500 changes" and still list all 500.
 If the query errors (some accounts may not support change_event), skip silently and continue.
 
 STEP 4B - GOOGLE ADS KEYWORD PERFORMANCE:
@@ -918,10 +929,17 @@ STEP 6 - META ADS CHANGE HISTORY:
 If the client has a meta_ads account linked, call meta_ads_manage:
 Method: GET, Endpoint: /{account_id}/activities, Params: { "fields": "event_time,event_type,extra_data,object_id,object_name" }
 Note: the activities endpoint uses UNIX timestamps for filtering if needed.
-List EVERY SINGLE change individually. Do NOT summarize or group changes. Each change must be its own bullet with:
-- Date/time of the change
-- What was changed (campaign name, ad set, budget, targeting, status, etc.)
-- The specific change made (e.g., "Daily budget: $30 → $50", "Status: Active → Paused", "New ad created: [ad name]")
+CRITICAL RULES — same as Step 4:
+- List EVERY SINGLE change as its own bullet. NEVER summarize, group, or skip.
+- NEVER paraphrase. Show the ACTUAL data from the extra_data field.
+- For EACH change, parse extra_data JSON and show SPECIFIC details:
+  * Budget changes: exact dollar amounts old → new
+  * Status changes: exact status old → new
+  * Targeting changes: what audiences/locations/demographics were added/removed
+  * New ads/ad sets: show the name and key settings
+  * Bid strategy changes: show old → new strategy
+- NEVER use vague language like "adjustments applied" or "updates made".
+- The client needs to see EVERY detail of what we did for them.
 If the endpoint returns errors or no data, skip silently.
 
 STEP 7 - SOCIAL MEDIA POSTS:
