@@ -339,14 +339,16 @@ async function fetchGoogleAdsCampaigns(
   return { rows };
 }
 
-/** Fetch conversion action breakdown via GAQL */
+/** Fetch conversion action breakdown via GAQL (primary conversions only) */
 async function fetchGoogleAdsConversionBreakdown(
   accessToken: string, customerId: string, startDate: string, endDate: string,
 ): Promise<{ leads: number; purchases: number; calls: number } | null> {
   const headers = await buildGoogleAdsHeaders(accessToken);
   const cleanCustomerId = customerId.replace(/-/g, "");
 
-  const query = `SELECT conversion_action.name, metrics.conversions FROM conversion_action WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'`;
+  // Only include PRIMARY conversion actions (those marked "Include in Conversions")
+  // to match what Google Ads UI shows in the Conversions column
+  const query = `SELECT conversion_action.name, metrics.conversions FROM conversion_action WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' AND conversion_action.primary_for_goal != 'NONE'`;
 
   const resp = await fetch(
     `https://googleads.googleapis.com/v18/customers/${cleanCustomerId}/googleAds:searchStream`,
@@ -495,9 +497,19 @@ function buildGoogleSummary(
 
   let leads = 0, purchases = 0, calls = 0;
   if (convBreakdown) {
-    leads = convBreakdown.leads;
-    purchases = convBreakdown.purchases;
-    calls = convBreakdown.calls;
+    // Safety: breakdown total must not exceed campaign-level conversions
+    // (campaign-level metrics.conversions is the source of truth from Google Ads UI)
+    const breakdownTotal = convBreakdown.leads + convBreakdown.purchases + convBreakdown.calls;
+    if (breakdownTotal > 0 && conversions > 0) {
+      // Scale breakdown proportionally if it exceeds campaign total (shouldn't happen with primary filter, but guard against it)
+      const scale = breakdownTotal > conversions ? conversions / breakdownTotal : 1;
+      leads = convBreakdown.leads * scale;
+      purchases = convBreakdown.purchases * scale;
+      calls = convBreakdown.calls * scale;
+    } else if (conversions > 0) {
+      leads = conversions; // breakdown returned 0 but campaigns have conversions — default to leads
+    }
+    // If conversions is 0, leads/purchases/calls stay at 0 regardless of breakdown
   } else {
     leads = conversions; // default all to leads if no breakdown
   }
