@@ -890,6 +890,7 @@ STEP 3 - AD PERFORMANCE (ALL PLATFORMS):
 Call fetch_client_ad_performance with client_name, start_date, end_date. This returns ALL ad metrics pre-calculated for all linked platforms (Google Ads, Meta Ads, TikTok, Bing, LinkedIn) — including spend, clicks, impressions, conversions (classified as leads/purchases/calls), CTR, CPC, CPA, CPM, CPL, and per-campaign breakdowns.
 Use the numbers from fetch_client_ad_performance EXACTLY as returned. Do NOT recalculate, round differently, or modify any metric values. Do NOT call google_ads_query or meta_ads_manage for performance data — it is already included.
 IMPORTANT: The ONLY fields returned are: spend, clicks, impressions, conversions, leads, purchases, calls, ctr, cpc, cpa, cpm, cpl, reach (optional). There is NO revenue field. Do NOT report revenue, ROAS, or sales value — these do not exist in the data.
+CONVERSIONS REPORTING RULE: NEVER report a lumped "Total Conversions" or "All Conversions" number. ALWAYS break down conversions into their specific types: X leads, Y purchases, Z calls. Report each type separately. If all three are 0, say "0 conversions" — do NOT use the raw "conversions" field as a standalone number since it can be inflated by attribution models. The breakdown (leads + purchases + calls) is the source of truth.
 If the result has errors for a platform, note it but continue with available data. Do NOT fabricate data for platforms that errored.
 
 STEP 4 - GOOGLE ADS CHANGE HISTORY:
@@ -996,6 +997,7 @@ Scan your entire output for these terms. If found, DELETE the entire sentence/st
 - "Revenue" or "Revenue Generated" (not returned by any tool)
 - "ROAS" or "Return on Ad Spend" (not returned by any tool)
 - "Sales Value" or "Conversion Value" (not returned by any tool)
+- "All Conversions" or "Total Conversions" as a single number (always break into leads/purchases/calls)
 - Any dollar amount that is not "spend", "cpc", "cpa", "cpm", or "cpl"
 - Any percentage that is not "ctr"
 

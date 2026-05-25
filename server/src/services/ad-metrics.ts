@@ -486,33 +486,26 @@ function buildGoogleSummary(
   rows: GoogleCampaignRow[],
   convBreakdown?: { leads: number; purchases: number; calls: number } | null,
 ): SummaryMetrics {
-  let impressions = 0, clicks = 0, spend = 0, conversions = 0;
+  let impressions = 0, clicks = 0, spend = 0;
 
   for (const row of rows) {
     impressions += row.impressions;
     clicks += row.clicks;
     spend += row.spend;
-    conversions += row.conversions;
   }
 
+  // ONLY use the conversion breakdown (primary actions) for conversion numbers.
+  // Do NOT use campaign-level metrics.conversions — it over-counts due to
+  // daily segmentation + data-driven attribution credit splitting.
   let leads = 0, purchases = 0, calls = 0;
   if (convBreakdown) {
-    // Safety: breakdown total must not exceed campaign-level conversions
-    // (campaign-level metrics.conversions is the source of truth from Google Ads UI)
-    const breakdownTotal = convBreakdown.leads + convBreakdown.purchases + convBreakdown.calls;
-    if (breakdownTotal > 0 && conversions > 0) {
-      // Scale breakdown proportionally if it exceeds campaign total (shouldn't happen with primary filter, but guard against it)
-      const scale = breakdownTotal > conversions ? conversions / breakdownTotal : 1;
-      leads = convBreakdown.leads * scale;
-      purchases = convBreakdown.purchases * scale;
-      calls = convBreakdown.calls * scale;
-    } else if (conversions > 0) {
-      leads = conversions; // breakdown returned 0 but campaigns have conversions — default to leads
-    }
-    // If conversions is 0, leads/purchases/calls stay at 0 regardless of breakdown
-  } else {
-    leads = conversions; // default all to leads if no breakdown
+    leads = convBreakdown.leads;
+    purchases = convBreakdown.purchases;
+    calls = convBreakdown.calls;
   }
+  // If breakdown failed/null, leave conversions at 0 rather than guessing
+
+  const conversions = leads + purchases + calls;
 
   return {
     spend: round2(spend),
@@ -535,44 +528,43 @@ function buildGoogleCampaigns(
   rows: GoogleCampaignRow[],
   convBreakdown?: { leads: number; purchases: number; calls: number } | null,
 ): CampaignMetrics[] {
-  const campMap: Record<string, { impressions: number; clicks: number; spend: number; conversions: number }> = {};
+  const campMap: Record<string, { impressions: number; clicks: number; spend: number }> = {};
 
   for (const row of rows) {
     if (!row.campaign) continue;
-    if (!campMap[row.campaign]) campMap[row.campaign] = { impressions: 0, clicks: 0, spend: 0, conversions: 0 };
+    if (!campMap[row.campaign]) campMap[row.campaign] = { impressions: 0, clicks: 0, spend: 0 };
     campMap[row.campaign].impressions += row.impressions;
     campMap[row.campaign].clicks += row.clicks;
     campMap[row.campaign].spend += row.spend;
-    campMap[row.campaign].conversions += row.conversions;
   }
 
-  // Distribute conversion breakdown proportionally across campaigns
-  const totalConv = Object.values(campMap).reduce((s, v) => s + v.conversions, 0);
+  // Conversion breakdown is account-level only — distribute proportionally by spend
+  const totalSpend = Object.values(campMap).reduce((s, v) => s + v.spend, 0);
 
   return Object.entries(campMap)
     .filter(([_, v]) => v.spend > 0 || v.clicks > 0)
     .map(([name, v]) => {
-      const convShare = totalConv > 0 ? v.conversions / totalConv : 0;
+      // Distribute breakdown proportionally by spend share
+      const spendShare = totalSpend > 0 ? v.spend / totalSpend : 0;
       let leads = 0, purchases = 0, calls = 0;
       if (convBreakdown) {
-        leads = round2(convBreakdown.leads * convShare);
-        purchases = round2(convBreakdown.purchases * convShare);
-        calls = round2(convBreakdown.calls * convShare);
-      } else {
-        leads = v.conversions;
+        leads = round2(convBreakdown.leads * spendShare);
+        purchases = round2(convBreakdown.purchases * spendShare);
+        calls = round2(convBreakdown.calls * spendShare);
       }
+      const conversions = leads + purchases + calls;
       return {
         name,
         spend: round2(v.spend),
         impressions: v.impressions,
         clicks: v.clicks,
-        conversions: round2(v.conversions),
+        conversions,
         leads,
         purchases,
         calls,
         ctr: v.impressions > 0 ? round2((v.clicks / v.impressions) * 100) : 0,
         cpc: v.clicks > 0 ? round2(v.spend / v.clicks) : 0,
-        cpa: v.conversions > 0 ? round2(v.spend / v.conversions) : 0,
+        cpa: conversions > 0 ? round2(v.spend / conversions) : 0,
       };
     })
     .sort((a, b) => b.spend - a.spend);
