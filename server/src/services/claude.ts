@@ -977,14 +977,42 @@ When generating for live chat (not a cron job or scheduled task):
 5. Do NOT call deploy_site. Instead, use write_file to save the complete HTML to \`${scratchDir}/client-update.html\`. The server will automatically detect the .html file and send it to the frontend as a preview with edit and publish options. Do NOT output the HTML code in the chat text — only save it via write_file.
 
 STEP 8.5 - FINAL DATA AUDIT (MANDATORY — DO NOT SKIP):
-Before saving the HTML or outputting any text, perform a final line-by-line audit:
-1. Re-read the raw JSON from fetch_client_ad_performance (scroll back in conversation if needed)
-2. For EVERY number in your HTML and text output, confirm it matches the tool response EXACTLY
-3. If you included "Revenue" or "Revenue Generated" anywhere — DELETE IT unless a tool explicitly returned revenue data
-4. If you included any metric for a platform that returned an error — DELETE that entire platform section
-5. Verify no campaign names were misspelled or fabricated
-6. Verify the date range in the header matches what was requested
-If anything fails this audit, fix it before proceeding. This step exists because past updates contained hallucinated revenue figures that damaged client trust.
+Before saving the HTML or outputting any text, perform ALL of these verification passes:
+
+PASS 1 — EXACT NUMBER MATCH:
+Go through EVERY number in your output and find the EXACT matching field in the fetch_client_ad_performance JSON response:
+- Spend → must match "spend" field exactly
+- Clicks → must match "clicks" field exactly
+- Impressions → must match "impressions" field exactly
+- Leads → must match "leads" field exactly
+- Purchases → must match "purchases" field exactly
+- Calls → must match "calls" field exactly
+- CTR/CPC/CPA/CPM/CPL → must match the corresponding field exactly
+- Campaign names → must match character-for-character
+If ANY number does not have an exact match in the JSON, DELETE it from your output.
+
+PASS 2 — FORBIDDEN METRICS:
+Scan your entire output for these terms. If found, DELETE the entire sentence/stat:
+- "Revenue" or "Revenue Generated" (not returned by any tool)
+- "ROAS" or "Return on Ad Spend" (not returned by any tool)
+- "Sales Value" or "Conversion Value" (not returned by any tool)
+- Any dollar amount that is not "spend", "cpc", "cpa", "cpm", or "cpl"
+- Any percentage that is not "ctr"
+
+PASS 3 — LOGICAL SANITY CHECK:
+- Conversions must be <= Clicks (you cannot convert more people than clicked)
+- Leads + Purchases + Calls should approximately equal Conversions (if not, flag it)
+- CPA * Conversions should approximately equal Spend (within $1 rounding)
+- CTR should be between 0% and 100%
+- CPC * Clicks should approximately equal Spend (within $1 rounding)
+If any sanity check fails, re-read the raw JSON. Report ONLY what the JSON says — never "fix" numbers yourself.
+
+PASS 4 — NO INVENTION:
+- Did you include any stat, insight, or claim not directly from a tool response? DELETE it.
+- Did you describe a trend (e.g., "up 20% from last month") without comparison data from a tool? DELETE it.
+- Did you attribute conversions to a specific campaign without per-campaign breakdown data? Only state what the JSON shows.
+
+If anything fails ANY pass, fix it before proceeding. Past updates contained fabricated revenue figures and double-counted conversions that damaged client trust. This must never happen again.
 
 STEP 9 - PLAIN TEXT SUMMARY:
 After outputting the branded HTML, ALSO output a plain text summary in chat (copy-paste ready for email/Slack):
