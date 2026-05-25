@@ -2390,7 +2390,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "fetch_client_ad_performance",
     description:
-      "Fetch pre-computed ad performance metrics from Supermetrics for a client. Returns spend, clicks, impressions, conversions (classified as leads/purchases/calls), CTR, CPC, CPA, CPM, CPL — per platform and per campaign. All calculations are done server-side. Use this instead of google_ads_query or meta_ads_manage for performance data in client updates.",
+      "Fetch ad performance metrics directly from Meta Marketing API and Google Ads API for a client. Returns spend, clicks, impressions, conversions (classified as leads/purchases/calls), CTR, CPC, CPA, CPM, CPL — per platform and per campaign. All calculations are done server-side. Use this instead of google_ads_query or meta_ads_manage for performance data in client updates.",
     input_schema: {
       type: "object" as const,
       properties: {
