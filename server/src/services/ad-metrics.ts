@@ -12,6 +12,7 @@ import { supabase } from "./supabase.js";
 import { loadMatchingRegistry, getClientMatchingRules, isAmbiguousWord } from "./client-matching.js";
 
 const META_API_VERSION = process.env.META_API_VERSION || "v21.0";
+const GOOGLE_ADS_API_VERSION = process.env.GOOGLE_ADS_API_VERSION || "v23";
 const SUPERMETRICS_API_URL = "https://api.supermetrics.com/enterprise/v2";
 
 // ── Data source IDs (Supermetrics — only for TikTok/Bing/LinkedIn now) ──
@@ -298,7 +299,7 @@ async function fetchGoogleAdsCampaigns(
   const query = `SELECT campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion FROM campaign WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' AND campaign.status != 'REMOVED'`;
 
   const resp = await fetch(
-    `https://googleads.googleapis.com/v18/customers/${cleanCustomerId}/googleAds:searchStream`,
+    `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanCustomerId}/googleAds:searchStream`,
     { method: "POST", headers, body: JSON.stringify({ query }) },
   );
 
@@ -309,7 +310,7 @@ async function fetchGoogleAdsCampaigns(
     return { rows: [], error: `Google Ads API error (${customerId}): ${errMsg}` };
   }
 
-  const data = await resp.json() as Array<{ results?: Array<{ campaign?: { name?: string }; metrics?: { impressions?: string; clicks?: string; costMicros?: string; conversions?: number; ctr?: number; averageCpc?: string; costPerConversion?: number } }> }>;
+  const data = await resp.json() as Array<{ results?: Array<{ campaign?: { name?: string }; metrics?: { impressions?: string; clicks?: string; costMicros?: string; conversions?: number; ctr?: number; averageCpc?: number; costPerConversion?: number } }> }>;
 
   const rows: GoogleCampaignRow[] = [];
   for (const batch of data) {
@@ -330,8 +331,8 @@ async function fetchGoogleAdsCampaigns(
         spend,
         conversions,
         ctr: (m.ctr || 0) * 100,
-        cpc: parseInt(m.averageCpc || "0") / 1_000_000,
-        cpa: m.costPerConversion || 0,
+        cpc: (Number(m.averageCpc) || 0) / 1_000_000,
+        cpa: (m.costPerConversion || 0) / 1_000_000,
       });
     }
   }
@@ -352,7 +353,7 @@ async function fetchGoogleAdsConversionBreakdown(
   const query = `SELECT conversion_action.name, metrics.conversions FROM conversion_action WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' AND conversion_action.primary_for_goal = TRUE`;
 
   const resp = await fetch(
-    `https://googleads.googleapis.com/v18/customers/${cleanCustomerId}/googleAds:searchStream`,
+    `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanCustomerId}/googleAds:searchStream`,
     { method: "POST", headers, body: JSON.stringify({ query }) },
   );
 
@@ -859,7 +860,7 @@ export async function fetchClientAdPerformance(
     const { data: ilikeMappings } = await supabase
       .from("client_account_mappings")
       .select("platform, account_id, account_name")
-      .ilike("client_name", clientName);
+      .ilike("client_name", `%${clientName}%`);
     effectiveMappings = (ilikeMappings || []) as typeof effectiveMappings;
 
     if (effectiveMappings.length === 0) {
