@@ -119,7 +119,7 @@ const PackageSelector = ({ selectedPackages, primaryPackage, onSelectPackages }:
                   : 'bg-muted text-muted-foreground hover:text-foreground'
               }`}
             >
-              {pkg.name} - ${pkg.monthlyPrice.toLocaleString()}
+              {pkg.name} - {pkg.pricingModel || `$${pkg.monthlyPrice.toLocaleString()}`}
             </button>
           ))}
         </div>
@@ -322,8 +322,8 @@ const PackageCard = ({ package: pkg, isSelected, isPrimary, onToggle, onSetPrima
 
       {/* Price */}
       <div className="mb-4">
-        <span className="text-3xl font-bold text-foreground">${pkg.monthlyPrice.toLocaleString()}</span>
-        <span className="text-muted-foreground">/month</span>
+        <span className="text-3xl font-bold text-foreground">{pkg.pricingModel || `$${pkg.monthlyPrice.toLocaleString()}`}</span>
+        <span className="text-muted-foreground">{pkg.pricingModel ? ' of ad spend' : '/month'}</span>
       </div>
 
       {/* Key Info */}

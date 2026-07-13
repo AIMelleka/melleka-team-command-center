@@ -468,6 +468,13 @@ export type Database = {
           match_aliases: string[]
           match_exclude_patterns: string[]
           match_exact_only: boolean
+          target_cpl: number | null
+          target_cpa: number | null
+          target_roas: number | null
+          monthly_budget: number | null
+          monthly_lead_target: number | null
+          monthly_conversion_target: number | null
+          client_notes: string | null
         }
         Insert: {
           client_name: string
@@ -488,6 +495,13 @@ export type Database = {
           match_aliases?: string[]
           match_exclude_patterns?: string[]
           match_exact_only?: boolean
+          target_cpl?: number | null
+          target_cpa?: number | null
+          target_roas?: number | null
+          monthly_budget?: number | null
+          monthly_lead_target?: number | null
+          monthly_conversion_target?: number | null
+          client_notes?: string | null
         }
         Update: {
           client_name?: string
@@ -508,6 +522,13 @@ export type Database = {
           match_aliases?: string[]
           match_exclude_patterns?: string[]
           match_exact_only?: boolean
+          target_cpl?: number | null
+          target_cpa?: number | null
+          target_roas?: number | null
+          monthly_budget?: number | null
+          monthly_lead_target?: number | null
+          monthly_conversion_target?: number | null
+          client_notes?: string | null
         }
         Relationships: []
       }

@@ -26,7 +26,9 @@ export const EditableList = ({
   const [newValue, setNewValue] = useState('');
 
   // Get current items (pending changes or original)
-  const currentItems = (pendingChanges[basePath] as string[]) ?? items;
+  // Safely coerce — proposal JSON arrays may contain non-string elements
+  const rawItems = (pendingChanges[basePath] as string[]) ?? items;
+  const currentItems = Array.isArray(rawItems) ? rawItems.map(i => typeof i === 'string' ? i : String(i ?? '')) : [];
 
   const handleDelete = (index: number) => {
     const updated = currentItems.filter((_, i) => i !== index);

@@ -9,18 +9,22 @@ interface Props {
   summary: string | null;
 }
 
+const signalSubtext: Record<string, (usedGoals: boolean, usedBenchmarks: boolean) => string> = {
+  costEfficiency: (g, b) => g ? 'vs client goals' : b ? 'vs industry benchmarks' : 'no targets set',
+  volumePacing: (g) => g ? 'vs monthly targets' : 'data presence',
+  trendDirection: () => 'AI trend assessment',
+};
+
 const signalLabels: Record<string, string> = {
-  platformHealth: 'Platform Health',
-  cplCpaHealth: 'CPL / CPA Health',
-  insightSentiment: 'Insight Sentiment',
-  recommendationLoad: 'Recommendation Load',
+  costEfficiency: 'Cost Efficiency',
+  volumePacing: 'Volume & Pacing',
+  trendDirection: 'Trend',
 };
 
 const signalWeights: Record<string, string> = {
-  platformHealth: '35%',
-  cplCpaHealth: '25%',
-  insightSentiment: '20%',
-  recommendationLoad: '20%',
+  costEfficiency: '50%',
+  volumePacing: '30%',
+  trendDirection: '20%',
 };
 
 function barColor(value: number): string {
@@ -65,7 +69,12 @@ export function ScoreCardSection({ scoreData, summary }: Props) {
               {(Object.entries(signals) as [string, number][]).map(([key, value]) => (
                 <div key={key}>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-muted-foreground">{signalLabels[key]}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {signalLabels[key]}
+                      <span className="text-[10px] text-muted-foreground/60 ml-1">
+                        ({signalSubtext[key]?.(scoreData.usedGoals, scoreData.usedBenchmarks) ?? ''})
+                      </span>
+                    </span>
                     <span className="text-xs font-medium text-foreground">
                       {value >= 0 ? value : 'N/A'}
                       <span className="text-muted-foreground ml-1">({signalWeights[key]})</span>

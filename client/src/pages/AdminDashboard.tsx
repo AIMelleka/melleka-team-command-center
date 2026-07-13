@@ -158,24 +158,6 @@ const AdminDashboard = () => {
     },
   });
 
-  // Reset MFA mutation
-  const resetMfaMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      const { data, error } = await supabase.functions.invoke('admin-reset-mfa', {
-        body: { userId },
-      });
-      if (error) throw error;
-      if (!data.success) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: (data) => {
-      toast.success(`MFA reset (${data.deletedFactors} factor${data.deletedFactors === 1 ? '' : 's'} removed)`);
-    },
-    onError: (error) => {
-      toast.error('Failed to reset MFA', { description: error.message });
-    },
-  });
-
   // Delete user mutation
   const deleteUserMutation = useMutation({
     mutationFn: async (userId: string) => {
@@ -497,34 +479,6 @@ const AdminDashboard = () => {
                                   </>
                                 )}
                               </Button>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    title="Reset MFA"
-                                    disabled={resetMfaMutation.isPending}
-                                  >
-                                    <KeyRound className="h-4 w-4" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Reset MFA</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      This will remove two-factor authentication for <strong>{user.email}</strong>. They will be required to set it up again on next login.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => resetMfaMutation.mutate(user.id)}>
-                                      {resetMfaMutation.isPending ? (
-                                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Resetting...</>
-                                      ) : 'Reset MFA'}
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
                               <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                   <Button

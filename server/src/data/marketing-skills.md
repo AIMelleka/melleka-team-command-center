@@ -1,4 +1,4 @@
-# Marketing Skills — Expert Knowledge Base
+# Marketing Skills - Expert Knowledge Base
 
 You have deep expertise across all marketing disciplines. Apply these skills proactively when team members ask for marketing help.
 
@@ -75,11 +75,11 @@ You have deep expertise across all marketing disciplines. Apply these skills pro
 ## Copywriting
 
 ### Core Principles
-1. **Clarity over cleverness** — If you must choose, choose clear
-2. **Benefits over features** — What it means for the customer, not what it does
-3. **Specificity over vagueness** — "Cut weekly reporting from 4 hours to 15 minutes" not "Save time"
-4. **Customer language** — Mirror voice-of-customer from reviews, interviews, support tickets
-5. **One idea per section** — Build a logical flow down the page
+1. **Clarity over cleverness** - If you must choose, choose clear
+2. **Benefits over features** - What it means for the customer, not what it does
+3. **Specificity over vagueness** - "Cut weekly reporting from 4 hours to 15 minutes" not "Save time"
+4. **Customer language** - Mirror voice-of-customer from reviews, interviews, support tickets
+5. **One idea per section** - Build a logical flow down the page
 
 ### Writing Style Rules
 - Simple over complex: "Use" not "utilize", "help" not "facilitate"
@@ -189,7 +189,7 @@ You have deep expertise across all marketing disciplines. Apply these skills pro
 ### Searchable vs Shareable
 - **Searchable**: Captures existing demand. Target keyword, match intent, comprehensive.
 - **Shareable**: Creates demand. Novel insight, original data, challenges conventional wisdom.
-- Prioritize searchable first — it's the foundation.
+- Prioritize searchable first - it's the foundation.
 
 ### Content Types
 - **Use-Case Content**: [persona] + [use-case] (long-tail keywords)
@@ -304,7 +304,7 @@ You have deep expertise across all marketing disciplines. Apply these skills pro
 
 ### Email Copy Rules
 - One email, one job, one CTA
-- Value before ask — lead with usefulness
+- Value before ask - lead with usefulness
 - Structure: Hook → Context → Value → CTA → Sign-off
 - Short paragraphs (1-3 sentences), mobile-first
 - Subject lines: Clear > Clever, 40-60 chars, benefit or curiosity-driven
@@ -352,9 +352,9 @@ Blog → LinkedIn post (key insight) + LinkedIn carousel (main points) + Twitter
 ## Analytics & Tracking
 
 ### Core Principles
-1. Track for decisions, not data — every event should inform a decision
-2. Start with questions — what do you need to know?
-3. Name consistently — establish patterns before implementing
+1. Track for decisions, not data - every event should inform a decision
+2. Start with questions - what do you need to know?
+3. Name consistently - establish patterns before implementing
 4. Quality > quantity of events
 
 ### Essential Events
@@ -376,7 +376,7 @@ Blog → LinkedIn post (key insight) + LinkedIn carousel (main points) + Twitter
 | utm_content | Differentiate versions | hero_cta |
 
 ### Attribution
-- Platform attribution is inflated — compare to GA4
+- Platform attribution is inflated - compare to GA4
 - Use UTM parameters consistently
 - Look at blended CAC, not just platform CPA
 
@@ -387,7 +387,7 @@ Blog → LinkedIn post (key insight) + LinkedIn carousel (main points) + Twitter
 ### Sample Size Rules
 - Minimum 1,000 visitors per variation for meaningful results
 - Run tests for full business cycles (minimum 2 weeks)
-- Don't peek — wait for statistical significance (95%)
+- Don't peek - wait for statistical significance (95%)
 - Test one variable at a time for clear learnings
 
 ### Testing Hierarchy (Highest Impact First)
@@ -409,7 +409,7 @@ Blog → LinkedIn post (key insight) + LinkedIn carousel (main points) + Twitter
 ### Cancel Flow
 - Ask why (required, select from options)
 - Offer relevant save: discount, pause, downgrade, support
-- Confirm cancellation gracefully — don't make it hard
+- Confirm cancellation gracefully - don't make it hard
 
 ---
 

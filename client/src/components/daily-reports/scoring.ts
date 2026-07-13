@@ -1,19 +1,34 @@
 import type {
   ClientDailyReport,
   Platform,
-  CplCpaAnalysis,
-  Insight,
-  Recommendation,
 } from '@/types/dailyReports';
 import { parseCurrency } from './shared';
+
+/* ── Client Goals + Report Configuration type ── */
+export interface ClientGoals {
+  // ── Scoring inputs ──────────────────────────────────────────────────────
+  target_cpl?: number | null;
+  target_cpa?: number | null;
+  target_roas?: number | null;
+  monthly_budget?: number | null;
+  monthly_lead_target?: number | null;
+  monthly_conversion_target?: number | null;
+  // ── Client profile (affects AI analysis & benchmark matching) ──────────
+  industry?: string | null;
+  primary_conversion_goal?: string | null;
+  // ── Report context (sent to AI when generating report) ─────────────────
+  client_notes?: string | null;
+  report_focus?: string | null;
+  targeting_context?: string | null;
+}
 
 /* ── Health tier from score ── */
 export type HealthTier = 'excellent' | 'good' | 'warning' | 'critical';
 
 export function tierFromScore(score: number): HealthTier {
   if (score >= 80) return 'excellent';
-  if (score >= 60) return 'good';
-  if (score >= 40) return 'warning';
+  if (score >= 70) return 'good';
+  if (score >= 60) return 'warning';
   return 'critical';
 }
 
@@ -24,128 +39,190 @@ export const tierColors: Record<HealthTier, string> = {
   critical: '#ef4444', // red-500
 };
 
-/* ── Signal scorers ── */
+/* ── Signal scorers (data-driven) ── */
 
-/** Platform Health signal (0-100) — returns -1 if no data */
-function scorePlatformHealth(platforms: Platform[]): number {
+/**
+ * Cost Efficiency signal (0-100) — 50% weight
+ * Uses actual CPA/CPL from aggregated KPIs vs client goals or industry benchmarks.
+ */
+function scoreCostEfficiency(
+  kpis: AggregatedKpis,
+  goals?: ClientGoals | null,
+  industryBenchmarks?: { googleCpa?: number; metaCpa?: number } | null,
+): number {
+  // Determine targets: goals take priority, then industry benchmarks
+  const hasGoalCpa = goals?.target_cpa != null && goals.target_cpa > 0;
+  const hasGoalCpl = goals?.target_cpl != null && goals.target_cpl > 0;
+  const targetCpa = hasGoalCpa
+    ? goals!.target_cpa!
+    : (industryBenchmarks ? averageBenchmarkCpa(industryBenchmarks) : null);
+  const targetCpl = hasGoalCpl ? goals!.target_cpl! : null;
+
+  // Use strict scoring for explicit goals, lenient for benchmarks
+  const usingGoals = hasGoalCpa || hasGoalCpl;
+  const scorer = usingGoals ? goalRatioToScore : benchmarkRatioToScore;
+
+  // If we have neither goals nor benchmarks, return neutral
+  if (targetCpa == null && targetCpl == null) return 60;
+
+  const scores: number[] = [];
+
+  // Score CPA against target
+  if (targetCpa != null && targetCpa > 0 && kpis.conversions > 0) {
+    const ratio = kpis.cpa / targetCpa;
+    scores.push(scorer(ratio));
+  }
+
+  // Score CPL against target
+  if (targetCpl != null && targetCpl > 0 && kpis.cpl > 0) {
+    const ratio = kpis.cpl / targetCpl;
+    scores.push(scorer(ratio));
+  }
+
+  if (scores.length === 0) return 60; // No actionable data
+  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+}
+
+/** Average the Google and Meta CPA benchmarks for a blended target. */
+function averageBenchmarkCpa(bm: { googleCpa?: number; metaCpa?: number }): number | null {
+  const vals = [bm.googleCpa, bm.metaCpa].filter((v): v is number => v != null && v > 0);
+  if (vals.length === 0) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+/** Convert actual/target ratio to score when comparing against explicit client goals. */
+function goalRatioToScore(ratio: number): number {
+  if (ratio <= 0.7) return 100;       // 30%+ under target
+  if (ratio <= 0.85) return 92;       // 15-30% under
+  if (ratio <= 1.0) return 85;        // at or below target
+  if (ratio <= 1.1) return 75;        // 0-10% over
+  if (ratio <= 1.25) return 60;       // 10-25% over
+  if (ratio <= 1.5) return 45;        // 25-50% over
+  if (ratio <= 2.0) return 30;        // 50-100% over
+  return 20;                           // 100%+ over target
+}
+
+/** Convert actual/benchmark ratio to score. More lenient since benchmarks are industry averages, not client targets. */
+function benchmarkRatioToScore(ratio: number): number {
+  if (ratio <= 0.5) return 95;        // way below average — great
+  if (ratio <= 0.75) return 85;       // well below average
+  if (ratio <= 1.0) return 75;        // at or below average
+  if (ratio <= 1.5) return 65;        // somewhat above average
+  if (ratio <= 2.0) return 55;        // notably above average
+  if (ratio <= 3.0) return 45;        // well above average
+  if (ratio <= 5.0) return 35;        // very high vs average
+  return 25;                           // extremely high vs average
+}
+
+/**
+ * Volume & Pacing signal (0-100) — 30% weight
+ * Compares conversions/leads against monthly targets if set.
+ */
+function scoreVolumePacing(
+  kpis: AggregatedKpis,
+  goals?: ClientGoals | null,
+): number {
+  const convTarget = goals?.monthly_conversion_target;
+  const leadTarget = goals?.monthly_lead_target;
+
+  // If targets exist, score against daily pacing
+  if (convTarget && convTarget > 0 && kpis.conversions > 0) {
+    const dailyTarget = convTarget / 30;
+    const pace = kpis.conversions / dailyTarget;
+    return paceToScore(pace);
+  }
+
+  if (leadTarget && leadTarget > 0 && kpis.cpl > 0) {
+    // Estimate leads from spend / cpl
+    const budgetTarget = goals?.monthly_budget;
+    if (budgetTarget && budgetTarget > 0) {
+      const dailyBudget = budgetTarget / 30;
+      const estimatedDailyLeads = dailyBudget / kpis.cpl;
+      const dailyLeadTarget = leadTarget / 30;
+      const pace = estimatedDailyLeads / dailyLeadTarget;
+      return paceToScore(pace);
+    }
+  }
+
+  // No targets — score based on data presence
+  let base = 60;
+  if (kpis.conversions > 0) base += 10;
+  if (kpis.spend > 0) base += 5;
+  return Math.min(100, base);
+}
+
+/** Convert pacing ratio to score. 1.0 = on track. */
+function paceToScore(pace: number): number {
+  if (pace >= 1.2) return 95;     // ahead of pace
+  if (pace >= 1.0) return 85;     // on target
+  if (pace >= 0.8) return 70;     // slightly behind
+  if (pace >= 0.6) return 50;     // significantly behind
+  if (pace >= 0.4) return 30;     // way behind
+  return 15;                       // barely any volume
+}
+
+/**
+ * Trend Direction signal (0-100) — 20% weight
+ * Simple mapping of platform trend fields.
+ */
+function scoreTrendDirection(platforms: Platform[]): number {
   if (!platforms || platforms.length === 0) return -1;
+
+  const trendMap: Record<string, number> = {
+    up: 85,
+    stable: 60,
+    down: 30,
+  };
 
   let total = 0;
   let count = 0;
 
   for (const p of platforms) {
-    let base = 50;
-    // health status
-    if (p.health === 'good') base = 80;
-    else if (p.health === 'warning') base = 50;
-    else if (p.health === 'critical') base = 20;
-
-    // vsBenchmark boost/penalty
-    if (p.vsBenchmark === 'above') base += 15;
-    else if (p.vsBenchmark === 'below') base -= 15;
-
-    // CPL/CPA benchmark adjustments
-    if (p.cplVsBenchmark === 'above') base += 5;
-    else if (p.cplVsBenchmark === 'below') base -= 5;
-    if (p.cpaVsBenchmark === 'above') base += 5;
-    else if (p.cpaVsBenchmark === 'below') base -= 5;
-
-    total += Math.max(0, Math.min(100, base));
+    const val = trendMap[p.trend] ?? 60;
+    total += val;
     count++;
   }
 
   return count > 0 ? Math.round(total / count) : -1;
 }
 
-/** CPL/CPA Health signal (0-100) — returns -1 if no data */
-function scoreCplCpaHealth(analysis: CplCpaAnalysis | null): number {
-  if (!analysis) return -1;
-
-  const healthMap: Record<string, number> = {
-    excellent: 95,
-    good: 75,
-    warning: 45,
-    critical: 20,
-  };
-
-  let score = healthMap[analysis.overallHealth] ?? 50;
-
-  // Adjust based on concerns vs quickWins balance
-  const concerns = analysis.primaryConcerns?.length ?? 0;
-  const wins = analysis.quickWins?.length ?? 0;
-
-  if (wins > concerns) score += 10;
-  else if (concerns > wins + 1) score -= 10;
-
-  return Math.max(0, Math.min(100, Math.round(score)));
-}
-
-/** Insight Sentiment signal (0-100) — returns -1 if no data */
-function scoreInsightSentiment(insights: Insight[]): number {
-  if (!insights || insights.length === 0) return -1;
-
-  const impactWeight: Record<string, number> = { high: 3, medium: 2, low: 1 };
-  let positive = 0;
-  let negative = 0;
-
-  for (const ins of insights) {
-    const w = impactWeight[ins.impact || 'medium'] ?? 2;
-    if (ins.type === 'positive' || ins.type === 'opportunity') {
-      positive += w;
-    } else {
-      negative += w;
-    }
-  }
-
-  const total = positive + negative;
-  if (total === 0) return -1;
-
-  // Ratio of positive sentiment → scale 0-100
-  return Math.round((positive / total) * 100);
-}
-
-/** Recommendation Load signal (0-100) — returns -1 if no data */
-function scoreRecommendationLoad(recs: Recommendation[]): number {
-  if (!recs || recs.length === 0) return -1;
-
-  const highCount = recs.filter(r => r.priority === 'high').length;
-
-  // Fewer high-priority = higher score
-  if (highCount === 0) return 95;
-  if (highCount === 1) return 75;
-  if (highCount === 2) return 55;
-  if (highCount <= 4) return 35;
-  return 15;
-}
-
 /* ── Composite score ── */
 
-interface SignalBreakdown {
-  platformHealth: number;
-  cplCpaHealth: number;
-  insightSentiment: number;
-  recommendationLoad: number;
+export interface SignalBreakdown {
+  costEfficiency: number;
+  volumePacing: number;
+  trendDirection: number;
 }
 
 export interface ReportScore {
   score: number;
   tier: HealthTier;
   signals: SignalBreakdown;
+  /** Whether client goals were used for scoring */
+  usedGoals: boolean;
+  /** Whether industry benchmarks were used as fallback */
+  usedBenchmarks: boolean;
 }
 
 const WEIGHTS = {
-  platformHealth: 0.35,
-  cplCpaHealth: 0.25,
-  insightSentiment: 0.20,
-  recommendationLoad: 0.20,
+  costEfficiency: 0.50,
+  volumePacing: 0.30,
+  trendDirection: 0.20,
 };
 
-export function computeReportScore(report: ClientDailyReport): ReportScore {
+export function computeReportScore(
+  report: ClientDailyReport,
+  goals?: ClientGoals | null,
+  industryBenchmarks?: { googleCpa?: number; metaCpa?: number } | null,
+): ReportScore {
+  const kpis = aggregateKpis(report);
+  const usedGoals = !!(goals?.target_cpa || goals?.target_cpl || goals?.monthly_conversion_target || goals?.monthly_lead_target);
+  const usedBenchmarks = !usedGoals && !!(industryBenchmarks?.googleCpa || industryBenchmarks?.metaCpa);
+
   const signals: SignalBreakdown = {
-    platformHealth: scorePlatformHealth(report.platforms),
-    cplCpaHealth: scoreCplCpaHealth(report.cplCpaAnalysis),
-    insightSentiment: scoreInsightSentiment(report.insights),
-    recommendationLoad: scoreRecommendationLoad(report.recommendations),
+    costEfficiency: scoreCostEfficiency(kpis, goals, industryBenchmarks),
+    volumePacing: scoreVolumePacing(kpis, goals),
+    trendDirection: scoreTrendDirection(report.platforms),
   };
 
   // Weighted average, excluding signals with no data (-1)
@@ -161,7 +238,7 @@ export function computeReportScore(report: ClientDailyReport): ReportScore {
   }
 
   const score = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 50;
-  return { score, tier: tierFromScore(score), signals };
+  return { score, tier: tierFromScore(score), signals, usedGoals, usedBenchmarks };
 }
 
 /* ── KPI Aggregation ── */

@@ -392,9 +392,10 @@ async function runAdReview(
     throw new Error('No active ad accounts');
   }
 
+  let smData: any = null;
   let supermetricsContext = '';
   try {
-    const smData = await fetchSupermetrics(supabaseUrl, serviceKey, activeSources, accounts, dateStart, dateEnd);
+    smData = await fetchSupermetrics(supabaseUrl, serviceKey, activeSources, accounts, dateStart, dateEnd);
     supermetricsContext = buildSupermetricsContext(smData, dateStart, dateEnd);
   } catch (e) {
     console.warn(`[FLEET] Supermetrics failed for ${clientName} (likely quota exceeded), using DB snapshots as fallback`);
@@ -418,8 +419,19 @@ async function runAdReview(
         supermetricsContext += `${s.snapshot_date} | ${s.platform}: $${s.spend?.toFixed(2)} spend, ${s.clicks || 0} clicks, ${s.conversions || 0} conv, ${s.impressions || 0} imp\n`;
       }
     } else {
-      console.warn(`[FLEET] No data available for ${clientName} ad review — skipping`);
-      return; // Skip this client's ad review gracefully
+      console.warn(`[FLEET] No data for ${clientName} — generating degraded report`);
+      await supabase.from('ad_review_history').insert({
+        client_name: clientName,
+        review_date: new Date().toISOString().split('T')[0],
+        date_range_start: dateStart, date_range_end: dateEnd,
+        summary: `⚠️ DATA UNAVAILABLE: No ad data could be retrieved for ${clientName}. Check API credentials and ensure auto-fetch-ppc is running.`,
+        platforms: [],
+        insights: [{ type: 'warning', title: 'Data Pipeline Failure', description: 'No data from Supermetrics or daily snapshots. Check credentials and auto-fetch-ppc cron.', impact: 'high' }],
+        recommendations: [{ priority: 'high', action: 'Verify API credentials in team_secrets', expectedImpact: 'Restore reporting', platform: 'All', effort: 'quick-win', timeline: 'immediate' }],
+        seo_data: { degraded: true, reason: 'no_data_available' },
+      });
+      await supabase.from('managed_clients').update({ last_reviewed_at: new Date().toISOString() }).eq('client_name', clientName);
+      return;
     }
   }
 
@@ -431,10 +443,23 @@ async function runAdReview(
   const previousReview = prevReviews?.[0] || null;
 
   const { data: mcData } = await supabase
-    .from('managed_clients').select('industry')
+    .from('managed_clients').select('industry, target_cpl, target_cpa, target_roas, monthly_budget, monthly_lead_target, monthly_conversion_target, client_notes')
     .eq('client_name', clientName).single();
 
   const aiMemory = await loadAiMemory(supabase, clientName);
+
+  // Build client goals object if any goals are set
+  const clientGoals = mcData?.target_cpa || mcData?.target_cpl || mcData?.target_roas || mcData?.monthly_budget || mcData?.monthly_lead_target || mcData?.monthly_conversion_target
+    ? {
+        target_cpa: mcData.target_cpa,
+        target_cpl: mcData.target_cpl,
+        target_roas: mcData.target_roas,
+        monthly_budget: mcData.monthly_budget,
+        monthly_lead_target: mcData.monthly_lead_target,
+        monthly_conversion_target: mcData.monthly_conversion_target,
+        client_notes: mcData.client_notes,
+      }
+    : undefined;
 
   const adReviewRes = await fetch(`${supabaseUrl}/functions/v1/ad-review`, {
     method: 'POST',
@@ -445,6 +470,7 @@ async function runAdReview(
       sheetsData: supermetricsContext,
       previousReview: previousReview || undefined,
       benchmarkData: mcData?.industry ? { industry: mcData.industry } : undefined,
+      clientGoals: clientGoals || undefined,
       aiMemory: aiMemory || undefined,
     }),
   });
@@ -748,15 +774,57 @@ serve(async (req) => {
     const dateEnd = body.dateEnd;
     console.log(`[FLEET-AD-REVIEW] Processing ad review for: ${clientName}`);
 
-    try {
-      const { data: clientMappings } = await supabase
-        .from('client_account_mappings').select('*')
-        .eq('client_name', clientName);
+    // Run ad review in background using waitUntil to avoid 150s idle timeout
+    const adReviewWork = async () => {
+      try {
+        const { data: clientMappings } = await supabase
+          .from('client_account_mappings').select('*')
+          .eq('client_name', clientName);
 
-      await runAdReview(clientName, clientMappings || [], supabaseUrl, serviceKey, supabase, dateStart, dateEnd);
-      console.log(`[FLEET-AD-REVIEW] Complete for ${clientName}`);
-    } catch (e: any) {
-      console.error(`[FLEET-AD-REVIEW] Failed for ${clientName}: ${e.message}`);
+        if (!clientMappings || clientMappings.length === 0) {
+          console.warn(`[FLEET-AD-REVIEW] No account mappings for ${clientName} — inserting degraded report`);
+          await supabase.from('ad_review_history').insert({
+            client_name: clientName,
+            review_date: new Date().toISOString().split('T')[0],
+            date_range_start: dateStart, date_range_end: dateEnd,
+            summary: `⚠️ NO ACCOUNT MAPPINGS: ${clientName} has no ad account mappings configured.`,
+            platforms: [],
+            insights: [{ type: 'warning', title: 'No Account Mappings', description: 'No ad platform accounts linked to this client.', impact: 'high' }],
+            recommendations: [{ priority: 'high', action: 'Configure ad account mappings in client settings', expectedImpact: 'Enable ad reporting', platform: 'All', effort: 'quick-win', timeline: 'immediate' }],
+            seo_data: { degraded: true, reason: 'no_account_mappings' },
+          });
+          await supabase.from('managed_clients').update({ last_reviewed_at: new Date().toISOString() }).eq('client_name', clientName);
+          return;
+        }
+
+        await runAdReview(clientName, clientMappings, supabaseUrl, serviceKey, supabase, dateStart, dateEnd);
+        console.log(`[FLEET-AD-REVIEW] Complete for ${clientName}`);
+      } catch (e: any) {
+        console.error(`[FLEET-AD-REVIEW] Failed for ${clientName}: ${e.message}`);
+        // Insert degraded report on failure so the client isn't silently skipped
+        try {
+          await supabase.from('ad_review_history').insert({
+            client_name: clientName,
+            review_date: new Date().toISOString().split('T')[0],
+            date_range_start: dateStart, date_range_end: dateEnd,
+            summary: `⚠️ REPORT GENERATION FAILED: ${e.message?.substring(0, 200)}`,
+            platforms: [],
+            insights: [{ type: 'warning', title: 'Report Generation Error', description: e.message?.substring(0, 500) || 'Unknown error', impact: 'high' }],
+            recommendations: [{ priority: 'high', action: 'Check edge function logs for this client', expectedImpact: 'Diagnose failure', platform: 'All', effort: 'quick-win', timeline: 'immediate' }],
+            seo_data: { degraded: true, reason: 'worker_error', error: e.message?.substring(0, 200) },
+          });
+          await supabase.from('managed_clients').update({ last_reviewed_at: new Date().toISOString() }).eq('client_name', clientName);
+        } catch (insertErr: any) {
+          console.error(`[FLEET-AD-REVIEW] Failed to insert degraded report for ${clientName}: ${insertErr.message}`);
+        }
+      }
+    };
+
+    // Use waitUntil to process in background, avoiding idle timeout
+    if (typeof (globalThis as any).EdgeRuntime !== 'undefined') {
+      (globalThis as any).EdgeRuntime.waitUntil(adReviewWork());
+    } else {
+      await adReviewWork();
     }
 
     return new Response(
@@ -896,6 +964,22 @@ serve(async (req) => {
       console.log(`[FLEET-ORCHESTRATOR] Fleet report generated for job ${newJobId}`);
     } catch (e: any) {
       console.warn(`[FLEET-ORCHESTRATOR] Fleet report generation failed (non-fatal):`, e.message);
+    }
+
+    // 8. Post-completion verification: check ad_review_history for today's entries
+    const todayStr = new Date().toISOString().split('T')[0];
+    const { data: todayReviews } = await supabase
+      .from('ad_review_history')
+      .select('client_name')
+      .eq('review_date', todayStr);
+
+    const reviewedClients = new Set((todayReviews || []).map((r: any) => r.client_name));
+    const missingReviews = clientNames.filter((c: string) => !reviewedClients.has(c));
+
+    if (missingReviews.length > 0) {
+      console.error(`[FLEET-ORCHESTRATOR] ⚠️ VERIFICATION FAILED: ${missingReviews.length}/${totalClients} clients have NO ad_review_history for ${todayStr}: ${missingReviews.join(', ')}`);
+    } else {
+      console.log(`[FLEET-ORCHESTRATOR] ✅ Verification passed: all ${totalClients} clients have ad_review_history for ${todayStr}`);
     }
 
     console.log(`[FLEET-ORCHESTRATOR] ✅ Fleet run finalized for job ${newJobId}`);

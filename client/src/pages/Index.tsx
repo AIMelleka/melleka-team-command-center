@@ -4,7 +4,8 @@ import {
   Search, Plus, Loader2, MessageSquare, Trash2,
   PanelLeftClose, PanelLeft, ArrowRight, Check, X,
   Pencil, Brain, Bell, Square, Paperclip, FileText,
-  Activity, Gauge, ChevronDown,
+  Activity, Gauge, ChevronDown, ChevronRight,
+  FolderPlus, FolderKanban, Folder, FolderOpen,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import AdminHeader from '@/components/AdminHeader';
@@ -39,7 +40,28 @@ import { useVoiceChat, VoiceModeToggle, MicButton } from '@/components/chat/Voic
 import { useVoicePreference } from '@/hooks/useVoicePreference';
 import { VoiceConversationOverlay } from '@/components/chat/VoiceConversationOverlay';
 import { MemoryPanel } from '@/components/MemoryPanel';
+import { ProjectsPanel } from '@/components/chat/ProjectsPanel';
 import { useModelPreference } from '@/hooks/useModelPreference';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  useDraggable,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  fetchChatFolders,
+  createChatFolder,
+  updateChatFolder,
+  deleteChatFolder,
+  moveConversationToFolder,
+  fetchChatProjects,
+  type ChatFolder,
+  type ChatProject,
+} from '@/lib/chatApi';
 
 // ── Types ────────────────────────────────────────────
 
@@ -97,6 +119,33 @@ function isImageFile(file: File): boolean {
 let nextMsgId = 0;
 function uid() { return `msg-${++nextMsgId}`; }
 
+// ── Drag-and-drop helpers ────────────────────────────
+
+function DraggableConversation({ id, children }: { id: string; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
+  const style: React.CSSProperties = {
+    transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  );
+}
+
+function DroppableZone({ id, children }: { id: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`min-h-[4px] rounded transition-colors ${isOver ? 'bg-primary/10 ring-1 ring-primary/30' : ''}`}
+    >
+      {children}
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────
 
 const Index = () => {
@@ -125,6 +174,18 @@ const Index = () => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [memberName, setMemberName] = useState('');
 
+  // Folders & projects
+  const [chatFolders, setChatFolders] = useState<ChatFolder[]>([]);
+  const [showProjects, setShowProjects] = useState(false);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [activeProjectName, setActiveProjectName] = useState<string | null>(null);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editFolderName, setEditFolderName] = useState('');
+  const [showProjectPicker, setShowProjectPicker] = useState(false);
+  const [projectsList, setProjectsList] = useState<ChatProject[]>([]);
+
   // Active background jobs
   const [activeJobConvIds, setActiveJobConvIds] = useState<Set<string>>(new Set());
 
@@ -136,15 +197,17 @@ const Index = () => {
   const [showMentionPopover, setShowMentionPopover] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
 
-  // SSE resilience — auto-reconnect up to 2 times before showing manual resume
+  // SSE resilience — auto-reconnect indefinitely until the job finishes
   const [disconnected, setDisconnected] = useState(false);
   const lastUserMessageRef = useRef<string>('');
   const reconnectAttemptsRef = useRef(0);
-  const MAX_RECONNECT_ATTEMPTS = 2;
+  const MAX_RECONNECT_ATTEMPTS = 10; // effectively unlimited with backoff
 
   // Refs
   const editInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -166,6 +229,11 @@ const Index = () => {
   const voiceEnabledRef = useRef(voiceChat.voiceEnabled);
   voiceEnabledRef.current = voiceChat.voiceEnabled;
   const insideToolCallRef = useRef(false);
+
+  // DnD sensor for folder drag-and-drop
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
 
   // Backtick (`) hotkey: interrupt agent / toggle mic during voice mode
   // Works globally — when voice is on, backtick always controls the mic
@@ -233,9 +301,107 @@ const Index = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Auto-scroll
+  // Page Visibility: when the tab comes back from background, check if the
+  // agent is still running and silently reconnect if we lost the SSE stream.
+  // Browsers throttle/freeze background tabs, which kills fetch streams.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState !== 'visible') return;
+      if (isStreaming) return; // still connected, nothing to do
+      if (!activeConvoId) return;
+
+      try {
+        const status = await checkJobStatus(activeConvoId);
+        if (!status.active) return; // job already finished
+
+        // Agent is still running but we lost the stream — reconnect silently
+        console.log('[visibility] Tab resumed — agent still running, reconnecting...');
+        setIsStreaming(true);
+        setDisconnected(false);
+
+        // Find or create an assistant message to append to
+        const assistantId = `reconnect-${Date.now()}`;
+        setMessages(prev => {
+          const last = prev[prev.length - 1];
+          if (last?.role === 'assistant' && last.streaming) return prev; // already have one
+          return [...prev, { id: assistantId, role: 'assistant', parts: [{ type: 'text', content: '*(reconnected)*\n\n' }], streaming: true }];
+        });
+
+        abortRef.current = reconnectToJob(
+          activeConvoId,
+          (event: SSEEvent) => {
+            setMessages(prev => {
+              const msgs = [...prev];
+              const aIdx = msgs.length - 1; // last assistant message
+              if (aIdx < 0 || msgs[aIdx].role !== 'assistant') return prev;
+              const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts] };
+
+              switch (event.type) {
+                case 'text': {
+                  const lastPart = assistant.parts[assistant.parts.length - 1];
+                  if (lastPart?.type === 'text') {
+                    assistant.parts[assistant.parts.length - 1] = { ...lastPart, content: (lastPart.content ?? '') + (event.delta ?? '') };
+                  } else {
+                    assistant.parts.push({ type: 'text', content: event.delta ?? '' });
+                  }
+                  break;
+                }
+                case 'tool_start':
+                  assistant.parts.push({ type: 'tool_start', toolName: event.name });
+                  break;
+                case 'tool_result':
+                  for (let i = assistant.parts.length - 1; i >= 0; i--) {
+                    if (assistant.parts[i].type === 'tool_start' && assistant.parts[i].toolName === event.name) {
+                      assistant.parts[i] = { type: 'tool_result', toolName: event.name, toolOutput: event.output };
+                      break;
+                    }
+                  }
+                  break;
+                case 'done':
+                  assistant.streaming = false;
+                  reconnectAttemptsRef.current = 0;
+                  break;
+                case 'error':
+                  assistant.streaming = false;
+                  assistant.parts.push({ type: 'text', content: `\n\n**Error:** ${event.message}` });
+                  break;
+              }
+
+              msgs[aIdx] = assistant;
+              return msgs;
+            });
+          },
+          () => {
+            setIsStreaming(false);
+            loadConversations();
+          },
+        );
+      } catch {
+        // Couldn't check status — ignore, normal reconnect logic will handle it
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [activeConvoId, isStreaming]);
+
+  // Track when user scrolls up so we don't force them back down
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      userScrolledUpRef.current = distanceFromBottom > 150;
+    };
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Auto-scroll only when user is near the bottom
+  useEffect(() => {
+    if (!userScrolledUpRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   // ── Data loading ───────────────────────────────────
@@ -243,8 +409,12 @@ const Index = () => {
   const loadConversations = async (retried = false) => {
     setLoadingHistory(true);
     try {
-      const data = await apiFetchConversations();
+      const [data, folders] = await Promise.all([
+        apiFetchConversations(),
+        fetchChatFolders(),
+      ]);
       setConversations(data);
+      setChatFolders(folders);
     } catch (err) {
       console.error('[loadConversations] Failed:', err);
       if (!retried) {
@@ -268,6 +438,15 @@ const Index = () => {
     setIsStreaming(false);
     setActiveConvoId(convoId);
     if (isMobile) setSidebarOpen(false);
+
+    // Auto-set project context when selecting a conversation with a project
+    const conv = conversations.find(c => c.id === convoId);
+    if (conv?.project_id) {
+      setActiveProjectId(conv.project_id);
+    } else {
+      setActiveProjectId(null);
+      setActiveProjectName(null);
+    }
     try {
       const data = await apiFetchMessages(convoId);
       setMessages(data.map(m => ({
@@ -363,7 +542,7 @@ const Index = () => {
     }
   };
 
-  const startNewChat = () => {
+  const startNewChat = (projectId?: string | null) => {
     if (abortRef.current) abortRef.current();
     setActiveConvoId(null);
     setMessages([]);
@@ -371,6 +550,12 @@ const Index = () => {
     setFiles([]);
     setMentionedClients([]);
     setIsStreaming(false);
+    if (projectId !== undefined) {
+      setActiveProjectId(projectId || null);
+    } else {
+      setActiveProjectId(null);
+      setActiveProjectName(null);
+    }
     if (isMobile) setSidebarOpen(false);
     inputRef.current?.focus();
   };
@@ -410,6 +595,7 @@ const Index = () => {
     if ((!msgText && files.length === 0) || isStreaming) return;
     lastUserMessageRef.current = msgText;
     setDisconnected(false);
+    userScrolledUpRef.current = false;
 
     // Build display text
     let displayText = msgText;
@@ -467,6 +653,12 @@ const Index = () => {
           const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts] };
 
           switch (event.type) {
+            case 'start':
+              // Capture conversation ID immediately so reconnect works even if stream drops
+              if (event.conversationId && !activeConvoId) {
+                setActiveConvoId(event.conversationId);
+              }
+              break;
             case 'text': {
               // Find or create the last text part
               const lastPart = assistant.parts[assistant.parts.length - 1];
@@ -520,10 +712,9 @@ const Index = () => {
       },
       currentFiles.length > 0 ? currentFiles : undefined,
       currentMentions.length > 0 ? currentMentions : undefined,
-      () => {
+      async () => {
         // SSE stream ended without a "done" event — connection dropped
-        // In voice mode, do NOT auto-reconnect (it creates a loop where
-        // "continue where you left off" gets sent repeatedly)
+        // In voice mode, do NOT auto-reconnect (it creates a loop)
         if (voiceEnabledRef.current) {
           console.log('[SSE] Connection dropped during voice mode — not auto-reconnecting');
           voiceChat.stopEverything();
@@ -538,21 +729,25 @@ const Index = () => {
           return;
         }
 
-        reconnectAttemptsRef.current += 1;
-        if (reconnectAttemptsRef.current <= MAX_RECONNECT_ATTEMPTS && activeConvoId) {
-          // Auto-reconnect: send "continue" to the same conversation
-          console.log(`[SSE] Connection dropped, auto-reconnecting (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})...`);
+        // Use the reconnect endpoint instead of re-sending the prompt.
+        // This replays buffered events and subscribes to live updates
+        // without triggering a new AI response.
+        const convoId = activeConvoId;
+        if (!convoId) {
           setMessages(prev => {
             const msgs = [...prev];
             const aIdx = msgs.findIndex(m => m.id === assistantId);
             if (aIdx === -1) return prev;
-            const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts] };
-            assistant.parts.push({ type: 'text', content: '\n\n*(reconnecting...)*\n\n' });
+            const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts], streaming: false };
+            assistant.parts.push({ type: 'text', content: '\n\nConnection lost (no conversation to reconnect).' });
             msgs[aIdx] = assistant;
             return msgs;
           });
-          setTimeout(() => sendMessage('continue from where you left off'), 2000);
-        } else {
+          return;
+        }
+
+        reconnectAttemptsRef.current += 1;
+        if (reconnectAttemptsRef.current > MAX_RECONNECT_ATTEMPTS) {
           // Exhausted auto-reconnect attempts — show manual resume
           setDisconnected(true);
           reconnectAttemptsRef.current = 0;
@@ -565,14 +760,115 @@ const Index = () => {
             msgs[aIdx] = assistant;
             return msgs;
           });
+          return;
+        }
+
+        // Exponential backoff: 1s, 2s, 4s, 8s, 8s, 8s...
+        const backoffMs = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current - 1), 8000);
+        console.log(`[SSE] Connection dropped, reconnecting in ${backoffMs}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})...`);
+        await new Promise(r => setTimeout(r, backoffMs));
+
+        // Check if the agent is still running on the server
+        const status = await checkJobStatus(convoId);
+
+        if (status.active) {
+          // Agent is still running — reconnect to the existing stream
+          console.log('[SSE] Agent still running, reconnecting to existing job...');
+          setMessages(prev => {
+            const msgs = [...prev];
+            const aIdx = msgs.findIndex(m => m.id === assistantId);
+            if (aIdx === -1) return prev;
+            const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts] };
+            assistant.parts.push({ type: 'text', content: '\n\n*(reconnecting...)*\n\n' });
+            msgs[aIdx] = assistant;
+            return msgs;
+          });
+
+          setIsStreaming(true);
+          abortRef.current = reconnectToJob(
+            convoId,
+            (event: SSEEvent) => {
+              setMessages(prev => {
+                const msgs = [...prev];
+                const aIdx = msgs.findIndex(m => m.id === assistantId);
+                if (aIdx === -1) return prev;
+                const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts] };
+
+                switch (event.type) {
+                  case 'text': {
+                    const lastPart = assistant.parts[assistant.parts.length - 1];
+                    if (lastPart?.type === 'text') {
+                      assistant.parts[assistant.parts.length - 1] = {
+                        ...lastPart,
+                        content: (lastPart.content ?? '') + (event.delta ?? ''),
+                      };
+                    } else {
+                      assistant.parts.push({ type: 'text', content: event.delta ?? '' });
+                    }
+                    break;
+                  }
+                  case 'tool_start':
+                    assistant.parts.push({ type: 'tool_start', toolName: event.name });
+                    break;
+                  case 'tool_result':
+                    for (let i = assistant.parts.length - 1; i >= 0; i--) {
+                      if (assistant.parts[i].type === 'tool_start' && assistant.parts[i].toolName === event.name) {
+                        assistant.parts[i] = { type: 'tool_result', toolName: event.name, toolOutput: event.output };
+                        break;
+                      }
+                    }
+                    break;
+                  case 'done':
+                    assistant.streaming = false;
+                    reconnectAttemptsRef.current = 0;
+                    break;
+                  case 'error':
+                    assistant.streaming = false;
+                    assistant.parts.push({ type: 'text', content: `\n\n**Error:** ${event.message}` });
+                    break;
+                }
+
+                msgs[aIdx] = assistant;
+                return msgs;
+              });
+            },
+            () => {
+              setIsStreaming(false);
+              loadConversations();
+            },
+          );
+        } else {
+          // Agent already finished — just mark stream as done, refresh messages
+          console.log('[SSE] Agent already finished, refreshing conversation...');
+          reconnectAttemptsRef.current = 0;
+          setMessages(prev => {
+            const msgs = [...prev];
+            const aIdx = msgs.findIndex(m => m.id === assistantId);
+            if (aIdx === -1) return prev;
+            const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts], streaming: false };
+            msgs[aIdx] = assistant;
+            return msgs;
+          });
+          // Reload the conversation to get the full saved response
+          if (convoId) {
+            const saved = await apiFetchMessages(convoId);
+            if (saved.length > 0) {
+              setMessages(saved.map((m: any, i: number) => ({
+                id: `msg-${i}`,
+                role: m.role,
+                parts: [{ type: 'text' as const, content: m.content }],
+              })));
+            }
+          }
         }
       },
       lowTokenMode,
       modelId,
+      activeProjectId,
     );
 
     abortRef.current = abort;
-  }, [input, files, isStreaming, activeConvoId, mentionedClients, lowTokenMode]);
+  }, [input, files, isStreaming, activeConvoId, mentionedClients, lowTokenMode, activeProjectId]);
 
   sendMessageRef.current = sendMessage;
 
@@ -668,11 +964,82 @@ const Index = () => {
     }
   };
 
+  // ── Folder handlers ────────────────────────────────
+
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
+    try {
+      const folder = await createChatFolder(newFolderName.trim());
+      setChatFolders(prev => [...prev, folder]);
+      setNewFolderName('');
+      setCreatingFolder(false);
+    } catch {
+      toast.error('Failed to create folder');
+    }
+  };
+
+  const handleRenameFolder = async (folderId: string) => {
+    if (!editFolderName.trim()) { setEditingFolderId(null); return; }
+    try {
+      await updateChatFolder(folderId, { name: editFolderName.trim() });
+      setChatFolders(prev => prev.map(f => f.id === folderId ? { ...f, name: editFolderName.trim() } : f));
+      setEditingFolderId(null);
+    } catch {
+      toast.error('Failed to rename folder');
+    }
+  };
+
+  const handleToggleFolder = async (folderId: string) => {
+    const folder = chatFolders.find(f => f.id === folderId);
+    if (!folder) return;
+    const newCollapsed = !folder.is_collapsed;
+    setChatFolders(prev => prev.map(f => f.id === folderId ? { ...f, is_collapsed: newCollapsed } : f));
+    updateChatFolder(folderId, { is_collapsed: newCollapsed }).catch(() => {});
+  };
+
+  const handleDeleteFolder = async (folderId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await deleteChatFolder(folderId);
+      setChatFolders(prev => prev.filter(f => f.id !== folderId));
+      // Conversations get folder_id=null via DB cascade
+      setConversations(prev => prev.map(c => c.folder_id === folderId ? { ...c, folder_id: null } : c));
+    } catch {
+      toast.error('Failed to delete folder');
+    }
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const convId = active.id as string;
+    const targetId = over.id as string;
+
+    // Target is a folder id or 'unfiled'
+    const folderId = targetId === 'unfiled' ? null : targetId;
+
+    // Optimistic update
+    setConversations(prev => prev.map(c => c.id === convId ? { ...c, folder_id: folderId } : c));
+    try {
+      await moveConversationToFolder(convId, folderId);
+    } catch {
+      toast.error('Failed to move conversation');
+      loadConversations(); // revert
+    }
+  };
+
   // ── Filtered conversations ─────────────────────────
 
   const filteredConversations = conversations.filter(c =>
     !searchQuery || c.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const folderedConversations = chatFolders.map(folder => ({
+    folder,
+    conversations: filteredConversations.filter(c => c.folder_id === folder.id),
+  }));
+  const unfiledConversations = filteredConversations.filter(c => !c.folder_id);
 
   const isEmptyChat = messages.length === 0;
   const canSend = !isStreaming && (input.trim() || files.length > 0);
@@ -807,8 +1174,11 @@ const Index = () => {
   const sidebarContent = (
     <div className="h-full flex flex-col">
       <div className="p-3 flex items-center gap-2">
-        <Button variant="outline" size="sm" className="flex-1 justify-start gap-2" onClick={startNewChat}>
+        <Button variant="outline" size="sm" className="flex-1 justify-start gap-2" onClick={() => startNewChat()}>
           <Plus className="w-4 h-4" /> New Chat
+        </Button>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="New Folder" onClick={() => setCreatingFolder(true)}>
+          <FolderPlus className="w-4 h-4" />
         </Button>
         {!isMobile && (
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSidebarOpen(false)}>
@@ -830,25 +1200,132 @@ const Index = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {loadingHistory ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : filteredConversations.length === 0 ? (
-          <p className="text-xs text-muted-foreground text-center py-8">
-            {searchQuery ? 'No chats found' : 'No chats yet'}
-          </p>
-        ) : (
-          filteredConversations.map(c => renderConversationItem(c))
-        )}
-      </div>
+      {/* New folder inline input */}
+      {creatingFolder && (
+        <div className="px-3 pb-2">
+          <input
+            type="text"
+            value={newFolderName}
+            onChange={e => setNewFolderName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); } }}
+            onBlur={() => { if (newFolderName.trim()) handleCreateFolder(); else { setCreatingFolder(false); setNewFolderName(''); } }}
+            placeholder="Folder name..."
+            autoFocus
+            className="w-full h-7 px-2 rounded-md bg-muted/50 border border-primary/50 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+          />
+        </div>
+      )}
 
-      {/* Footer: memory + notifications */}
+      <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <div className="flex-1 overflow-y-auto px-2 pb-2">
+          {loadingHistory ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : filteredConversations.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-8">
+              {searchQuery ? 'No chats found' : 'No chats yet'}
+            </p>
+          ) : (
+            <>
+              {/* Folders */}
+              {folderedConversations.map(({ folder, conversations: folderConvos }) => (
+                <div key={folder.id} className="mb-1">
+                  {/* Folder header */}
+                  <div className="flex items-center gap-1 px-1 py-1 group">
+                    <button
+                      onClick={() => handleToggleFolder(folder.id)}
+                      className="flex items-center gap-1.5 flex-1 min-w-0 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {folder.is_collapsed ? (
+                        <ChevronRight className="w-3 h-3 shrink-0" />
+                      ) : (
+                        <ChevronDown className="w-3 h-3 shrink-0" />
+                      )}
+                      {folder.is_collapsed ? (
+                        <Folder className="w-3 h-3 shrink-0" />
+                      ) : (
+                        <FolderOpen className="w-3 h-3 shrink-0" />
+                      )}
+                      {editingFolderId === folder.id ? (
+                        <input
+                          value={editFolderName}
+                          onChange={e => setEditFolderName(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleRenameFolder(folder.id); if (e.key === 'Escape') setEditingFolderId(null); }}
+                          onBlur={() => handleRenameFolder(folder.id)}
+                          onClick={e => e.stopPropagation()}
+                          autoFocus
+                          className="flex-1 min-w-0 bg-transparent border-b border-primary text-foreground text-xs outline-none"
+                        />
+                      ) : (
+                        <span className="truncate">{folder.name}</span>
+                      )}
+                      {folderConvos.length > 0 && (
+                        <span className="text-[10px] text-muted-foreground/60 ml-auto shrink-0">{folderConvos.length}</span>
+                      )}
+                    </button>
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setEditingFolderId(folder.id); setEditFolderName(folder.name); }}
+                        className="p-0.5 text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        <Pencil className="w-2.5 h-2.5" />
+                      </button>
+                      <button
+                        onClick={(e) => handleDeleteFolder(folder.id, e)}
+                        className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <Trash2 className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  </div>
+                  {/* Folder conversations (droppable zone) */}
+                  {!folder.is_collapsed && (
+                    <DroppableZone id={folder.id}>
+                      {folderConvos.length > 0 ? (
+                        <div className="pl-2">
+                          {folderConvos.map(c => (
+                            <DraggableConversation key={c.id} id={c.id}>
+                              {renderConversationItem(c)}
+                            </DraggableConversation>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground/50 text-center py-1.5 pl-6">
+                          Drop chats here
+                        </p>
+                      )}
+                    </DroppableZone>
+                  )}
+                </div>
+              ))}
+
+              {/* Unfiled conversations */}
+              {unfiledConversations.length > 0 && (
+                <DroppableZone id="unfiled">
+                  {chatFolders.length > 0 && (
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60 px-2 pt-2 pb-1">Unfiled</p>
+                  )}
+                  {unfiledConversations.map(c => (
+                    <DraggableConversation key={c.id} id={c.id}>
+                      {renderConversationItem(c)}
+                    </DraggableConversation>
+                  ))}
+                </DroppableZone>
+              )}
+            </>
+          )}
+        </div>
+      </DndContext>
+
+      {/* Footer: memory + projects + notifications */}
       <div className="p-3 border-t border-border space-y-2">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" className="flex-1 justify-start gap-2 text-muted-foreground" onClick={loadMemory}>
             <Brain className="w-4 h-4" /> My Memory
+          </Button>
+          <Button variant="ghost" size="sm" className="justify-start gap-2 text-muted-foreground" onClick={() => setShowProjects(true)}>
+            <FolderKanban className="w-4 h-4" /> Projects
           </Button>
           {unreadCount > 0 && (
             <div className="relative">
@@ -918,8 +1395,8 @@ const Index = () => {
             </div>
           )}
 
-          {/* Top bar: Agent Dashboard + Voice toggle */}
-          <div className="flex items-center justify-between px-3 pt-2">
+          {/* Top bar: Agent Dashboard + Project badge + Voice toggle */}
+          <div className="flex items-center justify-between px-3 pt-2 gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -929,6 +1406,15 @@ const Index = () => {
               <Activity className="h-3.5 w-3.5" />
               Agent Dashboard
             </Button>
+            {activeProjectId && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs text-primary">
+                <FolderKanban className="w-3 h-3" />
+                <span className="truncate max-w-[120px]">{activeProjectName || 'Project'}</span>
+                <button onClick={() => { setActiveProjectId(null); setActiveProjectName(null); }} className="hover:text-destructive ml-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )}
             <VoiceModeToggle enabled={voiceChat.voiceEnabled} onToggle={voiceChat.toggleVoice} />
           </div>
 
@@ -953,7 +1439,7 @@ const Index = () => {
               </div>
             </div>
           ) : (
-            <div className="flex-1 overflow-y-auto">
+            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
               <div className="max-w-3xl mx-auto px-3 md:px-4 py-4 md:py-6 space-y-4 md:space-y-6">
                 {messages.map((msg) => (
                   <div key={msg.id} className={`flex gap-2 md:gap-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
@@ -988,9 +1474,61 @@ const Index = () => {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
+                      onClick={async () => {
                         setDisconnected(false);
-                        sendMessage(lastUserMessageRef.current);
+                        if (!activeConvoId) return;
+                        // Check if agent is still running — reconnect if so
+                        const status = await checkJobStatus(activeConvoId);
+                        if (status.active) {
+                          setIsStreaming(true);
+                          const assistantId = `resume-${Date.now()}`;
+                          setMessages(prev => [...prev, { id: assistantId, role: 'assistant' as const, parts: [{ type: 'text' as const, content: '*(resumed)*\n\n' }], streaming: true }]);
+                          abortRef.current = reconnectToJob(activeConvoId, (event: SSEEvent) => {
+                            setMessages(prev => {
+                              const msgs = [...prev];
+                              const aIdx = msgs.length - 1;
+                              if (aIdx < 0 || msgs[aIdx].role !== 'assistant') return prev;
+                              const assistant = { ...msgs[aIdx], parts: [...msgs[aIdx].parts] };
+                              switch (event.type) {
+                                case 'text': {
+                                  const lastPart = assistant.parts[assistant.parts.length - 1];
+                                  if (lastPart?.type === 'text') {
+                                    assistant.parts[assistant.parts.length - 1] = { ...lastPart, content: (lastPart.content ?? '') + (event.delta ?? '') };
+                                  } else {
+                                    assistant.parts.push({ type: 'text', content: event.delta ?? '' });
+                                  }
+                                  break;
+                                }
+                                case 'tool_start':
+                                  assistant.parts.push({ type: 'tool_start', toolName: event.name });
+                                  break;
+                                case 'tool_result':
+                                  for (let i = assistant.parts.length - 1; i >= 0; i--) {
+                                    if (assistant.parts[i].type === 'tool_start' && assistant.parts[i].toolName === event.name) {
+                                      assistant.parts[i] = { type: 'tool_result', toolName: event.name, toolOutput: event.output };
+                                      break;
+                                    }
+                                  }
+                                  break;
+                                case 'done':
+                                  assistant.streaming = false;
+                                  break;
+                                case 'error':
+                                  assistant.streaming = false;
+                                  assistant.parts.push({ type: 'text', content: `\n\n**Error:** ${event.message}` });
+                                  break;
+                              }
+                              msgs[aIdx] = assistant;
+                              return msgs;
+                            });
+                          }, () => { setIsStreaming(false); loadConversations(); });
+                        } else {
+                          // Agent finished — just reload messages
+                          const saved = await apiFetchMessages(activeConvoId);
+                          if (saved.length > 0) {
+                            setMessages(saved.map((m: any, i: number) => ({ id: `msg-${i}`, role: m.role, parts: [{ type: 'text' as const, content: m.content }] })));
+                          }
+                        }
                       }}
                       className="text-xs"
                     >
@@ -1207,6 +1745,65 @@ const Index = () => {
                   <Gauge className="w-3 h-3" />
                   {lowTokenMode ? 'Low Token' : 'Full Response'}
                 </button>
+
+                {/* Project picker */}
+                <div className="relative">
+                  <button
+                    onClick={async () => {
+                      if (!showProjectPicker) {
+                        try {
+                          const projects = await fetchChatProjects();
+                          setProjectsList(projects);
+                        } catch { /* ignore */ }
+                      }
+                      setShowProjectPicker(prev => !prev);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${
+                      activeProjectId
+                        ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
+                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                    }`}
+                  >
+                    <FolderKanban className="w-3 h-3" />
+                    {activeProjectId ? (activeProjectName || 'Project') : 'Project'}
+                  </button>
+                  {showProjectPicker && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowProjectPicker(false)} />
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-popover border border-border rounded-lg shadow-lg z-50 w-56 py-1 max-h-[200px] overflow-y-auto">
+                        {activeProjectId && (
+                          <button
+                            onClick={() => { setActiveProjectId(null); setActiveProjectName(null); setShowProjectPicker(false); }}
+                            className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent text-destructive"
+                          >
+                            Remove project
+                          </button>
+                        )}
+                        {projectsList.length === 0 ? (
+                          <p className="px-3 py-2 text-xs text-muted-foreground">No projects yet</p>
+                        ) : (
+                          projectsList.map(p => (
+                            <button
+                              key={p.id}
+                              onClick={() => {
+                                setActiveProjectId(p.id);
+                                setActiveProjectName(p.name);
+                                setShowProjectPicker(false);
+                              }}
+                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-accent flex items-center justify-between gap-2 ${
+                                activeProjectId === p.id ? 'text-primary font-medium' : 'text-foreground'
+                              }`}
+                            >
+                              <span className="truncate">{p.name}</span>
+                              <span className="text-[10px] text-muted-foreground shrink-0">{p.resource_count}r</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
                 <p className="text-[10px] text-muted-foreground">
                   Powered By Melleka AI · Enter to send{lowTokenMode ? ' · Concise mode' : ''}{voiceChat.voiceEnabled ? ' · Voice mode active' : ''}
                 </p>
@@ -1234,6 +1831,19 @@ const Index = () => {
 
       {/* Memory panel */}
       <MemoryPanel open={showMemory} onOpenChange={setShowMemory} />
+
+      {/* Projects panel */}
+      <ProjectsPanel
+        open={showProjects}
+        onOpenChange={setShowProjects}
+        onStartChat={(projectId) => {
+          startNewChat(projectId);
+          // Fetch project name for badge
+          import('@/lib/chatApi').then(({ getChatProject }) => {
+            getChatProject(projectId).then(p => setActiveProjectName(p.name)).catch(() => {});
+          });
+        }}
+      />
     </div>
   );
 };

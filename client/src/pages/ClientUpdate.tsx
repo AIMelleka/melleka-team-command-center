@@ -402,7 +402,7 @@ const ClientUpdate = () => {
 
   // ── Start stream helper ────────────────────────────
 
-  const startStream = useCallback((message: string, convId: string | null) => {
+  const startStream = useCallback((message: string, convId: string | null, mentions?: string[]) => {
     setIsStreaming(true);
     const abort = streamMessage(
       message,
@@ -410,7 +410,7 @@ const ClientUpdate = () => {
       handleSSEEvent,
       () => { setIsStreaming(false); setReconnecting(false); },
       undefined,
-      undefined,
+      mentions,
       handleDisconnect,
     );
     abortRef.current = abort;
@@ -464,7 +464,7 @@ const ClientUpdate = () => {
       ``,
       `Follow the CLIENT UPDATE BOT rules from your system prompt exactly. Do not skip ANY data source.`,
       aliasInfo,
-      additionalContext ? `\nAdditional context from team: ${additionalContext}` : '',
+      additionalContext ? `\n[MANDATORY INSTRUCTIONS FROM USER — MUST BE FOLLOWED]\n${additionalContext}` : '',
       masterOverride,
     ].filter(Boolean).join('\n');
 
@@ -497,7 +497,7 @@ const ClientUpdate = () => {
     };
 
     setMessages([userMsg, assistantMsg]);
-    startStream(message, null);
+    startStream(message, null, [clientName.trim()]);
   };
 
   // ── Follow-up ──────────────────────────────────────

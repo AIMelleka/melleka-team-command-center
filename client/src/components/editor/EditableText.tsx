@@ -21,17 +21,35 @@ export const EditableText = ({
   multiline = false,
   placeholder = 'Click to edit...'
 }: EditableTextProps) => {
-  const { isEditMode, pendingChanges, updateContent } = useAdminEdit();
+  const { isEditMode, pendingChanges, savedOverrides, contentData, updateContent } = useAdminEdit();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
 
-  // Get the current display value (pending changes or original)
-  const displayValue = (pendingChanges[path] as string) ?? value;
+  // Resolve dot-path against contentData (e.g. "hero.title" → contentData.hero.title)
+  const resolveContentPath = (): string | undefined => {
+    const keys = path.split('.');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let current: any = contentData;
+    for (const key of keys) {
+      if (current == null || typeof current !== 'object') return undefined;
+      current = current[key];
+    }
+    return typeof current === 'string' ? current : undefined;
+  };
+
+  // Priority: pending changes → saved overrides → DB content → hardcoded prop default
+  // Safely coerce to string — proposal JSON may contain objects for fields expected to be strings
+  const contentValue = resolveContentPath();
+  const rawValue = (pendingChanges[path] as string) ?? (savedOverrides[path] as string) ?? contentValue ?? value;
+  const displayValue = (typeof rawValue === 'string') ? rawValue : (rawValue == null ? '' : String(rawValue));
 
   useEffect(() => {
-    setEditValue(displayValue);
-  }, [displayValue]);
+    // Only sync when NOT actively editing — prevents overwriting user's in-progress typing
+    if (!isEditing) {
+      setEditValue(displayValue);
+    }
+  }, [displayValue, isEditing]);
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -41,9 +59,9 @@ export const EditableText = ({
   }, [isEditing]);
 
   const handleSave = () => {
-    if (editValue !== value) {
-      updateContent(path, editValue);
-    }
+    // Always persist the edit — comparing against the prop `value` could miss
+    // cases where the display comes from savedOverrides or pendingChanges
+    updateContent(path, editValue);
     setIsEditing(false);
   };
 

@@ -146,13 +146,31 @@ async function processOneClient(
   }
   const activeSources = Object.keys(accounts);
 
-  // Get client info
+  // Get client info + goals
   const { data: mcData } = await supabase
     .from('managed_clients')
-    .select('industry, domain')
+    .select('industry, domain, target_cpa, target_cpl, target_roas, monthly_budget, monthly_lead_target, monthly_conversion_target, client_notes, report_focus, targeting_context, primary_conversion_goal')
     .eq('client_name', clientName)
     .single();
   const industry = mcData?.industry || null;
+
+  // Build clientGoals object — only populate if at least one field is set
+  const clientGoals = (mcData && (
+    mcData.target_cpa || mcData.target_cpl || mcData.target_roas ||
+    mcData.monthly_budget || mcData.monthly_lead_target || mcData.monthly_conversion_target ||
+    mcData.client_notes || mcData.report_focus || mcData.targeting_context || mcData.primary_conversion_goal
+  )) ? {
+    target_cpa: mcData.target_cpa ?? null,
+    target_cpl: mcData.target_cpl ?? null,
+    target_roas: mcData.target_roas ?? null,
+    monthly_budget: mcData.monthly_budget ?? null,
+    monthly_lead_target: mcData.monthly_lead_target ?? null,
+    monthly_conversion_target: mcData.monthly_conversion_target ?? null,
+    client_notes: mcData.client_notes ?? null,
+    report_focus: mcData.report_focus ?? null,
+    targeting_context: mcData.targeting_context ?? null,
+    primary_conversion_goal: mcData.primary_conversion_goal ?? null,
+  } : undefined;
 
   // Date range: last 14 days
   const today = new Date();
@@ -184,6 +202,7 @@ async function processOneClient(
         if (s.ctr > 0) supermetricsContext += `CTR: ${(s.ctr * 100).toFixed(2)}%\n`;
         if (s.cpc > 0) supermetricsContext += `CPC: $${s.cpc?.toFixed(2)}\n`;
         if (s.cpa > 0) supermetricsContext += `CPA: $${s.cpa?.toFixed(2)}\n`;
+        if (s.roas > 0) supermetricsContext += `ROAS: ${s.roas?.toFixed(2)}x\n`;
         if (pd.campaigns?.length > 0) {
           supermetricsContext += `\nTop Campaigns:\n`;
           for (const c of pd.campaigns.slice(0, 10)) {
@@ -269,6 +288,7 @@ async function processOneClient(
       sheetsData: supermetricsContext,
       previousReview: previousReview || undefined,
       benchmarkData: industry ? { industry } : undefined,
+      clientGoals: clientGoals || undefined,
     }),
   });
 

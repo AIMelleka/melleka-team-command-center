@@ -26,6 +26,7 @@ import {
   BookOpen,
   Video,
   Film,
+  CalendarCheck,
 } from 'lucide-react';
 import teamPitLogo from '@/assets/team-pit-logo.png';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -51,12 +52,14 @@ const navItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/social-media', label: 'Social Media', icon: Share2 },
   { path: '/qa-bot', label: 'QA Bot', icon: Bot },
   { path: '/email-writer', label: 'Email Writer', icon: Mail },
-  { path: '/client-update', label: 'Client Update', icon: Users },
+  { path: '/weekly-updates', label: 'Weekly Updates', icon: CalendarCheck },
+  { path: '/auto-client-updates', label: 'Auto Client Updates', icon: Mail },
   { path: '/meeting-queen', label: 'Meeting Queen', icon: Crown },
   { path: '/onboarding-bot', label: 'Onboarding Bot', icon: ClipboardList },
   { path: '/cron-jobs', label: 'Cron Jobs', icon: Timer },
   { path: '/commercial-maker', label: 'Commercial Maker', icon: Film },
   { path: '/websites', label: 'Website Builder', icon: Globe },
+  { path: '/employees', label: 'My Employees', icon: Users },
   { path: '/client-settings', label: 'Clients', icon: Building2 },
   { path: '/admin', label: 'Admin Settings', icon: Settings },
   { path: '/super-agent-settings', label: 'Super Agent Settings', icon: Bot },

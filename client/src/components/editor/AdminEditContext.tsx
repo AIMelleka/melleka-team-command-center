@@ -11,12 +11,16 @@ interface AdminEditContextType {
   isEditMode: boolean;
   isAdminVerified: boolean;
   pendingChanges: Record<string, unknown>;
+  savedOverrides: Record<string, unknown>;
+  contentData: Record<string, unknown>;
+  initContentData: (data: Record<string, unknown>) => void;
   setIsEditMode: (value: boolean) => void;
   verifyAdmin: (pin: string) => boolean;
   logout: () => void;
   updateContent: (path: string, value: unknown) => void;
   getChanges: () => Record<string, unknown>;
   clearChanges: () => void;
+  discardChanges: () => void;
   hasChanges: boolean;
   // Hidden sections
   hiddenSections: string[];
@@ -45,9 +49,15 @@ export const AdminEditProvider = ({ children }: { children: ReactNode }) => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [isAdminVerified, setIsAdminVerified] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Record<string, unknown>>({});
+  const [savedOverrides, setSavedOverrides] = useState<Record<string, unknown>>({});
   const [hiddenSections, setHiddenSections] = useState<string[]>([]);
   const [customSections, setCustomSections] = useState<CustomProposalSection[]>([]);
   const [sectionOrder, setSectionOrderState] = useState<string[]>([]);
+  const [contentData, setContentData] = useState<Record<string, unknown>>({});
+
+  const initContentData = (data: Record<string, unknown>) => {
+    setContentData(data);
+  };
 
   const verifyAdmin = (pin: string): boolean => {
     if (pin === ADMIN_PIN) {
@@ -62,6 +72,7 @@ export const AdminEditProvider = ({ children }: { children: ReactNode }) => {
     setIsAdminVerified(false);
     setIsEditMode(false);
     setPendingChanges({});
+    setSavedOverrides({});
   };
 
   const updateContent = (path: string, value: unknown) => {
@@ -86,7 +97,16 @@ export const AdminEditProvider = ({ children }: { children: ReactNode }) => {
     return changes;
   };
 
-  const clearChanges = () => setPendingChanges({});
+  const clearChanges = () => {
+    // Move pending changes to saved overrides so EditableText still shows saved values
+    setSavedOverrides(prev => ({ ...prev, ...pendingChanges }));
+    setPendingChanges({});
+  };
+
+  const discardChanges = () => {
+    // Truly discard — clear pending without preserving in overrides
+    setPendingChanges({});
+  };
 
   const hasChanges = Object.keys(pendingChanges).length > 0;
 
@@ -146,12 +166,16 @@ export const AdminEditProvider = ({ children }: { children: ReactNode }) => {
         isEditMode,
         isAdminVerified,
         pendingChanges,
+        savedOverrides,
+        contentData,
+        initContentData,
         setIsEditMode,
         verifyAdmin,
         logout,
         updateContent,
         getChanges,
         clearChanges,
+        discardChanges,
         hasChanges,
         hiddenSections,
         hideSection,

@@ -358,6 +358,7 @@ router.post("/:id/voiceover", requireAuth, async (req: AuthRequest, res) => {
         model_id: "eleven_multilingual_v2",
         voice_settings: { stability: 0.5, similarity_boost: 0.75 },
       }),
+      signal: AbortSignal.timeout(60_000),
     });
 
     if (!ttsRes.ok) {

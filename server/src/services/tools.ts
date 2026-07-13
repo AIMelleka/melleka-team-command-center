@@ -16,8 +16,35 @@ import { listZapierTools, callZapierTool } from "./zapier-mcp.js";
 import { deployToVercel } from "./deployer.js";
 import { makeClientMatcher, generateClientAliases, getClientMatchingRules, isAmbiguousWord, CLIENT_ALIAS_REGISTRY, loadMatchingRegistry } from "./client-matching.js";
 import { fetchClientAdPerformance } from "./ad-metrics.js";
+import { redditAdsRequest } from "./redditAdsClient.js";
 
 const execAsync = promisify(exec);
+
+// ── Timeout-protected fetch (prevents hanging on unresponsive external APIs) ──
+const DEFAULT_FETCH_TIMEOUT = 45_000; // 45 seconds — generous but not indefinite
+
+async function fetchWithTimeout(
+  url: string | URL | Request,
+  init?: RequestInit & { timeoutMs?: number },
+): Promise<Response> {
+  // If caller already provides their own signal, just pass through (they manage their own timeout)
+  if (init?.signal) {
+    return fetch(url, init);
+  }
+  const timeoutMs = init?.timeoutMs ?? DEFAULT_FETCH_TIMEOUT;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      throw new Error(`Request to ${typeof url === "string" ? url.split("?")[0] : "external API"} timed out after ${Math.round(timeoutMs / 1000)}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // Env vars stripped from child processes to prevent secret leakage
 const SENSITIVE_ENV_KEYS = [
@@ -46,7 +73,7 @@ async function getServisToken(clientName: string, clientId: string, clientSecret
   const cached = servisTokenCache.get(clientName);
   if (cached && Date.now() < cached.expiresAt) return cached.token;
 
-  const resp = await fetch("https://freeagent.network/oauth/token", {
+  const resp = await fetchWithTimeout("https://freeagent.network/oauth/token", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ grant_type: "client_credentials", client_id: clientId, client_secret: clientSecret }),
@@ -112,7 +139,7 @@ async function ghlRequest(options: GhlRequestOptions): Promise<any> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
-    const resp = await fetch(url, { method, headers, body: fetchBody, signal: controller.signal });
+    const resp = await fetchWithTimeout(url, { method, headers, body: fetchBody, signal: controller.signal });
     if (resp.status === 429) {
       throw new Error("GHL rate limit exceeded (100 req/10s). Wait a moment and retry.");
     }
@@ -133,7 +160,7 @@ async function refreshGhlLocationToken(locationId: string, refreshToken: string)
   const clientSecret = process.env.GHL_CLIENT_SECRET || await getSecret("GHL_CLIENT_SECRET");
   if (!clientId || !clientSecret) throw new Error("GHL_CLIENT_ID and GHL_CLIENT_SECRET required for token refresh.");
 
-  const resp = await fetch("https://services.leadconnectorhq.com/oauth/token", {
+  const resp = await fetchWithTimeout("https://services.leadconnectorhq.com/oauth/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
     body: new URLSearchParams({
@@ -261,6 +288,39 @@ async function resolveGhlLocation(clientName: string): Promise<GhlLocationResult
   return { locationId, locationName, accessToken };
 }
 
+/** Resolve ALL GHL locations for a client (for multi-location clients).
+ *  Uses the same fuzzy matching as resolveGhlLocation but returns every match. */
+async function resolveAllGhlLocations(clientName: string): Promise<GhlLocationResult[]> {
+  const client = await getSupabaseClient();
+  const search = clientName.toLowerCase().trim();
+
+  const { data: allMappings } = await client
+    .from("client_account_mappings")
+    .select("client_name, account_id, account_name")
+    .eq("platform", "ghl");
+
+  if (!allMappings || allMappings.length === 0) return [];
+
+  // Match all entries for this client (exact, contains, reverse-contains, word overlap)
+  const matched = allMappings.filter(m => {
+    const n = m.client_name.toLowerCase();
+    if (n === search) return true;
+    if (n.includes(search) || search.includes(n)) return true;
+    const searchWords = search.split(/\s+/).filter((w: string) => w.length > 2);
+    const nameWords = n.split(/\s+/);
+    return searchWords.some((sw: string) => nameWords.some((nw: string) => nw === sw));
+  });
+
+  if (matched.length === 0) return [];
+
+  const results: GhlLocationResult[] = [];
+  for (const m of matched) {
+    const accessToken = await getGhlLocationToken(m.account_id);
+    results.push({ locationId: m.account_id, locationName: m.account_name || m.client_name, accessToken });
+  }
+  return results;
+}
+
 /** Format GHL result with truncation */
 function ghlResult(data: unknown, maxLen = 8000): string {
   const out = JSON.stringify(data, null, 2);
@@ -304,7 +364,7 @@ async function refreshGoogleToken(): Promise<string> {
   const clientId = await requireSecret("GOOGLE_CLIENT_ID", "Google Client ID");
   const clientSecret = await requireSecret("GOOGLE_CLIENT_SECRET", "Google Client Secret");
   const refreshToken = await requireSecret("GOOGLE_ADS_REFRESH_TOKEN", "Google Ads Refresh Token");
-  const resp = await fetch("https://oauth2.googleapis.com/token", {
+  const resp = await fetchWithTimeout("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -384,7 +444,7 @@ async function getGoogleSheetsAccessToken(): Promise<string> {
 
   const jwt = `${header}.${payload}.${signature}`;
 
-  const resp = await fetch(sa.token_uri || "https://oauth2.googleapis.com/token", {
+  const resp = await fetchWithTimeout(sa.token_uri || "https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -418,7 +478,7 @@ async function elevenLabsRequest(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120_000);
   try {
-    return await fetch(`https://api.elevenlabs.io${endpoint}`, {
+    return await fetchWithTimeout(`https://api.elevenlabs.io${endpoint}`, {
       method,
       headers: options.isFormData
         ? Object.fromEntries(Object.entries(headers).filter(([k]) => k.toLowerCase() !== "content-type"))
@@ -723,6 +783,10 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         from: {
           type: "string",
           description: "Sender name and email. Defaults to 'Melleka Team Hub <onboarding@resend.dev>'.",
+        },
+        cc: {
+          type: "string",
+          description: "CC recipients — comma-separated email addresses.",
         },
       },
       required: ["to", "subject", "body"],
@@ -1433,15 +1497,51 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "reddit_ads_manage",
+    description:
+      "Read or write Reddit Ads data via the Reddit Ads API v3.\n\n" +
+      "READ examples:\n" +
+      "- List businesses: method='GET', endpoint='/me/businesses'\n" +
+      "- List ad accounts: method='GET', endpoint='/businesses/{biz_id}/ad_accounts'\n" +
+      "- List campaigns: method='GET', endpoint='/ad_accounts/{ad_account_id}/campaigns'\n" +
+      "- Get reports: method='GET', endpoint='/ad_accounts/{ad_account_id}/reports', params={starts_at:'2026-01-01', ends_at:'2026-01-31'}\n" +
+      "- List ad groups: method='GET', endpoint='/ad_accounts/{ad_account_id}/ad_groups'\n" +
+      "- List ads: method='GET', endpoint='/ad_accounts/{ad_account_id}/ads'\n\n" +
+      "WRITE examples:\n" +
+      "- Create campaign: method='POST', endpoint='/ad_accounts/{ad_account_id}/campaigns', params={name:'Campaign', objective:'CONVERSIONS', ...}\n" +
+      "- Pause campaign: method='PUT', endpoint='/campaigns/{campaign_id}', params={configured_status:'PAUSED'}\n" +
+      "- Create ad group: method='POST', endpoint='/ad_accounts/{ad_account_id}/ad_groups', params={name:'Ad Group', bid_strategy:{...}, ...}\n" +
+      "- Create ad: method='POST', endpoint='/ad_accounts/{ad_account_id}/ads', params={name:'Ad', post_url:'...', ...}\n\n" +
+      "IMPORTANT: Ad account IDs use 'a2_' prefix (e.g. a2_hnptuva28u3m). Budgets are in CENTS ($50 = 5000).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        method: {
+          type: "string",
+          description: "HTTP method: GET, POST, PUT, or DELETE. Default: GET.",
+        },
+        endpoint: {
+          type: "string",
+          description: "Reddit Ads API v3 endpoint path (without base URL). Example: '/campaigns', '/campaigns/{id}/adgroups'",
+        },
+        params: {
+          type: "object",
+          description: "Parameters. GET → query params. POST/PUT → JSON body.",
+        },
+      },
+      required: ["endpoint"],
+    },
+  },
+  {
     name: "get_client_accounts",
     description:
       "Look up a client's linked ad accounts, social media pages, GA4 property, domain, and other metadata from the command center database. " +
-      "Returns all account mappings (Google Ads, Meta Ads, TikTok, Bing, LinkedIn, Facebook Page, Instagram Account, Ayrshare Profile) plus client profile info. " +
+      "Returns all account mappings (Google Ads, Meta Ads, Reddit Ads, TikTok, Bing, LinkedIn, Facebook Page, Instagram Account, Ayrshare Profile) plus client profile info. " +
       "The response includes 'accounts' (grouped by platform), 'linked_platforms' (array), and 'total_linked_accounts' (count). " +
       "If 'accounts' is empty {}, the client has no linked accounts. If it has platform keys, those accounts ARE linked and ready to use. " +
-      "Platform keys: 'google_ads' = Google Ads customer ID, 'meta_ads' = Meta ad account ID (act_xxx), 'facebook_page' = Facebook Page ID (use with Meta Graph API for published_posts and page insights), 'instagram_account' = IG business account ID, 'ayrshare_profile' = Ayrshare profile key for per-client social media management, 'ghl' = GoHighLevel location ID (sub-account) for CRM operations. " +
+      "Platform keys: 'google_ads' = Google Ads customer ID, 'meta_ads' = Meta ad account ID (act_xxx), 'reddit_ads' = Reddit advertiser account ID (t2_xxx), 'facebook_page' = Facebook Page ID (use with Meta Graph API for published_posts and page insights), 'instagram_account' = IG business account ID, 'ayrshare_profile' = Ayrshare profile key for per-client social media management, 'ghl' = GoHighLevel location ID (sub-account) for CRM operations. " +
       "If client_name is omitted, returns ALL active clients with their linked accounts. " +
-      "ALWAYS call this FIRST before any Google Ads, Meta Ads, social media, Supermetrics, GA4, or GoHighLevel operation. Uses smart fuzzy matching on client names.",
+      "ALWAYS call this FIRST before any Google Ads, Meta Ads, Reddit Ads, social media, Supermetrics, GA4, or GoHighLevel operation. Uses smart fuzzy matching on client names.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -2189,7 +2289,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     description:
       "Manage conversations and send messages (SMS, email, WhatsApp) in GoHighLevel for a client.\n\n" +
       "ACTIONS:\n" +
-      "- list_conversations: List recent conversations. Params: limit, status (all/read/unread/starred)\n" +
+      "- list_conversations: List recent conversations. Params: limit, status (all/read/unread/starred), startDate (ISO string e.g. '2026-06-15T00:00:00Z'), endDate (ISO string e.g. '2026-06-21T23:59:59Z')\n" +
       "- get_conversation: Get a conversation by ID. Params: conversation_id\n" +
       "- search_conversations: Search conversations. Params: query, contact_id\n" +
       "- get_messages: Get messages in a conversation. Params: conversation_id, limit\n" +
@@ -2409,7 +2509,7 @@ async function refreshCanvaToken(refreshToken: string): Promise<{ access_token: 
   const clientSecret = await requireSecret("CANVA_CLIENT_SECRET", "Canva Client Secret");
   const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
-  const resp = await fetch("https://api.canva.com/rest/v1/oauth/token", {
+  const resp = await fetchWithTimeout("https://api.canva.com/rest/v1/oauth/token", {
     method: "POST",
     headers: {
       Authorization: `Basic ${basicAuth}`,
@@ -2497,7 +2597,7 @@ async function canvaApi(
   };
   if (body) headers["Content-Type"] = "application/json";
 
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -2741,11 +2841,11 @@ export async function executeTool(
         if (!headers["Content-Type"] && reqBody) {
           headers["Content-Type"] = "application/json";
         }
-        // 10-minute timeout — only kills truly dead connections, not slow ones
+        // 60-second timeout for HTTP requests
         const abortCtrl = new AbortController();
-        const timeoutId = setTimeout(() => abortCtrl.abort(), 600000);
+        const timeoutId = setTimeout(() => abortCtrl.abort(), 60_000);
         try {
-          const response = await fetch(url, {
+          const response = await fetchWithTimeout(url, {
             method,
             headers,
             body: reqBody,
@@ -2758,7 +2858,7 @@ export async function executeTool(
         } catch (err: any) {
           clearTimeout(timeoutId);
           if (err.name === "AbortError") {
-            return `Error: HTTP request to ${url} timed out after 10 minutes. The server is unresponsive.`;
+            return `Error: HTTP request to ${url} timed out after 60 seconds.`;
           }
           return `Error: HTTP request failed — ${err.message}`;
         }
@@ -2769,18 +2869,23 @@ export async function executeTool(
         const to = toolInput.to as string;
         const subject = toolInput.subject as string;
         const htmlBody = toolInput.body as string;
-        const defaultFrom = await getSecret("FROM_EMAIL") || "Melleka Team Hub <onboarding@resend.dev>";
-        const from = (toolInput.from as string) || defaultFrom;
+        // FROM_EMAIL env var always wins — never let Claude override the verified sender domain
+        const configuredFrom = await getSecret("FROM_EMAIL");
+        const from = configuredFrom || (toolInput.from as string) || "Melleka Team Hub <onboarding@resend.dev>";
         const toArray = to.split(",").map((e) => e.trim());
+        const ccRaw = toolInput.cc as string | undefined;
+        const ccArray = ccRaw ? ccRaw.split(",").map((e) => e.trim()) : undefined;
         // Auto-wrap plain text in a basic HTML template
         const html = htmlBody.includes("<") ? htmlBody : `<p>${htmlBody.replace(/\n/g, "<br>")}</p>`;
-        const response = await fetch("https://api.resend.com/emails", {
+        const emailPayload: Record<string, unknown> = { from, to: toArray, subject, html };
+        if (ccArray?.length) emailPayload.cc = ccArray;
+        const response = await fetchWithTimeout("https://api.resend.com/emails", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ from, to: toArray, subject, html }),
+          body: JSON.stringify(emailPayload),
         });
         const result = await response.json() as Record<string, unknown>;
         if (response.ok) {
@@ -2873,7 +2978,7 @@ export async function executeTool(
         if (loginCustomerId) headers["login-customer-id"] = loginCustomerId.replace(/-/g, "");
 
         // Use searchStream to get ALL results without pagination limits
-        const resp = await fetch(
+        const resp = await fetchWithTimeout(
           `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${customerId}/googleAds:searchStream`,
           { method: "POST", headers, body: JSON.stringify({ query }) }
         );
@@ -2906,7 +3011,7 @@ export async function executeTool(
         };
         if (loginCustomerId) headers["login-customer-id"] = loginCustomerId.replace(/-/g, "");
 
-        const resp = await fetch(
+        const resp = await fetchWithTimeout(
           `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers:listAccessibleCustomers`,
           { headers }
         );
@@ -2919,7 +3024,7 @@ export async function executeTool(
         // Fetch account names in one batched query using the first ID as the seed
         // (for MCC accounts, use the login customer ID)
         const seedId = (loginCustomerId ?? ids[0]).replace(/-/g, "");
-        const nameResp = await fetch(
+        const nameResp = await fetchWithTimeout(
           `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${seedId}/googleAds:search`,
           {
             method: "POST",
@@ -2956,7 +3061,7 @@ export async function executeTool(
         if (toolInput.order_rows) queryParams.order_rows = toolInput.order_rows as string;
         if (toolInput.max_rows) queryParams.max_rows = toolInput.max_rows as number;
 
-        const resp = await fetch(
+        const resp = await fetchWithTimeout(
           `https://api.supermetrics.com/enterprise/v2/query/data/json?json=${encodeURIComponent(JSON.stringify(queryParams))}`,
           { method: "GET" }
         );
@@ -2971,7 +3076,7 @@ export async function executeTool(
       case "supermetrics_accounts": {
         const apiKey = await requireSecret("SUPERMETRICS_API_KEY", "Supermetrics API Key");
         const dsId = toolInput.ds_id as string;
-        const resp = await fetch(
+        const resp = await fetchWithTimeout(
           `https://api.supermetrics.com/enterprise/v2/query/accounts/json?json=${encodeURIComponent(JSON.stringify({ api_key: apiKey, ds_id: dsId }))}`,
           { method: "GET" }
         );
@@ -3040,11 +3145,25 @@ export async function executeTool(
         if (normalizedChannel === "general") {
           return "Error: Posting to #general is not allowed. Use a more specific channel instead.";
         }
+        // HARD BLOCK: never post to any monitored client channel — bot must stay silent there
+        const _sb = await getSupabaseClient();
+        const { data: monitoredChannels } = await _sb
+          .from("slack_monitored_channels")
+          .select("channel_id, channel_name")
+          .eq("enabled", true);
+        const channelId = channel.startsWith("C") ? channel : null;
+        const isMonitored = (monitoredChannels || []).some(
+          (r: { channel_id: string; channel_name: string }) =>
+            r.channel_id === channelId || r.channel_name === normalizedChannel
+        );
+        if (isMonitored) {
+          return "BLOCKED: Posting to client channels is strictly forbidden. The bot must remain completely silent in all client channels. Only post to #office_soldiers or internal team channels.";
+        }
         const text = toolInput.text as string;
         const threadTs = toolInput.thread_ts as string | undefined;
         const body: Record<string, string> = { channel, text };
         if (threadTs) body.thread_ts = threadTs;
-        const resp = await fetch("https://slack.com/api/chat.postMessage", {
+        const resp = await fetchWithTimeout("https://slack.com/api/chat.postMessage", {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -3058,7 +3177,7 @@ export async function executeTool(
         const token = await requireSecret("SLACK_BOT_TOKEN", "Slack Bot Token");
         const channel = toolInput.channel as string;
         const limit = Math.min((toolInput.limit as number) || 20, 100);
-        const resp = await fetch(`https://slack.com/api/conversations.history?channel=${channel}&limit=${limit}`, {
+        const resp = await fetchWithTimeout(`https://slack.com/api/conversations.history?channel=${channel}&limit=${limit}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await resp.json() as { ok: boolean; error?: string; messages?: Array<{ user?: string; text: string; ts: string }> };
@@ -3072,7 +3191,7 @@ export async function executeTool(
 
       case "slack_list_channels": {
         const token = await requireSecret("SLACK_BOT_TOKEN", "Slack Bot Token");
-        const resp = await fetch("https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=200", {
+        const resp = await fetchWithTimeout("https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=200", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await resp.json() as { ok: boolean; error?: string; channels?: Array<{ id: string; name: string; is_member: boolean; num_members: number }> };
@@ -3090,7 +3209,7 @@ export async function executeTool(
         if (!email || !message) return "Error: email and message are required.";
 
         // Step 1: Look up user by email
-        const lookupResp = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`, {
+        const lookupResp = await fetchWithTimeout(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const lookupData = await lookupResp.json() as { ok: boolean; error?: string; user?: { id: string; real_name?: string } };
@@ -3102,7 +3221,7 @@ export async function executeTool(
         const userName = lookupData.user!.real_name || email;
 
         // Step 2: Open DM channel
-        const openResp = await fetch("https://slack.com/api/conversations.open", {
+        const openResp = await fetchWithTimeout("https://slack.com/api/conversations.open", {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({ users: userId }),
@@ -3112,7 +3231,7 @@ export async function executeTool(
         const dmChannelId = openData.channel!.id;
 
         // Step 3: Send message
-        const sendResp = await fetch("https://slack.com/api/chat.postMessage", {
+        const sendResp = await fetchWithTimeout("https://slack.com/api/chat.postMessage", {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({ channel: dmChannelId, text: message }),
@@ -3131,7 +3250,7 @@ export async function executeTool(
         if (statusFilter) filters.push(`status=eq.${encodeURIComponent(statusFilter)}`);
         if (clientFilter) filters.push(`client_name=ilike.*${encodeURIComponent(clientFilter)}*`);
         const qs = filters.length ? `&${filters.join("&")}` : "";
-        const resp = await fetch(
+        const resp = await fetchWithTimeout(
           `${process.env.SUPABASE_URL}/rest/v1/task_deliverables?select=*&order=created_at.desc&limit=50${qs}`,
           { headers: { apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY!}` } }
         );
@@ -3165,7 +3284,7 @@ export async function executeTool(
 
         if (delivId) {
           // Update existing
-          const resp = await fetch(
+          const resp = await fetchWithTimeout(
             `${process.env.SUPABASE_URL}/rest/v1/task_deliverables?id=eq.${delivId}`,
             {
               method: "PATCH",
@@ -3189,7 +3308,7 @@ export async function executeTool(
           // Insert new
           if (!payload.notion_task_name || !payload.client_name) return "Error: notion_task_name and client_name are required for new deliverables.";
           payload.created_by = payload.created_by || memberName || "agent";
-          const resp = await fetch(
+          const resp = await fetchWithTimeout(
             `${process.env.SUPABASE_URL}/rest/v1/task_deliverables`,
             {
               method: "POST",
@@ -3226,7 +3345,7 @@ export async function executeTool(
         }
 
         try {
-          const resp = await fetch(`${supabaseUrl}/functions/v1/generate-deck-async`, {
+          const resp = await fetchWithTimeout(`${supabaseUrl}/functions/v1/generate-deck-async`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -3292,7 +3411,7 @@ export async function executeTool(
           };
           const size = sizeMap[imgAspect] || "1024x1024";
           try {
-            const resp = await fetch("https://api.openai.com/v1/images/generations", {
+            const resp = await fetchWithTimeout("https://api.openai.com/v1/images/generations", {
               method: "POST",
               headers: {
                 "Authorization": `Bearer ${openaiKey}`,
@@ -3383,7 +3502,7 @@ export async function executeTool(
           };
           if (modelChoice === "seedance") submitBody.seed = Math.floor(Math.random() * 999999);
 
-          const startResp = await fetch(`${hfBase}/${endpoint}`, {
+          const startResp = await fetchWithTimeout(`${hfBase}/${endpoint}`, {
             method: "POST",
             headers: { Authorization: hfAuth, "Content-Type": "application/json" },
             body: JSON.stringify(submitBody),
@@ -3404,7 +3523,7 @@ export async function executeTool(
           const maxPolls = 120;
           for (let i = 0; i < maxPolls; i++) {
             await new Promise(r => setTimeout(r, 5_000));
-            const pollResp = await fetch(`${hfBase}/requests/${requestId}/status`, {
+            const pollResp = await fetchWithTimeout(`${hfBase}/requests/${requestId}/status`, {
               headers: { Authorization: hfAuth },
             });
             if (!pollResp.ok) {
@@ -3420,7 +3539,7 @@ export async function executeTool(
               if (!videoUrl) return `Video completed but no URL in response: ${JSON.stringify(pollData).slice(0, 500)}`;
 
               // Download and upload to Supabase for permanent hosting
-              const videoResp = await fetch(videoUrl);
+              const videoResp = await fetchWithTimeout(videoUrl);
               if (!videoResp.ok) return `Video generated but download failed (${videoResp.status}).`;
               const videoBuf = Buffer.from(await videoResp.arrayBuffer());
               const storagePath = `generated/video-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.mp4`;
@@ -3474,7 +3593,7 @@ export async function executeTool(
         const accessToken = await getGoogleSheetsAccessToken();
         const spreadsheetId = toolInput.spreadsheet_id as string;
         const range = (toolInput.range as string) || "Sheet1";
-        const resp = await fetch(
+        const resp = await fetchWithTimeout(
           `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`,
           { headers: { Authorization: `Bearer ${accessToken}` } }
         );
@@ -3497,7 +3616,7 @@ export async function executeTool(
           ? `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`
           : `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
 
-        const resp = await fetch(url, {
+        const resp = await fetchWithTimeout(url, {
           method: append ? "POST" : "PUT",
           headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
           body: JSON.stringify({ range, values }),
@@ -3525,7 +3644,7 @@ export async function executeTool(
         // Remove empty params
         for (const [k, v] of params) { if (!v) params.delete(k); }
 
-        const resp = await fetch(`https://api.semrush.com/?${params.toString()}`);
+        const resp = await fetchWithTimeout(`https://api.semrush.com/?${params.toString()}`);
         const text = await resp.text();
         if (!resp.ok) return `SEMrush API error (${resp.status}): ${text.slice(0, 2000)}`;
         if (text.startsWith("ERROR")) return `SEMrush error: ${text}`;
@@ -3559,7 +3678,7 @@ export async function executeTool(
         if (toolInput.organization_num_employees_ranges) body.organization_num_employees_ranges = toolInput.organization_num_employees_ranges;
         if (toolInput.q_keywords) body.q_keywords = toolInput.q_keywords;
 
-        const resp = await fetch(endpoint, {
+        const resp = await fetchWithTimeout(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -3584,7 +3703,7 @@ export async function executeTool(
           if (toolInput.domain) body.domain = toolInput.domain;
           if (toolInput.organization_name) body.organization_name = toolInput.organization_name;
 
-          const resp = await fetch("https://api.apollo.io/api/v1/organizations/enrich", {
+          const resp = await fetchWithTimeout("https://api.apollo.io/api/v1/organizations/enrich", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -3605,7 +3724,7 @@ export async function executeTool(
           if (toolInput.last_name) body.last_name = toolInput.last_name;
           if (toolInput.domain) body.domain = toolInput.domain;
 
-          const resp = await fetch("https://api.apollo.io/api/v1/people/match", {
+          const resp = await fetchWithTimeout("https://api.apollo.io/api/v1/people/match", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -3679,7 +3798,7 @@ export async function executeTool(
           const batch = mappedOps.slice(i, i + BATCH_SIZE);
           const mutateBody = { operations: batch };
 
-          const resp = await fetch(
+          const resp = await fetchWithTimeout(
             `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${customerId}/${resource}:mutate`,
             { method: "POST", headers, body: JSON.stringify(mutateBody) }
           );
@@ -3781,7 +3900,7 @@ export async function executeTool(
         if (pageMatch) {
           try {
             const pageId = pageMatch[1];
-            const pagesResp = await fetch(`${baseUrl}/me/accounts?fields=id,access_token&limit=200&access_token=${token}`);
+            const pagesResp = await fetchWithTimeout(`${baseUrl}/me/accounts?fields=id,access_token&limit=200&access_token=${token}`);
             const pagesData = await pagesResp.json() as { data?: Array<{ id: string; access_token: string }> };
             const page = pagesData.data?.find(p => p.id === pageId);
             if (page?.access_token) token = page.access_token;
@@ -3791,13 +3910,13 @@ export async function executeTool(
         try {
           if (method === "GET") {
             const url = `${baseUrl}${endpoint}?${buildQueryString(params, token)}`;
-            const resp = await fetch(url);
+            const resp = await fetchWithTimeout(url);
             const data = await resp.json();
             if (!resp.ok) return formatMetaError(resp.status, data);
             const resultStr = JSON.stringify(data, null, 2);
             return resultStr.length > 50000 ? resultStr.slice(0, 50000) + "\n[...truncated]" : resultStr;
           } else if (method === "POST") {
-            const resp = await fetch(`${baseUrl}${endpoint}`, {
+            const resp = await fetchWithTimeout(`${baseUrl}${endpoint}`, {
               method: "POST",
               headers: { "Content-Type": "application/x-www-form-urlencoded" },
               body: buildFormBody(params, token).toString(),
@@ -3806,7 +3925,7 @@ export async function executeTool(
             if (!resp.ok) return formatMetaError(resp.status, data);
             return `Success!\n${JSON.stringify(data, null, 2).slice(0, 4000)}`;
           } else if (method === "DELETE") {
-            const resp = await fetch(`${baseUrl}${endpoint}?${buildQueryString({}, token)}`, { method: "DELETE" });
+            const resp = await fetchWithTimeout(`${baseUrl}${endpoint}?${buildQueryString({}, token)}`, { method: "DELETE" });
             const data = await resp.json();
             if (!resp.ok) return formatMetaError(resp.status, data);
             return `Deleted successfully.\n${JSON.stringify(data, null, 2)}`;
@@ -3815,6 +3934,42 @@ export async function executeTool(
           }
         } catch (fetchErr: any) {
           return `Meta API network error: ${fetchErr.message}. Check if the endpoint and parameters are correct.`;
+        }
+      }
+
+      case "reddit_ads_manage": {
+        const method = ((toolInput.method as string) || "GET").toUpperCase();
+        const endpoint = toolInput.endpoint as string;
+        const params = (toolInput.params as Record<string, unknown>) || {};
+
+        if (!endpoint) return "Error: endpoint is required.";
+
+        // Format Reddit API errors with actionable hints
+        const formatRedditError = (status: number, data: any): string => {
+          const errJson = JSON.stringify(data, null, 2).slice(0, 3000);
+          let hint = "";
+          if (status === 401) hint = "\nHINT: Token expired or invalid. The system will auto-refresh — retry the request.";
+          else if (status === 403) hint = "\nHINT: Insufficient permissions. Check that the Reddit app has ads API access and the account is an advertiser.";
+          else if (status === 429) hint = "\nHINT: Rate limited. Wait a moment and retry.";
+          else if (status === 404) hint = "\nHINT: Resource not found. Check the endpoint path and IDs (Reddit account IDs use 't2_' prefix).";
+          return `Reddit Ads API error (${status}):${hint}\n${errJson}`;
+        };
+
+        try {
+          const result = await redditAdsRequest(method, endpoint, Object.keys(params).length > 0 ? params : undefined);
+
+          if (!result.ok) {
+            return formatRedditError(result.status, result.data);
+          }
+
+          if (method === "GET") {
+            const resultStr = JSON.stringify(result.data, null, 2);
+            return resultStr.length > 50000 ? resultStr.slice(0, 50000) + "\n[...truncated]" : resultStr;
+          } else {
+            return `Success!\n${JSON.stringify(result.data, null, 2).slice(0, 4000)}`;
+          }
+        } catch (err: any) {
+          return `Reddit Ads API network error: ${err.message}. Check if the endpoint and parameters are correct.`;
         }
       }
 
@@ -3859,13 +4014,15 @@ export async function executeTool(
           if (matchedClients.length === 0) {
             matchedClients = allClients.filter((c) => search.includes(c.client_name.toLowerCase()));
           }
-          // Strategy 4: Word overlap (handles "TMI Traffic" matching "TMI") — filter ambiguous words
+          // Strategy 4: Word overlap — requires 2+ non-ambiguous search words AND 2+ word matches
+          // (prevents "Traffic Solutions" from matching "Traffic Management" on a single shared word)
           if (matchedClients.length === 0) {
             const searchWords = search.split(/[\s\-_]+/).filter(Boolean).filter((w) => !isAmbiguousWord(w));
-            if (searchWords.length > 0) {
+            if (searchWords.length >= 2) {
               matchedClients = allClients.filter((c) => {
                 const nameWords = c.client_name.toLowerCase().split(/[\s\-_]+/).filter(Boolean);
-                return searchWords.some((sw: string) => nameWords.some((nw: string) => nw.includes(sw) || sw.includes(nw)));
+                const matchCount = searchWords.filter((sw: string) => nameWords.some((nw: string) => nw.includes(sw) || sw.includes(nw))).length;
+                return matchCount >= 2;
               });
             }
           }
@@ -3949,7 +4106,7 @@ export async function executeTool(
         const signature = sign.sign(sa.private_key, "base64url");
         const jwt = `${header}.${payload}.${signature}`;
 
-        const tokenResp = await fetch(sa.token_uri || "https://oauth2.googleapis.com/token", {
+        const tokenResp = await fetchWithTimeout(sa.token_uri || "https://oauth2.googleapis.com/token", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
@@ -3978,7 +4135,7 @@ export async function executeTool(
           body.orderBys = orderBys;
         }
 
-        const resp = await fetch(
+        const resp = await fetchWithTimeout(
           `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
           {
             method: "POST",
@@ -4071,7 +4228,7 @@ export async function executeTool(
 
           let resp: Response | undefined;
           for (let attempt = 0; attempt < 3; attempt++) {
-            resp = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
+            resp = await fetchWithTimeout(`https://api.notion.com/v1/databases/${databaseId}/query`, {
               method: "POST", headers: notionHeaders, body: JSON.stringify(queryBody),
             });
             if (resp.status === 429) {
@@ -4218,7 +4375,7 @@ export async function executeTool(
         const needsUserLookup = tasks.some(t => t.assignee || t.manager);
         if (needsUserLookup) {
           try {
-            const usersResp = await fetch("https://api.notion.com/v1/users", { headers: ntHeaders });
+            const usersResp = await fetchWithTimeout("https://api.notion.com/v1/users", { headers: ntHeaders });
             if (usersResp.ok) {
               const usersData = await usersResp.json();
               notionUsers = (usersData.results || [])
@@ -4284,7 +4441,7 @@ export async function executeTool(
               }
             }
 
-            const resp = await fetch(`https://api.notion.com/v1/pages`, {
+            const resp = await fetchWithTimeout(`https://api.notion.com/v1/pages`, {
               method: "POST",
               headers: ntHeaders,
               body: JSON.stringify({
@@ -4673,7 +4830,7 @@ export async function executeTool(
           if (!audioUrl) return "Error: audio_url is required for isolate action.";
 
           // Download the source audio first
-          const sourceResp = await fetch(audioUrl);
+          const sourceResp = await fetchWithTimeout(audioUrl);
           if (!sourceResp.ok) return `Failed to download source audio: ${sourceResp.status}`;
           const sourceBuffer = await sourceResp.arrayBuffer();
 
@@ -4704,7 +4861,7 @@ export async function executeTool(
           if (!audioUrl) return "Error: audio_url is required for clone action.";
 
           // Download the source audio
-          const sourceResp = await fetch(audioUrl);
+          const sourceResp = await fetchWithTimeout(audioUrl);
           if (!sourceResp.ok) return `Failed to download source audio: ${sourceResp.status}`;
           const sourceBuffer = await sourceResp.arrayBuffer();
 
@@ -4714,7 +4871,7 @@ export async function executeTool(
           formData.append("files", new Blob([sourceBuffer], { type: "audio/mpeg" }), "voice_sample.mp3");
           formData.append("description", `Cloned voice: ${voiceName}`);
 
-          const resp = await fetch("https://api.elevenlabs.io/v1/voices/add", {
+          const resp = await fetchWithTimeout("https://api.elevenlabs.io/v1/voices/add", {
             method: "POST",
             headers: { "xi-api-key": apiKey },
             body: formData,
@@ -4880,7 +5037,7 @@ export async function executeTool(
 
         // Helper to execute GraphQL
         const runGraphQL = async (query: string, variables: Record<string, unknown>): Promise<any> => {
-          const resp = await fetch(graphqlUrl, {
+          const resp = await fetchWithTimeout(graphqlUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -4893,7 +5050,7 @@ export async function executeTool(
             // Token expired — clear cache and retry once
             servisTokenCache.delete(clientName);
             token = await getServisToken(clientName, creds.client_id as string, creds.client_secret as string);
-            const retry = await fetch(graphqlUrl, {
+            const retry = await fetchWithTimeout(graphqlUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
               body: JSON.stringify({ query, variables }),
@@ -5116,7 +5273,7 @@ export async function executeTool(
           if (body && (method === "POST" || method === "PUT" || method === "DELETE")) {
             opts.body = JSON.stringify(body);
           }
-          const resp = await fetch(url, opts);
+          const resp = await fetchWithTimeout(url, opts);
           const text = await resp.text();
           if (!resp.ok) {
             return `Ayrshare API error (${resp.status}): ${text.slice(0, 2000)}`;
@@ -5527,7 +5684,7 @@ export async function executeTool(
 
         if (sourceUrl) {
           // Download from URL
-          const resp = await fetch(sourceUrl);
+          const resp = await fetchWithTimeout(sourceUrl);
           if (!resp.ok) return `Failed to download from ${sourceUrl}: ${resp.status}`;
           buffer = Buffer.from(await resp.arrayBuffer());
           if (!contentType) {
@@ -5937,18 +6094,44 @@ export async function executeTool(
         try {
           switch (action) {
             case "search_contacts": {
-              const result = await ghl({
-                endpoint: "/contacts/",
-                locationId,
-                params: {
-                  query: toolInput.query as string,
-                  email: toolInput.email as string,
-                  phone: toolInput.phone as string,
-                  limit: (toolInput.limit as number) || 20,
-                  startAfter: toolInput.startAfter as string,
-                },
-              });
-              return ghlResult(result);
+              const allLocations = await resolveAllGhlLocations(clientName);
+              if (allLocations.length <= 1) {
+                const result = await ghl({
+                  endpoint: "/contacts/",
+                  locationId,
+                  params: {
+                    query: toolInput.query as string,
+                    email: toolInput.email as string,
+                    phone: toolInput.phone as string,
+                    limit: (toolInput.limit as number) || 20,
+                    startAfter: toolInput.startAfter as string,
+                  },
+                });
+                return ghlResult(result);
+              }
+              const allContacts: any[] = [];
+              for (const loc of allLocations) {
+                try {
+                  const locGhl = (opts: Omit<GhlRequestOptions, "accessToken">) => ghlLocationRequest(loc.accessToken, opts);
+                  const r = await locGhl({
+                    endpoint: "/contacts/",
+                    locationId: loc.locationId,
+                    params: {
+                      query: toolInput.query as string,
+                      email: toolInput.email as string,
+                      phone: toolInput.phone as string,
+                      limit: (toolInput.limit as number) || 20,
+                      startAfter: toolInput.startAfter as string,
+                    },
+                  });
+                  const contacts = r.contacts || r.data || [];
+                  contacts.forEach((c: any) => { c._location = loc.locationName; });
+                  allContacts.push(...contacts);
+                } catch (e: any) {
+                  allContacts.push({ _location: loc.locationName, _error: e.message });
+                }
+              }
+              return ghlResult({ contacts: allContacts, total: allContacts.length, locations: allLocations.map(l => l.locationName) });
             }
             case "get_contact": {
               const contactId = toolInput.contact_id as string;
@@ -6083,12 +6266,28 @@ export async function executeTool(
         try {
           switch (action) {
             case "list_conversations": {
-              const result = await ghl({
-                endpoint: "/conversations/search",
-                locationId,
-                params: { status: toolInput.status as string, limit: (toolInput.limit as number) || 20 },
-              });
-              return ghlResult(result);
+              const convParams: Record<string, any> = { limit: (toolInput.limit as number) || 100 };
+              if (toolInput.status) convParams.status = toolInput.status as string;
+              if (toolInput.startDate) convParams.startDate = toolInput.startDate as string;
+              if (toolInput.endDate) convParams.endDate = toolInput.endDate as string;
+              const allLocations = await resolveAllGhlLocations(clientName);
+              if (allLocations.length <= 1) {
+                const result = await ghl({ endpoint: "/conversations/search", locationId, params: convParams });
+                return ghlResult(result, 8000);
+              }
+              const allConvs: any[] = [];
+              for (const loc of allLocations) {
+                try {
+                  const locGhl = (opts: Omit<GhlRequestOptions, "accessToken">) => ghlLocationRequest(loc.accessToken, opts);
+                  const r = await locGhl({ endpoint: "/conversations/search", locationId: loc.locationId, params: convParams });
+                  const convs = r.conversations || r.data || [];
+                  convs.forEach((c: any) => { c._location = loc.locationName; });
+                  allConvs.push(...convs);
+                } catch (e: any) {
+                  allConvs.push({ _location: loc.locationName, _error: e.message });
+                }
+              }
+              return ghlResult({ conversations: allConvs, total: allConvs.length, locations: allLocations.map(l => l.locationName) }, 8000);
             }
             case "get_conversation": {
               const convId = toolInput.conversation_id as string;
@@ -6217,17 +6416,42 @@ export async function executeTool(
               return ghlResult(result);
             }
             case "list_events": {
-              const result = await ghl({
-                endpoint: "/calendars/events",
-                locationId,
-                params: {
-                  startTime: toolInput.start_date ? new Date(toolInput.start_date as string).getTime().toString() : undefined,
-                  endTime: toolInput.end_date ? new Date(toolInput.end_date as string).getTime().toString() : undefined,
-                  calendarId: toolInput.calendar_id as string,
-                  contactId: toolInput.contact_id as string,
-                },
-              });
-              return ghlResult(result);
+              const allLocations = await resolveAllGhlLocations(clientName);
+              if (allLocations.length <= 1) {
+                const result = await ghl({
+                  endpoint: "/calendars/events",
+                  locationId,
+                  params: {
+                    startTime: toolInput.start_date ? new Date(toolInput.start_date as string).getTime().toString() : undefined,
+                    endTime: toolInput.end_date ? new Date(toolInput.end_date as string).getTime().toString() : undefined,
+                    calendarId: toolInput.calendar_id as string,
+                    contactId: toolInput.contact_id as string,
+                  },
+                });
+                return ghlResult(result);
+              }
+              const allEvents: any[] = [];
+              for (const loc of allLocations) {
+                try {
+                  const locGhl = (opts: Omit<GhlRequestOptions, "accessToken">) => ghlLocationRequest(loc.accessToken, opts);
+                  const r = await locGhl({
+                    endpoint: "/calendars/events",
+                    locationId: loc.locationId,
+                    params: {
+                      startTime: toolInput.start_date ? new Date(toolInput.start_date as string).getTime().toString() : undefined,
+                      endTime: toolInput.end_date ? new Date(toolInput.end_date as string).getTime().toString() : undefined,
+                      calendarId: toolInput.calendar_id as string,
+                      contactId: toolInput.contact_id as string,
+                    },
+                  });
+                  const events = r.events || r.data || [];
+                  events.forEach((e: any) => { e._location = loc.locationName; });
+                  allEvents.push(...events);
+                } catch (e: any) {
+                  allEvents.push({ _location: loc.locationName, _error: e.message });
+                }
+              }
+              return ghlResult({ events: allEvents, total: allEvents.length, locations: allLocations.map(l => l.locationName) });
             }
             case "get_event": {
               const eventId = toolInput.event_id as string;
@@ -6305,19 +6529,49 @@ export async function executeTool(
               return ghlResult(result);
             }
             case "search_opportunities": {
-              const result = await ghl({
-                endpoint: "/opportunities/search",
-                locationId,
-                params: {
-                  pipeline_id: toolInput.pipeline_id as string,
-                  stage_id: toolInput.stage_id as string,
-                  status: toolInput.status as string,
-                  q: toolInput.query as string,
-                  contact_id: toolInput.contact_id as string,
-                  limit: (toolInput.limit as number) || 20,
-                },
-              });
-              return ghlResult(result);
+              const oppStatus = toolInput.status as string;
+              const allLocations = await resolveAllGhlLocations(clientName);
+              if (allLocations.length <= 1) {
+                // Single location — use existing ghl helper
+                const result = await ghl({
+                  endpoint: "/opportunities/search",
+                  locationId,
+                  params: {
+                    pipeline_id: toolInput.pipeline_id as string,
+                    stage_id: toolInput.stage_id as string,
+                    ...(oppStatus && oppStatus !== "all" ? { status: oppStatus } : {}),
+                    q: toolInput.query as string,
+                    contact_id: toolInput.contact_id as string,
+                    limit: (toolInput.limit as number) || 20,
+                  },
+                });
+                return ghlResult(result);
+              }
+              // Multi-location: query all and combine
+              const allOpps: any[] = [];
+              for (const loc of allLocations) {
+                try {
+                  const locGhl = (opts: Omit<GhlRequestOptions, "accessToken">) => ghlLocationRequest(loc.accessToken, opts);
+                  const r = await locGhl({
+                    endpoint: "/opportunities/search",
+                    locationId: loc.locationId,
+                    params: {
+                      pipeline_id: toolInput.pipeline_id as string,
+                      stage_id: toolInput.stage_id as string,
+                      ...(oppStatus && oppStatus !== "all" ? { status: oppStatus } : {}),
+                      q: toolInput.query as string,
+                      contact_id: toolInput.contact_id as string,
+                      limit: (toolInput.limit as number) || 20,
+                    },
+                  });
+                  const opps = r.opportunities || r.data || [];
+                  opps.forEach((o: any) => { o._location = loc.locationName; });
+                  allOpps.push(...opps);
+                } catch (e: any) {
+                  allOpps.push({ _location: loc.locationName, _error: e.message });
+                }
+              }
+              return ghlResult({ opportunities: allOpps, total: allOpps.length, locations: allLocations.map(l => l.locationName) });
             }
             case "get_opportunity": {
               const oppId = toolInput.opportunity_id as string;

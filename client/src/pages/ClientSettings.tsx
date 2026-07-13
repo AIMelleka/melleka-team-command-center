@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Building2, Plus, Pencil, Search, Link, Loader2, Trash2, ChevronDown, ChevronUp, ExternalLink, Eye, EyeOff, Save, X, Zap, MoreVertical } from 'lucide-react';
+import { Building2, Plus, Pencil, Search, Link, Loader2, Trash2, ChevronDown, ChevronUp, ExternalLink, Eye, EyeOff, Save, X, Zap, MoreVertical, CheckCircle2, Circle, LayoutGrid, List } from 'lucide-react';
 import AdminHeader from '@/components/AdminHeader';
 import AccountMappingModal from '@/components/AccountMappingModal';
 import { Button } from '@/components/ui/button';
@@ -53,6 +53,21 @@ type ManagedClient = {
 };
 
 interface SupermetricsAccount { id: string; name: string; }
+
+const COVERAGE_PLATFORMS = [
+  { key: 'google_ads', label: 'Google Ads', short: 'GAds', color: 'text-blue-400' },
+  { key: 'meta_ads', label: 'Meta Ads', short: 'Meta', color: 'text-indigo-400' },
+  { key: 'reddit_ads', label: 'Reddit Ads', short: 'Reddit', color: 'text-orange-500' },
+  { key: 'tiktok_ads', label: 'TikTok Ads', short: 'TikTok', color: 'text-pink-400' },
+  { key: 'bing_ads', label: 'Microsoft Ads', short: 'Bing', color: 'text-teal-400' },
+  { key: 'linkedin_ads', label: 'LinkedIn Ads', short: 'LinkedIn', color: 'text-sky-400' },
+  { key: 'facebook_page', label: 'Facebook Page', short: 'FB Page', color: 'text-blue-500' },
+  { key: 'instagram_account', label: 'Instagram', short: 'IG', color: 'text-pink-500' },
+  { key: 'ghl', label: 'GoHighLevel', short: 'GHL', color: 'text-orange-400' },
+  { key: 'ga4', label: 'Google Analytics 4', short: 'GA4', color: 'text-green-400' },
+  { key: 'klaviyo', label: 'Klaviyo', short: 'Klaviyo', color: 'text-yellow-400' },
+  { key: 'hubspot', label: 'HubSpot CRM', short: 'HubSpot', color: 'text-orange-400' },
+];
 
 const INDUSTRIES = [DEFAULT_BENCHMARK, ...INDUSTRY_BENCHMARKS].map(b => b.industry);
 
@@ -149,6 +164,115 @@ const TagInput = ({ tags, onAdd, onRemove, placeholder }: { tags: string[]; onAd
   );
 };
 
+const toggleTrackedTypeStatic = (form: Partial<ManagedClient>, setForm: (f: Partial<ManagedClient>) => void, key: string) => {
+  const current = form.tracked_conversion_types || [];
+  const next = current.includes(key) ? current.filter(t => t !== key) : [...current, key];
+  setForm({ ...form, tracked_conversion_types: next });
+};
+
+const ClientForm = ({ form, setForm, isAdd, onOpenAccounts }: { form: Partial<ManagedClient>; setForm: (f: Partial<ManagedClient>) => void; isAdd?: boolean; onOpenAccounts?: () => void }) => (
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">Client Name *</Label>
+      <Input value={form.client_name || ''} onChange={e => setForm({ ...form, client_name: e.target.value })} placeholder="Client Name" disabled={!isAdd} />
+    </div>
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">Domain</Label>
+      <Input value={form.domain || ''} onChange={e => setForm({ ...form, domain: e.target.value })} placeholder="example.com" />
+    </div>
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">Industry</Label>
+      <Select value={form.industry || ''} onValueChange={v => setForm({ ...form, industry: v || null })}>
+        <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select industry..." /></SelectTrigger>
+        <SelectContent>
+          {INDUSTRIES.map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">Tier</Label>
+      <div className="flex gap-1">
+        {(['basic', 'advanced', 'premium'] as const).map(t => (
+          <Button key={t} size="sm" variant={form.tier === t ? 'default' : 'outline'} className="flex-1 capitalize text-xs h-9" onClick={() => setForm({ ...form, tier: t })}>
+            {t}
+          </Button>
+        ))}
+      </div>
+    </div>
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">GA4 Property ID</Label>
+      <Input value={form.ga4_property_id || ''} onChange={e => setForm({ ...form, ga4_property_id: e.target.value })} placeholder="123456789" />
+    </div>
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">Site Audit URL</Label>
+      <Input value={form.site_audit_url || ''} onChange={e => setForm({ ...form, site_audit_url: e.target.value })} placeholder="https://myinsights.io/..." />
+    </div>
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">Primary Conversion Goal</Label>
+      <Select value={form.primary_conversion_goal || 'all'} onValueChange={v => setForm({ ...form, primary_conversion_goal: v })}>
+        <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {GOALS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>
+    <div className="space-y-1.5 flex items-end pb-1">
+      <div className="flex items-center gap-2">
+        <Switch checked={form.multi_account_enabled || false} onCheckedChange={v => {
+          setForm({ ...form, multi_account_enabled: v });
+          if (v && onOpenAccounts) onOpenAccounts();
+        }} />
+        <Label className="text-xs">Multiple ad accounts</Label>
+        {form.multi_account_enabled && onOpenAccounts && (
+          <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1 ml-1" onClick={onOpenAccounts}>
+            <Plus className="h-3 w-3" /> Add Accounts
+          </Button>
+        )}
+      </div>
+    </div>
+    <div className="space-y-2 md:col-span-2">
+      <Label className="text-xs text-muted-foreground">Tracked Conversion Types</Label>
+      <div className="flex flex-wrap gap-3">
+        {CONVERSION_TYPES.map(ct => (
+          <label key={ct.key} className="flex items-center gap-1.5 cursor-pointer text-sm">
+            <Checkbox checked={(form.tracked_conversion_types || []).includes(ct.key)} onCheckedChange={() => toggleTrackedTypeStatic(form, setForm, ct.key)} />
+            {ct.label}
+          </label>
+        ))}
+      </div>
+    </div>
+    {/* Client Matching Rules */}
+    <div className="space-y-3 md:col-span-2 pt-2 border-t border-border/50">
+      <Label className="text-xs text-muted-foreground font-medium">Client Matching Rules</Label>
+      <p className="text-xs text-muted-foreground">Configure how this client is matched in Notion task queries. Aliases are names/acronyms that map to this client. Exclude patterns prevent cross-client confusion.</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Aliases</Label>
+          <TagInput
+            tags={form.match_aliases || []}
+            onAdd={tag => setForm({ ...form, match_aliases: [...(form.match_aliases || []), tag] })}
+            onRemove={i => setForm({ ...form, match_aliases: (form.match_aliases || []).filter((_, idx) => idx !== i) })}
+            placeholder="e.g. ggis, global guard"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Exclude Patterns</Label>
+          <TagInput
+            tags={form.match_exclude_patterns || []}
+            onAdd={tag => setForm({ ...form, match_exclude_patterns: [...(form.match_exclude_patterns || []), tag] })}
+            onRemove={i => setForm({ ...form, match_exclude_patterns: (form.match_exclude_patterns || []).filter((_, idx) => idx !== i) })}
+            placeholder="e.g. gsp, global staffing"
+          />
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Switch checked={form.match_exact_only || false} onCheckedChange={v => setForm({ ...form, match_exact_only: v })} />
+        <Label className="text-xs">Exact match only (CLIENTS field must exactly equal an alias)</Label>
+      </div>
+    </div>
+  </div>
+);
+
 export default function ClientSettings() {
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -162,7 +286,10 @@ export default function ClientSettings() {
   const [addForm, setAddForm] = useState<Partial<ManagedClient>>(emptyForm());
   const [isSaving, setIsSaving] = useState(false);
   const [mappingClient, setMappingClient] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'coverage'>('list');
   const [accountCounts, setAccountCounts] = useState<Record<string, number>>({});
+  // clientPlatforms[clientName] = Set of connected platform keys
+  const [clientPlatforms, setClientPlatforms] = useState<Record<string, Set<string>>>({});
   const [smAccounts, setSmAccounts] = useState<Record<string, SupermetricsAccount[]>>({});
   const [smLoaded, setSmLoaded] = useState(false);
   const [autoGoogle, setAutoGoogle] = useState<Record<string, boolean>>({});
@@ -183,12 +310,16 @@ export default function ClientSettings() {
 
   const loadAccountCounts = useCallback(async () => {
     try {
-      const { data } = await supabase.from('client_account_mappings').select('client_name');
+      const { data } = await supabase.from('client_account_mappings').select('client_name, platform');
       const counts: Record<string, number> = {};
+      const platforms: Record<string, Set<string>> = {};
       for (const row of data || []) {
         counts[row.client_name] = (counts[row.client_name] || 0) + 1;
+        if (!platforms[row.client_name]) platforms[row.client_name] = new Set();
+        platforms[row.client_name].add(row.platform);
       }
       setAccountCounts(counts);
+      setClientPlatforms(platforms);
     } catch {}
   }, []);
 
@@ -369,115 +500,6 @@ export default function ClientSettings() {
     setEditForm({});
   };
 
-  const toggleTrackedType = (form: Partial<ManagedClient>, setForm: (f: Partial<ManagedClient>) => void, key: string) => {
-    const current = form.tracked_conversion_types || [];
-    const next = current.includes(key) ? current.filter(t => t !== key) : [...current, key];
-    setForm({ ...form, tracked_conversion_types: next });
-  };
-
-  const ClientForm = ({ form, setForm, isAdd, onOpenAccounts }: { form: Partial<ManagedClient>; setForm: (f: Partial<ManagedClient>) => void; isAdd?: boolean; onOpenAccounts?: () => void }) => (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Client Name *</Label>
-        <Input value={form.client_name || ''} onChange={e => setForm({ ...form, client_name: e.target.value })} placeholder="Client Name" disabled={!isAdd} />
-      </div>
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Domain</Label>
-        <Input value={form.domain || ''} onChange={e => setForm({ ...form, domain: e.target.value })} placeholder="example.com" />
-      </div>
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Industry</Label>
-        <Select value={form.industry || ''} onValueChange={v => setForm({ ...form, industry: v || null })}>
-          <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select industry..." /></SelectTrigger>
-          <SelectContent>
-            {INDUSTRIES.map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Tier</Label>
-        <div className="flex gap-1">
-          {(['basic', 'advanced', 'premium'] as const).map(t => (
-            <Button key={t} size="sm" variant={form.tier === t ? 'default' : 'outline'} className="flex-1 capitalize text-xs h-9" onClick={() => setForm({ ...form, tier: t })}>
-              {t}
-            </Button>
-          ))}
-        </div>
-      </div>
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">GA4 Property ID</Label>
-        <Input value={form.ga4_property_id || ''} onChange={e => setForm({ ...form, ga4_property_id: e.target.value })} placeholder="123456789" />
-      </div>
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Site Audit URL</Label>
-        <Input value={form.site_audit_url || ''} onChange={e => setForm({ ...form, site_audit_url: e.target.value })} placeholder="https://myinsights.io/..." />
-      </div>
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Primary Conversion Goal</Label>
-        <Select value={form.primary_conversion_goal || 'all'} onValueChange={v => setForm({ ...form, primary_conversion_goal: v })}>
-          <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {GOALS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="space-y-1.5 flex items-end pb-1">
-        <div className="flex items-center gap-2">
-          <Switch checked={form.multi_account_enabled || false} onCheckedChange={v => {
-            setForm({ ...form, multi_account_enabled: v });
-            if (v && onOpenAccounts) onOpenAccounts();
-          }} />
-          <Label className="text-xs">Multiple ad accounts</Label>
-          {form.multi_account_enabled && onOpenAccounts && (
-            <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1 ml-1" onClick={onOpenAccounts}>
-              <Plus className="h-3 w-3" /> Add Accounts
-            </Button>
-          )}
-        </div>
-      </div>
-      <div className="space-y-2 md:col-span-2">
-        <Label className="text-xs text-muted-foreground">Tracked Conversion Types</Label>
-        <div className="flex flex-wrap gap-3">
-          {CONVERSION_TYPES.map(ct => (
-            <label key={ct.key} className="flex items-center gap-1.5 cursor-pointer text-sm">
-              <Checkbox checked={(form.tracked_conversion_types || []).includes(ct.key)} onCheckedChange={() => toggleTrackedType(form, setForm, ct.key)} />
-              {ct.label}
-            </label>
-          ))}
-        </div>
-      </div>
-      {/* Client Matching Rules */}
-      <div className="space-y-3 md:col-span-2 pt-2 border-t border-border/50">
-        <Label className="text-xs text-muted-foreground font-medium">Client Matching Rules</Label>
-        <p className="text-xs text-muted-foreground">Configure how this client is matched in Notion task queries. Aliases are names/acronyms that map to this client. Exclude patterns prevent cross-client confusion.</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Aliases</Label>
-            <TagInput
-              tags={form.match_aliases || []}
-              onAdd={tag => setForm({ ...form, match_aliases: [...(form.match_aliases || []), tag] })}
-              onRemove={i => setForm({ ...form, match_aliases: (form.match_aliases || []).filter((_, idx) => idx !== i) })}
-              placeholder="e.g. ggis, global guard"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Exclude Patterns</Label>
-            <TagInput
-              tags={form.match_exclude_patterns || []}
-              onAdd={tag => setForm({ ...form, match_exclude_patterns: [...(form.match_exclude_patterns || []), tag] })}
-              onRemove={i => setForm({ ...form, match_exclude_patterns: (form.match_exclude_patterns || []).filter((_, idx) => idx !== i) })}
-              placeholder="e.g. gsp, global staffing"
-            />
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch checked={form.match_exact_only || false} onCheckedChange={v => setForm({ ...form, match_exact_only: v })} />
-          <Label className="text-xs">Exact match only (CLIENTS field must exactly equal an alias)</Label>
-        </div>
-      </div>
-    </div>
-  );
-
   return (
     <>
       <AdminHeader />
@@ -498,7 +520,7 @@ export default function ClientSettings() {
           </div>
 
           {/* Search + Filters */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search clients..." className="pl-9" />
@@ -507,10 +529,78 @@ export default function ClientSettings() {
               <Switch checked={showInactive} onCheckedChange={setShowInactive} />
               <Label className="text-xs text-muted-foreground whitespace-nowrap">Show inactive</Label>
             </div>
+            <div className="flex items-center rounded-md border border-border overflow-hidden ml-auto">
+              <button
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted/50'}`}
+                onClick={() => setViewMode('list')}
+              >
+                <List className="h-3.5 w-3.5" /> List
+              </button>
+              <button
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${viewMode === 'coverage' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted/50'}`}
+                onClick={() => setViewMode('coverage')}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" /> Coverage
+              </button>
+            </div>
           </div>
 
+          {/* Coverage Grid */}
+          {viewMode === 'coverage' && !isLoading && (
+            <Card>
+              <CardContent className="p-0 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap sticky left-0 bg-card z-10 min-w-[180px]">Client</th>
+                      {COVERAGE_PLATFORMS.map(p => (
+                        <th key={p.key} className="px-3 py-3 font-medium text-center whitespace-nowrap">
+                          <span className={`text-xs ${p.color}`}>{p.short}</span>
+                        </th>
+                      ))}
+                      <th className="px-3 py-3 font-medium text-center text-muted-foreground text-xs">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((client, i) => {
+                      const connected = clientPlatforms[client.client_name] ?? new Set();
+                      const connectedCount = COVERAGE_PLATFORMS.filter(p => connected.has(p.key)).length;
+                      return (
+                        <tr key={client.id} className={`border-b border-border/50 ${i % 2 === 0 ? '' : 'bg-muted/20'} ${!client.is_active ? 'opacity-40' : ''}`}>
+                          <td className="px-4 py-3 sticky left-0 bg-inherit z-10">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm whitespace-nowrap">{client.client_name}</span>
+                              <span className="text-xs text-muted-foreground">({connectedCount}/{COVERAGE_PLATFORMS.length})</span>
+                            </div>
+                          </td>
+                          {COVERAGE_PLATFORMS.map(p => (
+                            <td key={p.key} className="px-3 py-3 text-center">
+                              {connected.has(p.key) ? (
+                                <CheckCircle2 className={`h-4 w-4 mx-auto ${p.color}`} />
+                              ) : (
+                                <Circle className="h-4 w-4 mx-auto text-muted-foreground/20" />
+                              )}
+                            </td>
+                          ))}
+                          <td className="px-3 py-3 text-center">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Manage accounts" onClick={() => setMappingClient(client.client_name)}>
+                              <Link className="h-3.5 w-3.5" />
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {filtered.length === 0 && (
+                  <p className="text-center py-10 text-sm text-muted-foreground">No clients found.</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Client List */}
-          {isLoading ? (
+          {viewMode === 'list' && (isLoading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
@@ -723,7 +813,7 @@ export default function ClientSettings() {
                 </Table>
               </CardContent>
             </Card>
-          )}
+          ))}
         </div>
       </main>
 

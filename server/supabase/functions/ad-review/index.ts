@@ -23,6 +23,19 @@ interface LookerData {
   };
 }
 
+interface ClientGoalsData {
+  target_cpa?: number | null;
+  target_cpl?: number | null;
+  target_roas?: number | null;
+  monthly_budget?: number | null;
+  monthly_lead_target?: number | null;
+  monthly_conversion_target?: number | null;
+  client_notes?: string | null;
+  report_focus?: string | null;
+  targeting_context?: string | null;
+  primary_conversion_goal?: string | null;
+}
+
 interface AnalysisRequest {
   type: string;
   clientName: string;
@@ -37,6 +50,7 @@ interface AnalysisRequest {
   ga4Data?: any;
   benchmarkData?: any;
   previousReview?: any;
+  clientGoals?: ClientGoalsData;
   aiMemory?: string; // Persistent AI memory context for this client
 }
 
@@ -55,12 +69,12 @@ serve(async (req) => {
   }
 
   try {
-    const { 
-      type, 
-      clientName, 
-      dateRange, 
-      sheetsData, 
-      lookerUrl, 
+    const {
+      type,
+      clientName,
+      dateRange,
+      sheetsData,
+      lookerUrl,
       lookerContent,
       lookerData, // NEW: Structured Looker extraction data
       screenshots,
@@ -69,6 +83,7 @@ serve(async (req) => {
       ga4Data,
       benchmarkData,
       previousReview,
+      clientGoals,
       aiMemory,
     }: AnalysisRequest = await req.json();
 
@@ -101,9 +116,30 @@ serve(async (req) => {
       return await handleHealthCheck(clientName, screenshots || [], dashboardContent || '', ANTHROPIC_API_KEY, corsHeaders);
     }
 
+    // Build client goals section for the prompt
+    const goalsSection = clientGoals
+      ? `\n## CLIENT CONFIGURATION (set by account manager — HIGHEST PRIORITY)
+${clientGoals.primary_conversion_goal ? `Primary Conversion Goal: ${clientGoals.primary_conversion_goal}` : ''}
+${[
+  clientGoals.target_cpa ? `Target CPA: $${clientGoals.target_cpa}` : '',
+  clientGoals.target_cpl ? `Target CPL: $${clientGoals.target_cpl}` : '',
+  clientGoals.target_roas ? `Target ROAS: ${clientGoals.target_roas}x` : '',
+].filter(Boolean).join(' | ')}
+${[
+  clientGoals.monthly_budget ? `Monthly Budget: $${clientGoals.monthly_budget.toLocaleString()}` : '',
+  clientGoals.monthly_lead_target ? `Monthly Lead Target: ${clientGoals.monthly_lead_target}` : '',
+  clientGoals.monthly_conversion_target ? `Monthly Conversion Target: ${clientGoals.monthly_conversion_target}` : '',
+].filter(Boolean).join(' | ')}
+${clientGoals.report_focus ? `\nREPORT FOCUS (CRITICAL - shape your entire analysis around this):\n${clientGoals.report_focus}` : ''}
+${clientGoals.targeting_context ? `\nCAMPAIGN CONTEXT:\n${clientGoals.targeting_context}` : ''}
+${clientGoals.client_notes ? `\nADDITIONAL NOTES:\n${clientGoals.client_notes}` : ''}
+
+Use these goals as the PRIMARY benchmark for ALL performance evaluation. Reference them explicitly in your summary, insights, and recommendations. The report_focus overrides default analysis priorities.\n`
+      : '';
+
     // Build comprehensive system prompt for deep reasoning - PAID ADS ONLY
     const systemPrompt = `You are an elite PAID ADVERTISING analyst and strategist with 15+ years experience optimizing Google Ads and Meta Ads campaigns. You provide institutional-grade analysis with specific, actionable insights.
-
+${goalsSection}
 ## CRITICAL: PAID ADVERTISING FOCUS ONLY
 This analysis is EXCLUSIVELY for PAID advertising efforts. DO NOT include or reference:
 - Organic search traffic or SEO metrics
@@ -245,9 +281,9 @@ Return your analysis as structured JSON:
       "qualityScore": "X/10",
       "trend": "up|down|stable",
       "health": "good|warning|critical (based on CPL/CPA vs benchmark)",
-      "vsBenchmark": "above|at|below",
-      "cplVsBenchmark": "above|at|below (CRITICAL)",
-      "cpaVsBenchmark": "above|at|below (CRITICAL)"
+      "vsBenchmark": "above|at|below (cost-based: 'above' = costs ABOVE benchmark = BAD, 'below' = costs BELOW benchmark = GOOD)",
+      "cplVsBenchmark": "above|at|below (CRITICAL: 'above' = CPL higher than benchmark = BAD, 'below' = CPL lower = GOOD)",
+      "cpaVsBenchmark": "above|at|below (CRITICAL: 'above' = CPA higher than benchmark = BAD, 'below' = CPA lower = GOOD)"
     }
   ],
   "cplCpaAnalysis": {

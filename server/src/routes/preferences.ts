@@ -5,7 +5,7 @@ import { supabase } from "../services/supabase.js";
 const router = Router();
 
 const DEFAULT_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"; // Sarah
-const DEFAULT_MODEL_ID = "claude-opus-4-6";
+const DEFAULT_MODEL_ID = "claude-sonnet-4-6";
 const ALLOWED_MODELS = new Set([
   "claude-opus-4-6",
   "claude-sonnet-4-6",

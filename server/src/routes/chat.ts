@@ -12,6 +12,7 @@ import path from "path";
 import type Anthropic from "@anthropic-ai/sdk";
 import { randomUUID } from "crypto";
 import sharp from "sharp";
+import { buildProjectContext } from "../services/project-context.js";
 
 const router = Router();
 
@@ -115,12 +116,13 @@ const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp
 
 router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, res) => {
   const memberName = req.memberName!;
-  const { message, conversationId, websiteProjectId, commercialProjectId, model } = req.body as {
+  const { message, conversationId, websiteProjectId, commercialProjectId, model, chatProjectId } = req.body as {
     message: string;
     conversationId?: string;
     websiteProjectId?: string;
     commercialProjectId?: string;
     model?: string;
+    chatProjectId?: string;
   };
   const lowTokenMode = req.body.lowTokenMode === true || req.body.lowTokenMode === "true";
 
@@ -260,6 +262,7 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
         .insert({
           member_name: memberName.toLowerCase(),
           title,
+          project_id: chatProjectId || null,
         })
         .select("id")
         .single();
@@ -311,7 +314,7 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
         .select("role, content, created_at")
         .eq("conversation_id", convId)
         .order("created_at", { ascending: false })
-        .limit(40),
+        .limit(25),
       // 3. Pre-fetch @mentioned client data (or skip)
       hasMentions
         ? Promise.all([
@@ -329,7 +332,7 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
 
     const history = (historyResult.data ?? []).reverse();
 
-    const messages: Anthropic.MessageParam[] = (history ?? []).map((m) => {
+    const rawMessages: Anthropic.MessageParam[] = (history ?? []).map((m) => {
       const ts = new Date(m.created_at).toLocaleString("en-US", {
         timeZone: "America/New_York",
         dateStyle: "short",
@@ -340,6 +343,29 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
         content: `[${ts}] ${m.content}`,
       };
     });
+
+    // Sanitize: ensure valid message structure for LLM APIs
+    // - First message must be "user" role
+    // - Roles must alternate (no consecutive same-role messages)
+    // - No empty content
+    const messages: Anthropic.MessageParam[] = [];
+    for (const m of rawMessages) {
+      const content = typeof m.content === "string" ? m.content.trim() : m.content;
+      if (typeof content === "string" && !content) continue; // skip empty
+      if (messages.length > 0 && messages[messages.length - 1].role === m.role) {
+        // Merge consecutive same-role messages
+        const prev = messages[messages.length - 1];
+        if (typeof prev.content === "string" && typeof content === "string") {
+          prev.content = prev.content + "\n\n" + content;
+        }
+        continue;
+      }
+      messages.push({ role: m.role, content });
+    }
+    // Ensure first message is "user" role
+    if (messages.length > 0 && messages[0].role === "assistant") {
+      messages.unshift({ role: "user" as const, content: "(conversation context)" });
+    }
 
     // Guard: ensure at least one message before calling the API
     if (messages.length === 0) {
@@ -458,6 +484,28 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       }
     }
 
+    // Inject chat project context if a project is linked
+    if (chatProjectId) {
+      try {
+        const projectCtx = await buildProjectContext(chatProjectId);
+        if (projectCtx.textPrefix) {
+          const lastMsg = messages[messages.length - 1];
+          if (lastMsg?.role === "user") {
+            if (typeof lastMsg.content === "string") {
+              lastMsg.content = projectCtx.textPrefix + lastMsg.content;
+            }
+          }
+          console.log(`[chat] Injected chat project context (${projectCtx.textPrefix.length} chars, ${projectCtx.imageBlocks.length} images)`);
+        }
+        // Merge project images into imageBlocks
+        if (projectCtx.imageBlocks.length > 0) {
+          imageBlocks.push(...projectCtx.imageBlocks);
+        }
+      } catch (err) {
+        console.error(`[chat] Failed to load project context for ${chatProjectId}:`, err);
+      }
+    }
+
     // For the current message: if there are images, replace the last user message
     // content with multi-block content (image blocks + text) for Claude vision
     if (imageBlocks.length > 0 && messages.length > 0) {
@@ -474,11 +522,21 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
     // Register active job so clients can reconnect
     registerJob(convId!, memberName);
 
+    // Send conversation ID immediately so the client can reconnect even if the stream drops
+    res.write(`data: ${JSON.stringify({ type: "start", conversationId: convId })}\n\n`);
+
     // Stream response from Claude (events also buffered for reconnect)
+    // 25-minute safety timeout — must exceed the 20-minute agentic loop so long tasks complete
+    const CHAT_TIMEOUT_MS = 25 * 60 * 1000;
     console.log(`[chat] ${memberName} | starting streamChat with ${messages.length} messages`);
-    const fullResponse = await streamChat(memberName, messages, res, (event) => {
-      pushEvent(convId!, event as any);
-    }, convId, lowTokenMode, model, req.anthropicApiKey);
+    const fullResponse = await Promise.race([
+      streamChat(memberName, messages, res, (event) => {
+        pushEvent(convId!, event as any);
+      }, convId, lowTokenMode, model, req.anthropicApiKey),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Chat request timed out after 25 minutes")), CHAT_TIMEOUT_MS)
+      ),
+    ]);
     console.log(`[chat] ${memberName} | streamChat done, response length=${fullResponse.length}, disconnected=${clientDisconnected}`);
 
     // Always save assistant response (even if client disconnected mid-stream)

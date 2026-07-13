@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { requireAdminAuth, createUnauthorizedResponse } from "../_shared/auth.ts";
+import { requireToolAuth, createUnauthorizedResponse } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -93,7 +93,7 @@ serve(async (req) => {
   }
 
   // Auth
-  const auth = await requireAdminAuth(req);
+  const auth = await requireToolAuth(req, 'creative-studio');
   if (!auth.authorized) {
     return createUnauthorizedResponse(auth.error!, auth.status!, corsHeaders);
   }

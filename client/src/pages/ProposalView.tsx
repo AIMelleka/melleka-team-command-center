@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Share2, Loader2, ChevronRight, Download, TrendingUp, Target, DollarSign, Users, BarChart3, Mail, Calendar, Sparkles, Menu, PanelLeftClose, PanelLeft, Home, FileText, Map, Search, Megaphone, BarChart2, Video, MessageSquare, Clock, Heart, Phone, Layers, Zap, Globe, Shield, Palette, Smartphone, Monitor, Play, Image, CheckCircle2, ArrowRight, Camera, Mic, Star, Award, Rocket, Eye, MousePointer, ShoppingCart, LineChart as LineChartIcon, ExternalLink, PieChart as PieChartIcon } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -370,6 +370,7 @@ interface ProposalContent {
   cta?: {
     headline?: string;
     subheadline?: string;
+    buttonUrl?: string;
     nextSteps?: string[];
     contact?: {
       name?: string;
@@ -785,11 +786,14 @@ const ProposalViewInner = () => {
   const {
     isAdmin
   } = useAuth();
+  const [searchParams] = useSearchParams();
+  const isAdminView = searchParams.get('admin') === 'true';
   const {
     isAdminVerified, isEditMode,
     sectionOrder, initSectionOrder, setSectionOrder,
     customSections, initCustomSections, addCustomSection, removeCustomSection, updateCustomSection,
     initHiddenSections, isSectionHidden, hideSection, showSection,
+    initContentData,
   } = useAdminEdit();
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [loading, setLoading] = useState(true);
@@ -889,7 +893,12 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
   useEffect(() => {
     if (proposal?.content?.selectedPackage) {
       const pkg = MARKETING_PACKAGES.find(p => p.id === proposal.content.selectedPackage?.id);
-      if (pkg) setSelectedPackage(pkg);
+      if (pkg) {
+        setSelectedPackage(pkg);
+      } else if (proposal.content.selectedPackage?.monthlyPrice) {
+        // Fallback: use inline package data for proposals with orphaned package IDs
+        setSelectedPackage(proposal.content.selectedPackage as MarketingPackage);
+      }
     }
     // Initialize website package
     if (proposal?.content?.selectedWebsitePackage) {
@@ -905,6 +914,8 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
     // Initialize editor state from saved proposal content
     if (proposal?.content) {
       const c = proposal.content as Record<string, unknown>;
+      // Feed full content to EditableText so it can resolve saved values by dot-path
+      initContentData(c);
       if (Array.isArray(c._sectionOrder)) {
         initSectionOrder(c._sectionOrder as string[]);
       }
@@ -1055,7 +1066,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
   const handlePackageChange = (pkg: MarketingPackage) => {
     setSelectedPackage(pkg);
     toast.success(`Viewing ${pkg.name} package`, {
-      description: `$${pkg.monthlyPrice.toLocaleString()}/month • ${pkg.channels}`
+      description: pkg.pricingModel ? `${pkg.pricingModel} • ${pkg.channels}` : `$${pkg.monthlyPrice.toLocaleString()}/month • ${pkg.channels}`
     });
   };
   const handleWebsitePackageChange = (pkg: WebsitePackage) => {
@@ -1123,6 +1134,24 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
       scrollAnimFrameRef.current = requestAnimationFrame(animateScroll);
     }
   }, []);
+
+  // DOM-based CSS order: only apply when admin has set a custom section order.
+  // Default order matches JSX order, so no reordering needed unless explicitly saved.
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main || !proposal || sectionOrder.length === 0) return;
+    for (let i = 0; i < sectionOrder.length; i++) {
+      const el = document.getElementById(sectionOrder[i]);
+      if (!el) continue;
+      let target: HTMLElement | null = el;
+      while (target && target.parentElement !== main) {
+        target = target.parentElement as HTMLElement | null;
+      }
+      if (target) {
+        target.style.order = String(i);
+      }
+    }
+  }, [sectionOrder, proposal, selectedPackage, selectedWebsitePackage]);
 
   // Fetch live SEO data from Semrush
   const fetchLiveSeoData = async (domainToSearch?: string) => {
@@ -1384,9 +1413,32 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
   };
   const filteredNavItems = getFilteredNavItems();
 
-  // Get current package details
+  // Get current package details — prefer live MARKETING_PACKAGES lookup, fall back to stored content data
   const currentPackageId = content.selectedPackage?.id;
-  const displayPackage = selectedPackage || (currentPackageId ? MARKETING_PACKAGES.find(p => p.id === currentPackageId) : null);
+  const displayPackage = selectedPackage ||
+    (currentPackageId ? (MARKETING_PACKAGES.find(p => p.id === currentPackageId) || (content.selectedPackage as MarketingPackage)) : null);
+
+  // Filter services to only what's included in the selected package
+  const proposalServices = displayPackage ? MELLEKA_SERVICES.filter(service => {
+    const s = displayPackage.services;
+    const channelDetails = (s.channels.details || '').toLowerCase();
+    const isMultiChannel = channelDetails.includes('all') || channelDetails.includes('omni') || displayPackage.tier >= 1;
+    switch (service.name) {
+      case 'Google Ads': return channelDetails.includes('google') || isMultiChannel;
+      case 'Meta Ads': return channelDetails.includes('meta') || channelDetails.includes('facebook') || isMultiChannel;
+      case 'SEO': return s.seo.included;
+      case 'Analytics': return s.analytics.included;
+      case 'UGC Content': return s.ugcContent.included;
+      case 'Social Media': return s.socialMediaManagement.included;
+      case 'Email Marketing': return s.emailCampaigns.included;
+      case 'Creative Design': return s.creatives.included;
+      case 'Web Development': return s.websiteUpdate.included;
+      case 'Reputation Mgmt': return s.reputationManagement.included;
+      case 'AI Voice Agent': return s.aiVoiceAgent.included;
+      case 'AI Chatbot': return s.aiChatBot.included;
+      default: return true;
+    }
+  }) : MELLEKA_SERVICES;
 
   // Calculate package-based pricing
   const monthlyInvestment = displayPackage?.monthlyPrice || 0;
@@ -1398,6 +1450,8 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
   // Dynamic budget breakdown based on selected package
   const getDynamicBudgetBreakdown = () => {
     if (!displayPackage) return content.budget?.breakdown || [];
+    // Enterprise uses custom pricing — use content-level breakdown or skip
+    if (displayPackage.pricingModel) return content.budget?.breakdown || [];
     const services = displayPackage.services;
     const breakdown: Array<{
       category: string;
@@ -1467,7 +1521,16 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
   const getDynamicRoiProjections = () => {
     if (!displayPackage) return content.budget?.roiProjections;
     const tier = displayPackage.tier;
-    const multiplier = tier <= 2 ? 1 : tier <= 4 ? 1.5 : 2;
+    // Enterprise uses custom pricing — use content-level ROI or generate from ad spend model
+    if (displayPackage.pricingModel) {
+      return content.budget?.roiProjections || {
+        expectedRevenue: 'Custom',
+        roas: `${(2 + tier * 0.5).toFixed(1)}x`,
+        cac: `$${Math.round(150 - tier * 15)}`,
+        ltv: `$${Math.round(500 + tier * 100).toLocaleString()}`
+      };
+    }
+    const multiplier = tier <= 1 ? 1 : tier <= 3 ? 1.5 : 2;
     return {
       expectedRevenue: `$${Math.round(monthlyInvestment * 3 * multiplier).toLocaleString()}-${Math.round(monthlyInvestment * 5 * multiplier).toLocaleString()}/mo`,
       roas: `${(2 + tier * 0.5).toFixed(1)}x`,
@@ -1482,8 +1545,8 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
     // For marketing proposals with a selected package
     if (displayPackage) {
       return [{
-        value: `$${displayPackage.monthlyPrice.toLocaleString()}`,
-        label: 'Monthly Investment'
+        value: displayPackage.pricingModel || `$${displayPackage.monthlyPrice.toLocaleString()}`,
+        label: displayPackage.pricingModel ? 'Pricing Model' : 'Monthly Investment'
       }, {
         value: displayPackage.channels,
         label: 'Marketing Channels'
@@ -1546,60 +1609,66 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
   const packageServices = displayPackage?.services;
   const packageTier = displayPackage?.tier || 0;
 
-  // EXACT PACKAGE SERVICE MAPPING:
-  // Basic Silver (tier 1): 1 channel, monthly optimization, basic setup, online listing ONLY
-  // Basic Gold (tier 2): 2 channels, bi-weekly meetings, slack, weekly opt, advanced setup/content/analytics, basic SEO/workflow/website, audit, sales/marketing consultation
-  // Advanced Silver (tier 3): 3 channels, weekly meetings, daily opt, advanced SEO/website, landing pages, funnels, advanced workflow, email/texting, A/B tests, creatives, live dashboard, dedicated team, social media, 1hr extra tasks
-  // Advanced Gold (tier 4): 4 channels, 2-3 day turnaround, reputation mgmt, AI voice agent, AI chatbot, 2hrs extra tasks
-  // Premium Silver (tier 5): Omni-channel, 1hr meetings, UGC (2), influencer, TV ads, automated systems, automated CRM, experience consultation, 3hrs extra tasks
-  // Premium Gold (tier 6): 1.5hr meetings, in-person content, UGC (3), AI CRM Manager, AI tools on-demand, 5hrs extra tasks
+  // EXACT PACKAGE SERVICE MAPPING (synced with melleka.com/pricing):
+  // Advanced Silver (tier 1): 2 channels, 4-5 days, monthly 30-min meeting, bi-weekly opt, basic setup/copy/SEO/website/workflow
+  // Premium Silver (tier 2): 4 channels, 3-4 days, weekly 30-min meeting, weekly opt, advanced everything, reputation mgmt, AI voice/chatbot, UGC (2), 3hrs extra tasks
+  // Premium Gold (tier 3): Omni-channel, 1-2 days, weekly 1-hr meeting, daily opt, full workflow, influencer, TV ads, automated CRM, AI tools, UGC (3), up to 3 franchises, 5hrs extra tasks
+  // Premium Platinum (tier 4): Omni-channel, 1-2 days, weekly 1.5-hr meeting, in-person content, AI-managed CRM, UGC (5), up to 15 franchises, 5hrs extra tasks
+  // Enterprise (tier 5): 15% of ad spend ($500K min), same day, weekly 2-hr meeting, unlimited franchises, UGC (10), 10hrs extra tasks, everything included
 
-  // Google Ads - available in ALL tiers (at least 1 channel)
-  const showGoogleAds = !isWebsiteOnly && (packageServices?.channels?.included ?? true);
+  // Determine which ad channels are in the selected package
+  const packageChannelDetails = (packageServices?.channels?.details || '').toLowerCase();
+  // Multi-channel: tier >= 0 (google-meta+), OR no package selected
+  const isMultiChannelPackage = !displayPackage || (displayPackage.tier >= 0);
+
+  // Google Ads - shown when google is specifically included, OR multi-channel package
+  const showGoogleAds = !isWebsiteOnly && (packageServices?.channels?.included ?? true) &&
+    (!displayPackage || packageChannelDetails.includes('google') || isMultiChannelPackage);
+
+  // Meta Ads - shown when meta/facebook is specifically included, OR multi-channel package
+  const showMetaAds = !isWebsiteOnly && (packageServices?.channels?.included ?? true) &&
+    (!displayPackage || packageChannelDetails.includes('meta') || packageChannelDetails.includes('facebook') || isMultiChannelPackage);
+
+  // SEO - show only if package includes it (or no package and content exists)
+  const showSeo = !isWebsiteOnly && (displayPackage ? !!packageServices?.seo?.included : (!!packageServices?.seo?.included || !!content.seo));
+
+  // Analytics - show only if package includes it (or no package and content exists)
+  const showAnalytics = !isWebsiteOnly && (displayPackage ? !!packageServices?.analytics?.included : (!!packageServices?.analytics?.included || !!content.analytics));
   
-  // Meta Ads - requires 2+ channels (Basic Gold+, tier >= 2)
-  const showMetaAds = !isWebsiteOnly && packageTier >= 2 && (packageServices?.channels?.included ?? false);
-  
-  // SEO - Basic Gold+ (tier >= 2) - uses package flag OR content existence
-  const showSeo = !isWebsiteOnly && (packageServices?.seo?.included || !!content.seo);
-  
-  // Analytics - Basic Gold+ (tier >= 2) - uses package flag OR content existence
-  const showAnalytics = !isWebsiteOnly && (packageServices?.analytics?.included || !!content.analytics);
-  
-  // Email Campaigns - Advanced Silver+ (tier >= 3)
+  // Email Campaigns - All tiers (tier >= 1)
   const showEmail = !isWebsiteOnly && (packageServices?.emailCampaigns?.included ?? false);
-  
-  // Texting Campaigns - Advanced Silver+ (tier >= 3) - separate section
+
+  // Texting Campaigns - All tiers (tier >= 1)
   const showTexting = !isWebsiteOnly && (packageServices?.textingCampaigns?.included ?? false);
-  
-  // Social Media Management - Advanced Silver+ (tier >= 3)
+
+  // Social Media Management - All tiers (tier >= 1)
   const showSocialMedia = !isWebsiteOnly && (packageServices?.socialMediaManagement?.included ?? false);
-  
-  // Reputation Management - Advanced Gold+ (tier >= 4)
+
+  // Reputation Management - Premium Silver+ (tier >= 2)
   const showReputationManagement = !isWebsiteOnly && (packageServices?.reputationManagement?.included ?? false);
-  
-  // AI Voice Agent & AI Chat Bot - Advanced Gold+ (tier >= 4)
+
+  // AI Voice Agent & AI Chat Bot - Premium Silver+ (tier >= 2)
   const showAiFeatures = !isWebsiteOnly && (packageServices?.aiVoiceAgent?.included || packageServices?.aiChatBot?.included);
-  
-  // Automation & CRM - Premium Silver+ (tier >= 5) for full automation systems
+
+  // Automation & CRM - Premium Gold+ (tier >= 3)
   const showAutomationCrm = !isWebsiteOnly && (
-    packageServices?.automatedSystems?.included || 
+    packageServices?.automatedSystems?.included ||
     packageServices?.automatedCRM?.included
   );
-  
-  // UGC Content - Premium Silver+ (tier >= 5)
+
+  // UGC Content - Premium Silver+ (tier >= 2)
   const showUgc = !isWebsiteOnly && (packageServices?.ugcContent?.included ?? false);
-  
-  // Influencer Marketing - Premium Silver+ (tier >= 5)
+
+  // Influencer Marketing - Premium Gold+ (tier >= 3)
   const showInfluencer = !isWebsiteOnly && (packageServices?.influencerMarketing?.included ?? false);
-  
-  // Television Ads - Premium Silver+ (tier >= 5)
+
+  // Television Ads - Premium Gold+ (tier >= 3)
   const showTvAds = !isWebsiteOnly && (packageServices?.televisionAds?.included ?? false);
-  
-  // Dedicated Team - Advanced Silver+ (tier >= 3)
+
+  // Dedicated Team - All tiers (tier >= 1)
   const showDedicatedTeam = packageServices?.dedicatedTeam?.included ?? false;
-  
-  // Live Dashboard - Advanced Silver+ (tier >= 3)
+
+  // Live Dashboard - All tiers (tier >= 1)
   const showLiveDashboard = !isWebsiteOnly && (packageServices?.liveDashboard?.included ?? false);
   
   // Website Design section - only if website package selected
@@ -1642,26 +1711,6 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
   const orderedNavItems = [...visibleNavItems].sort(
     (a, b) => getOrderIndex(a.id) - getOrderIndex(b.id)
   );
-
-  // DOM-based CSS order: apply order to each section element via the DOM
-  // instead of wrapping in <div> tags (which causes esbuild parser issues in large files)
-  useEffect(() => {
-    const main = mainRef.current;
-    if (!main) return;
-    // Apply order to every direct-child section (or element containing a section)
-    for (let i = 0; i < effectiveOrder.length; i++) {
-      const el = document.getElementById(effectiveOrder[i]);
-      if (!el) continue;
-      // Walk up to find the direct child of main
-      let target: HTMLElement | null = el;
-      while (target && target.parentElement !== main) {
-        target = target.parentElement as HTMLElement | null;
-      }
-      if (target) {
-        target.style.order = String(i);
-      }
-    }
-  }, [effectiveOrder, proposal, selectedPackage, selectedWebsitePackage]);
 
   const brandStyle = {
     '--brand-primary': primaryColor,
@@ -1718,8 +1767,10 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
     }
   };
   return <div className="min-h-screen min-h-[100dvh] flex flex-col lg:flex-row overflow-x-hidden overflow-y-auto" style={brandStyle}>
-      {/* Admin Toolbar */}
-      <AdminToolbar onSave={handleSaveChanges} primaryColor={primaryColor} isAdmin={isAdmin} onAddSection={() => setShowAddSection(true)} onReorderSections={() => setShowReorderPanel(true)} />
+      {/* Admin Toolbar - visible for admin users, hidden in client view */}
+      {isAdmin && (
+        <AdminToolbar onSave={handleSaveChanges} primaryColor={primaryColor} isAdmin={isAdmin} onAddSection={() => setShowAddSection(true)} onReorderSections={() => setShowReorderPanel(true)} />
+      )}
       
       {/* Floating Package Selector */}
       <FloatingPackageSelector basePackageId={currentPackageId} currentPackageId={displayPackage?.id || currentPackageId} onPackageChange={handlePackageChange} baseWebsitePackageId={content.selectedWebsitePackage?.id} onWebsitePackageChange={handleWebsitePackageChange} proposalType={proposalType} currentWebsitePackageId={displayWebsitePackage?.id || content.selectedWebsitePackage?.id} />
@@ -1845,7 +1896,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
           color: isLightColor(primaryColor) ? '#1a1a2e' : '#ffffff'
         }} title={sidebarCollapsed ? 'Call Us: 818.599.2696' : undefined}>
             <Phone className="w-4 h-4" />
-            {!sidebarCollapsed && <span>Call Us</span>}
+            {!sidebarCollapsed && <span><EditableText value="Call Us" path="sidebar.callLabel" as="span" /></span>}
           </a>
           {!sidebarCollapsed && <div className="flex gap-2 mt-2">
               <button onClick={handleShare} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors" style={{
@@ -1994,7 +2045,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
       </Sheet>
 
       {/* Main Content - Offset for sidebar */}
-      <main ref={mainRef} className={`flex-1 pt-14 lg:pt-0 transition-all duration-300 overflow-x-hidden overflow-y-auto flex flex-col ${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
+      <main ref={mainRef} className={`flex-1 pt-14 lg:pt-0 transition-all duration-300 overflow-x-hidden overflow-y-auto ${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`} style={sectionOrder.length > 0 ? { display: 'flex', flexDirection: 'column' } : undefined}>
         {/* Hero Section - Premium Futuristic Design with Neon Glow */}
         <section id="hero" className="relative min-h-[90vh] flex items-center overflow-hidden" style={{
         backgroundColor
@@ -2076,7 +2127,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                 boxShadow: isLightBackground ? `0 4px 20px color-mix(in srgb, ${primaryColor} 40%, transparent)` : `0 4px 20px ${primaryColor}60, 0 0 40px ${primaryColor}30, 0 0 60px ${primaryColor}15`
               }}>
                   <Sparkles className="w-4 h-4" />
-                  <span>{isWebsiteOnly ? "Custom Website Design Proposal" : "Strategic Marketing Partnership"}</span>
+                  <span><EditableText value={isWebsiteOnly ? "Custom Website Design Proposal" : "Strategic Marketing Partnership"} path="hero.badge" as="span" /></span>
                 </div>
               </div>
               
@@ -2085,17 +2136,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
               color: textColor,
               textShadow: isLightBackground ? 'none' : `0 2px 40px color-mix(in srgb, ${primaryColor} 30%, transparent)`
             }}>
-                {isWebsiteOnly ? <>
-                    Website Design Proposal For<br />
-                    <span style={{
-                  color: primaryColor
-                }}>{proposal.client_name}</span>
-                  </> : <>
-                    Marketing Proposal For<br />
-                    <span style={{
-                  color: primaryColor
-                }}>{proposal.client_name}</span>
-                  </>}
+                <EditableText value={isWebsiteOnly ? `Website Design Proposal For ${proposal.client_name}` : `Marketing Proposal For ${proposal.client_name}`} path="hero.title" as="span" />
               </h1>
               
               {/* AI-Generated Headline - Smaller and Italicized */}
@@ -2149,7 +2190,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                     color: secondaryColor,
                     textShadow: !isLightBackground ? `0 0 10px ${secondaryColor}60` : 'none'
                   }}>
-                        Recommended Plan
+                        <EditableText value="Recommended Plan" path="hero.recommendedPlanLabel" as="span" />
                       </p>
                       <p className="font-display font-bold text-xl" style={{
                     color: textColor,
@@ -2176,11 +2217,11 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   color: primaryColor,
                   textShadow: !isLightBackground ? `0 0 30px ${primaryColor}50` : 'none'
                 }}>
-                      ${displayPackage.monthlyPrice.toLocaleString()}
+                      {displayPackage.pricingModel || `$${displayPackage.monthlyPrice.toLocaleString()}`}
                     </p>
                     <p className="text-sm" style={{
                   color: textMutedColor
-                }}>per month</p>
+                }}>{displayPackage.pricingModel ? 'of ad spend' : 'per month'}</p>
                   </div>
                 </div>
               </div>}
@@ -2261,7 +2302,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                 background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%)',
                 animation: 'shimmer 2s infinite'
               }} />}
-                <span className="text-lg relative z-10">{isWebsiteOnly ? 'View Your Package' : 'Explore the Strategy'}</span>
+                <span className="text-lg relative z-10"><EditableText value={isWebsiteOnly ? 'View Your Package' : 'Explore the Strategy'} path="hero.ctaButton" as="span" /></span>
                 <ChevronRight className="w-5 h-5 transition-transform group-hover:translate-x-1 relative z-10" />
               </button>
               
@@ -2273,7 +2314,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   <CheckCircle2 className="w-4 h-4" style={{
                   color: '#22c55e'
                 }} />
-                  <span>Custom Strategy</span>
+                  <span><EditableText value="Custom Strategy" path="hero.trust1" as="span" /></span>
                 </div>
                 <div className="flex items-center gap-1.5 text-sm" style={{
                 color: textMutedColor
@@ -2281,7 +2322,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   <CheckCircle2 className="w-4 h-4" style={{
                   color: '#22c55e'
                 }} />
-                  <span>Dedicated Team</span>
+                  <span><EditableText value="Dedicated Team" path="hero.trust2" as="span" /></span>
                 </div>
                 <div className="flex items-center gap-1.5 text-sm" style={{
                 color: textMutedColor
@@ -2289,7 +2330,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   <CheckCircle2 className="w-4 h-4" style={{
                   color: '#22c55e'
                 }} />
-                  <span>{isWebsiteOnly ? 'Premium Design' : 'White Glove Experience'}</span>
+                  <span><EditableText value={isWebsiteOnly ? 'Premium Design' : 'White Glove Experience'} path="hero.trust3" as="span" /></span>
                 </div>
               </div>
             </div>
@@ -2357,11 +2398,11 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                     <div>
                       <p className="text-xs uppercase tracking-widest mb-1" style={{
                     color: secondaryColor
-                  }}>Prepared for {proposal.client_name}</p>
+                  }}><EditableText value={`Prepared for ${proposal.client_name}`} path="executiveSummary.preparedFor" as="span" /></p>
                       <h2 className="text-3xl md:text-4xl font-display font-bold" style={{
                     color: textColor
                   }}>
-                        Executive Summary
+                        <EditableText value="Executive Summary" path="executiveSummary.title" as="span" />
                       </h2>
                     </div>
                   </div>
@@ -2419,11 +2460,11 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                       <h3 className="text-xl font-display font-semibold mb-1" style={{
                     color: textColor
                   }}>
-                        Strategic Overview for {proposal.client_name}
+                        <EditableText value={`Strategic Overview for ${proposal.client_name}`} path="executiveSummary.overviewTitle" as="span" />
                       </h3>
                       <p className="text-sm" style={{
                     color: secondaryColor
-                  }}>Personalized growth strategy</p>
+                  }}><EditableText value="Personalized growth strategy" path="executiveSummary.overviewSubtitle" as="span" /></p>
                     </div>
                   </div>
                   
@@ -2451,7 +2492,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                     <h3 className="text-2xl font-display font-bold" style={{
                 color: textColor
               }}>
-                      Key Objectives for {proposal.client_name}
+                      <EditableText value={`Key Objectives for ${proposal.client_name}`} path="executiveSummary.objectivesTitle" as="span" />
                     </h3>
                   </div>
                   
@@ -2476,7 +2517,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                           </div>
                           <p className="font-medium leading-relaxed" style={{
                     color: textColor
-                  }}>{obj}</p>
+                  }}>{typeof obj === 'string' ? obj : (obj as Record<string, unknown>)?.text || JSON.stringify(obj)}</p>
                         </div>
                       </div>)}
                   </div>
@@ -2508,11 +2549,11 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                         <div>
                           <p className="text-xs uppercase tracking-widest mb-1" style={{
                       color: secondaryColor
-                    }}>Our Strategy</p>
+                    }}><EditableText value="Our Strategy" path="executiveSummary.strategyLabel" as="span" /></p>
                           <h3 className="text-2xl font-display font-bold" style={{
                       color: textColor
                     }}>
-                            How We'll Help {proposal.client_name} Succeed
+                            <EditableText value={`How We'll Help ${proposal.client_name} Succeed`} path="executiveSummary.strategyTitle" as="span" />
                           </h3>
                         </div>
                       </div>
@@ -2537,7 +2578,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                     }} />
                           <span className="text-sm font-medium" style={{
                       color: textColor
-                    }}>Data-Driven</span>
+                    }}><EditableText value="Data-Driven" path="executiveSummary.pillar1" as="span" /></span>
                         </div>
                         <div className="flex items-center gap-2 px-4 py-2 rounded-full" style={{
                     background: `color-mix(in srgb, ${secondaryColor} 15%, transparent)`,
@@ -2548,7 +2589,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                     }} />
                           <span className="text-sm font-medium" style={{
                       color: textColor
-                    }}>ROI Focused</span>
+                    }}><EditableText value="ROI Focused" path="executiveSummary.pillar2" as="span" /></span>
                         </div>
                         <div className="flex items-center gap-2 px-4 py-2 rounded-full" style={{
                     background: `color-mix(in srgb, ${primaryColor} 15%, transparent)`,
@@ -2559,7 +2600,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                     }} />
                           <span className="text-sm font-medium" style={{
                       color: textColor
-                    }}>Industry Expert</span>
+                    }}><EditableText value="Industry Expert" path="executiveSummary.pillar3" as="span" /></span>
                         </div>
                       </div>
                     </div>
@@ -2579,25 +2620,24 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{
                 color: secondaryColor
               }}>
-                    Full-Service Marketing Agency
+                    <EditableText value="Full-Service Marketing Agency" path="servicesOverview.eyebrow" as="span" />
                   </p>
                   <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{
                 color: textColor
               }}>
-                    Everything You Need, Under One Roof
+                    <EditableText value="Everything You Need, Under One Roof" path="servicesOverview.headline" as="span" className="text-3xl md:text-5xl font-display font-bold" style={{ color: textColor }} />
                   </h2>
                   <p className="text-lg max-w-3xl mx-auto" style={{
                 color: textMutedColor
               }}>
-                    From paid advertising to organic growth, creative production to analytics, 
-                    Melleka Marketing handles every aspect of your digital presence.
+                    <EditableText value="From paid advertising to organic growth, creative production to analytics, Melleka Marketing handles every aspect of your digital presence." path="servicesOverview.description" as="span" multiline style={{ color: textMutedColor }} />
                   </p>
                 </div>
               </AnimatedSection>
 
               <AnimatedSection delay={100}>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {MELLEKA_SERVICES.map((service, i) => {
+                  {proposalServices.map((service, i) => {
                 const ServiceIcon = service.icon;
                 return <div key={i} className="p-5 rounded-2xl transition-all duration-300 hover:scale-105 group" style={{
                   background: cardBackground,
@@ -2633,18 +2673,17 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{
                 color: secondaryColor
               }}>
-                    Our Approach
+                    <EditableText value="Our Approach" path="phases.eyebrow" as="span" />
                   </p>
                   <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{
                 color: textColor
               }}>
-                    A Proven Path to Success
+                    <EditableText value="A Proven Path to Success" path="phases.headline" as="span" />
                   </h2>
                   <p className="text-lg max-w-3xl mx-auto" style={{
                 color: textMutedColor
               }}>
-                    Our three-phase methodology ensures we build a solid foundation, 
-                    optimize for performance, and scale for maximum growth.
+                    <EditableText value="Our three-phase methodology ensures we build a solid foundation, optimize for performance, and scale for maximum growth." path="phases.description" as="span" multiline />
                   </p>
                 </div>
               </AnimatedSection>
@@ -2769,12 +2808,12 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                       <div className="flex items-center gap-3">
                         <h2 className="text-3xl md:text-4xl font-display font-bold" style={{
                       color: textColor
-                    }}>Google Ads Strategy</h2>
+                    }}><EditableText value="Google Ads Strategy" path="googleAds.title" as="span" /></h2>
                         <CalloutBadge text="Paid Search" variant="important" />
                       </div>
                       <p style={{
                     color: textMutedColor
-                  }}>Search, Shopping, Display & YouTube</p>
+                  }}><EditableText value="Search, Shopping, Display & YouTube" path="googleAds.subtitle" as="span" /></p>
                     </div>
                   </div>
                   {content.googleAds.budget && <div className="text-right">
@@ -2783,7 +2822,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                 }}>{content.googleAds.budget}</p>
                       <p className="text-sm" style={{
                   color: textMutedColor
-                }}>Annual Budget</p>
+                }}><EditableText value="Annual Budget" path="googleAds.budgetLabel" as="span" /></p>
                     </div>}
                 </div>
               </AnimatedSection>
@@ -2792,7 +2831,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                 <p className="text-lg mb-12 max-w-4xl" style={{
               color: textMutedColor
             }}>
-                  {content.googleAds.strategy}
+                  <EditableText value={content.googleAds.strategy || ''} path="googleAds.strategy" as="span" multiline />
                 </p>
               </AnimatedSection>
 
@@ -2837,7 +2876,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
             }}>
                     <h3 className="text-xl font-display font-semibold mb-6" style={{
                 color: textColor
-              }}>Projected Performance</h3>
+              }}><EditableText value="Projected Performance" path="googleAds.projectedPerformanceTitle" as="span" /></h3>
                     {(() => {
                 const results = content.googleAds.expectedResults as Record<string, unknown>;
                 // Check if results are nested (month1, month3, month6 structure)
@@ -2920,12 +2959,12 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                         <div className="flex items-center gap-3 flex-wrap">
                           <h2 className="text-3xl md:text-4xl font-display font-bold" style={{
                         color: textColor
-                      }}>Meta Ads Strategy</h2>
+                      }}><EditableText value="Meta Ads Strategy" path="metaAds.title" as="span" /></h2>
                           <CalloutBadge text="Paid Social" variant="important" />
                         </div>
                         <p style={{
                       color: textMutedColor
-                    }}>Facebook, Instagram & Threads</p>
+                    }}><EditableText value="Facebook, Instagram & Threads" path="metaAds.subtitle" as="span" /></p>
                       </div>
                     </div>
                     {content.metaAds.budget && <div className="text-right">
@@ -2934,10 +2973,10 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   }}>{content.metaAds.budget}</p>
                         <p className="text-sm" style={{
                     color: textMutedColor
-                  }}>Annual Budget</p>
+                  }}><EditableText value="Annual Budget" path="metaAds.budgetLabel" as="span" /></p>
                       </div>}
                   </div>
-                  
+
                   {/* Platform Logos */}
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="text-sm font-medium" style={{
@@ -2953,7 +2992,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                 <p className="text-lg mb-12 max-w-4xl" style={{
               color: textMutedColor
             }}>
-                  {content.metaAds.strategy}
+                  <EditableText value={content.metaAds.strategy || ''} path="metaAds.strategy" as="span" multiline />
                 </p>
               </AnimatedSection>
 
@@ -2963,7 +3002,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                     <div className="flex items-center gap-3 mb-6">
                       <h3 className="text-xl font-display font-semibold" style={{
                   color: textColor
-                }}>Full-Funnel Approach</h3>
+                }}><EditableText value="Full-Funnel Approach" path="metaAds.funnelTitle" as="span" /></h3>
                       <CalloutBadge text="4-Stage Strategy" variant="highlight" />
                     </div>
                     <FloatingAnnotation text="🎯 Optimized for conversion" position="top-right" />
@@ -3034,7 +3073,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                 }} />
                     <span className="text-sm font-medium" style={{
                   color: secondaryColor
-                }}>SEO & Organic Growth Strategy</span>
+                }}><EditableText value="SEO & Organic Growth Strategy" path="seo.eyebrow" as="span" /></span>
                   </div>
                   <h2 className="text-4xl md:text-5xl font-display font-bold mb-4" style={{
                 color: textColor
@@ -3047,7 +3086,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   <p className="text-lg max-w-3xl mx-auto" style={{
                 color: textMutedColor
               }}>
-                    Real-time SEO analysis powered by Semrush data. See exactly where you stand and the opportunities waiting to be captured.
+                    <EditableText value="Real-time SEO analysis powered by Semrush data. See exactly where you stand and the opportunities waiting to be captured." path="seo.description" as="span" multiline />
                   </p>
                 </div>
               </AnimatedSection>
@@ -3078,12 +3117,12 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                         <h3 className="text-xl font-display font-bold" style={{
                       color: textColor
                     }}>
-                          Analyze Any Domain
+                          <EditableText value="Analyze Any Domain" path="seo.analyzeTitle" as="span" />
                         </h3>
                         <p className="text-sm" style={{
                       color: textMutedColor
                     }}>
-                          Pre-filled with your website • Pull live Semrush data instantly
+                          <EditableText value="Pre-filled with your website • Pull live Semrush data instantly" path="seo.analyzeSubtitle" as="span" />
                         </p>
                       </div>
                     </div>
@@ -3200,7 +3239,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                               <h3 className="text-2xl font-display font-bold mb-2" style={{
                         color: textColor
                       }}>
-                                Your Top Ranking Keywords
+                                <EditableText value="Your Top Ranking Keywords" path="seo.topKeywordsTitle" as="span" />
                               </h3>
                               <p className="text-sm" style={{
                         color: textMutedColor
@@ -3279,7 +3318,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                             <h3 className="text-xl font-display font-bold mb-6" style={{
                       color: textColor
                     }}>
-                              Your SEO Competitors
+                              <EditableText value="Your SEO Competitors" path="seo.competitorsTitle" as="span" />
                             </h3>
                             <div className="space-y-4">
                               {competitors.slice(0, 4).map((comp, i) => <div key={i} className="flex items-center justify-between p-4 rounded-xl" style={{
@@ -3326,7 +3365,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                             <h3 className="text-xl font-display font-bold mb-6" style={{
                       color: textColor
                     }}>
-                              Traffic Comparison
+                              <EditableText value="Traffic Comparison" path="seo.trafficComparisonTitle" as="span" />
                             </h3>
                             <div className="h-64">
                               <ResponsiveContainer width="100%" height="100%">
@@ -3379,12 +3418,12 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                               <h3 className="text-2xl font-display font-bold mb-2" style={{
                         color: textColor
                       }}>
-                                🎯 Keyword Opportunities for {proposal.client_name}
+                                <EditableText value={`Keyword Opportunities for ${proposal.client_name}`} path="seo.keywordOpportunitiesTitle" as="span" />
                               </h3>
                               <p style={{
                         color: textMutedColor
                       }}>
-                                These are keywords your competitors rank for that you're missing. Each represents untapped traffic potential.
+                                <EditableText value="These are keywords your competitors rank for that you're missing. Each represents untapped traffic potential." path="seo.keywordOpportunitiesDesc" as="span" multiline />
                               </p>
                             </div>
                           </div>
@@ -3452,8 +3491,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                             <p className="text-sm" style={{
                       color: textColor
                     }}>
-                              <strong>Strategy Tip:</strong> Focus on "Quick Win" keywords first. These have high search volume and low difficulty, 
-                              meaning you can rank faster and capture traffic within 3-6 months.
+                              <EditableText value='Strategy Tip: Focus on "Quick Win" keywords first. These have high search volume and low difficulty, meaning you can rank faster and capture traffic within 3-6 months.' path="seo.strategyTip" as="span" multiline />
                             </p>
                           </div>
                         </div>
@@ -3507,7 +3545,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   <h3 className="text-2xl font-display font-bold text-center mb-8" style={{
                 color: textColor
               }}>
-                    Our SEO Approach for {proposal.client_name}
+                    <EditableText value={`Our SEO Approach for ${proposal.client_name}`} path="seo.approachTitle" as="span" />
                   </h3>
                   <div className="grid md:grid-cols-3 gap-6">
                     {content.seo.technical && content.seo.technical.length > 0 && <div className="p-6 rounded-2xl group hover:scale-[1.02] transition-all" style={{
@@ -3523,7 +3561,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                         </div>
                         <h4 className="text-lg font-semibold mb-4" style={{
                     color: textColor
-                  }}>Technical SEO</h4>
+                  }}><EditableText value="Technical SEO" path="seo.technicalTitle" as="span" /></h4>
                         <ul className="space-y-3">
                           {content.seo.technical.slice(0, 4).map((item, i) => <li key={i} className="flex items-start gap-2 text-sm" style={{
                       color: textMutedColor
@@ -3548,7 +3586,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                         </div>
                         <h4 className="text-lg font-semibold mb-4" style={{
                     color: textColor
-                  }}>On-Page SEO</h4>
+                  }}><EditableText value="On-Page SEO" path="seo.onPageTitle" as="span" /></h4>
                         <ul className="space-y-3">
                           {content.seo.onPage.slice(0, 4).map((item, i) => <li key={i} className="flex items-start gap-2 text-sm" style={{
                       color: textMutedColor
@@ -3573,7 +3611,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                         </div>
                         <h4 className="text-lg font-semibold mb-4" style={{
                     color: textColor
-                  }}>Off-Page SEO</h4>
+                  }}><EditableText value="Off-Page SEO" path="seo.offPageTitle" as="span" /></h4>
                         <ul className="space-y-3">
                           {content.seo.offPage.slice(0, 4).map((item, i) => <li key={i} className="flex items-start gap-2 text-sm" style={{
                       color: textMutedColor
@@ -3603,12 +3641,12 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                         <h3 className="text-2xl font-display font-bold mb-2" style={{
                     color: textColor
                   }}>
-                          Projected Results for {proposal.client_name}
+                          <EditableText value={`Projected Results for ${proposal.client_name}`} path="seo.projectedResultsTitle" as="span" />
                         </h3>
                         <p className="text-sm" style={{
                     color: textMutedColor
                   }}>
-                          Expected growth over 12 months with our SEO strategy
+                          <EditableText value="Expected growth over 12 months with our SEO strategy" path="seo.projectedResultsDesc" as="span" />
                         </p>
                       </div>
                       <div className="grid grid-cols-3 gap-6">
@@ -3656,16 +3694,16 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
             <AnimatedSection>
               <div className="text-center mb-16">
                 <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{ color: secondaryColor }}>
-                  Real-Time Intelligence
+                  <EditableText value="Real-Time Intelligence" path="liveDashboard.eyebrow" as="span" />
                 </p>
                 <div className="flex items-center justify-center gap-3 flex-wrap mb-6">
                   <h2 className="text-3xl md:text-5xl font-display font-bold" style={{ color: textColor }}>
-                    Live Performance Dashboard
+                    <EditableText value="Live Performance Dashboard" path="liveDashboard.headline" as="span" />
                   </h2>
                   <CalloutBadge text="24/7 Access" variant="highlight" />
                 </div>
                 <p className="text-lg max-w-3xl mx-auto" style={{ color: textMutedColor }}>
-                  Your custom dashboard with real-time metrics across all channels. Track performance, ROI, and campaign health at a glance.
+                  <EditableText value="Your custom dashboard with real-time metrics across all channels. Track performance, ROI, and campaign health at a glance." path="liveDashboard.description" as="span" multiline />
                 </p>
               </div>
             </AnimatedSection>
@@ -3738,12 +3776,12 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                       <div className="flex items-center gap-3 flex-wrap">
                         <h2 className="text-3xl md:text-4xl font-display font-bold" style={{
                       color: textColor
-                    }}>Analytics & Measurement</h2>
+                    }}><EditableText value="Analytics & Measurement" path="analytics.title" as="span" /></h2>
                         <CalloutBadge text="Data-Driven" variant="important" />
                       </div>
                       <p style={{
                     color: textMutedColor
-                  }}>Data-Driven Decision Making</p>
+                  }}><EditableText value="Data-Driven Decision Making" path="analytics.subtitle" as="span" /></p>
                     </div>
                   </div>
                   
@@ -3763,7 +3801,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                 <p className="text-lg mb-6 max-w-4xl" style={{
               color: textMutedColor
             }}>
-                  {content.analytics.strategy}
+                  <EditableText value={content.analytics.strategy || ''} path="analytics.strategy" as="span" multiline />
                 </p>
                 <div className="flex items-center gap-3 mb-12 p-4 rounded-xl" style={{
                   backgroundColor: `color-mix(in srgb, ${primaryColor} 10%, transparent)`,
@@ -3775,7 +3813,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                     <Monitor className="w-5 h-5" style={{ color: primaryColor }} />
                   </div>
                   <p className="font-medium" style={{ color: textColor }}>
-                    You'll receive a live dashboard to monitor all ads and results 24/7.
+                    <EditableText value="You'll receive a live dashboard to monitor all ads and results 24/7." path="analytics.dashboardNote" as="span" />
                   </p>
                 </div>
               </AnimatedSection>
@@ -3835,20 +3873,20 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{
                 color: secondaryColor
               }}>
-                    Community & Engagement
+                    <EditableText value="Community & Engagement" path="socialMedia.eyebrow" as="span" />
                   </p>
                   <div className="flex items-center justify-center gap-3 flex-wrap mb-6">
                     <h2 className="text-3xl md:text-5xl font-display font-bold" style={{
                   color: textColor
                 }}>
-                      Social Media Strategy
+                      <EditableText value="Social Media Strategy" path="socialMedia.headline" as="span" />
                     </h2>
                     <CalloutBadge text="Multi-Platform" variant="important" />
                   </div>
                   <p className="text-lg max-w-3xl mx-auto mb-6" style={{
                 color: textMutedColor
               }}>
-                    {content.socialMedia.strategy}
+                    <EditableText value={content.socialMedia.strategy || ''} path="socialMedia.strategy" as="span" multiline />
                   </p>
                   
                   {/* Platform Logos - Fixed 6 platforms */}
@@ -3942,10 +3980,10 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                       </div>
                       <h4 className="text-2xl font-bold mb-4" style={{
                   color: textColor
-                }}>Community Management</h4>
+                }}><EditableText value="Community Management" path="socialMedia.communityManagementTitle" as="span" /></h4>
                       <p className="max-w-2xl mx-auto text-lg leading-relaxed" style={{
                   color: textMutedColor
-                }}>{content.socialMedia.communityManagement}</p>
+                }}><EditableText value={content.socialMedia.communityManagement || ''} path="socialMedia.communityManagement" as="span" multiline /></p>
                       
                       {/* Stats row */}
                       <div className="grid grid-cols-3 gap-6 mt-8 pt-8" style={{
@@ -4031,22 +4069,22 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
           />
         )}
 
-        {/* Reputation Management Section - Advanced Gold+ (tier >= 4) */}
+        {/* Reputation Management Section - Premium Silver+ (tier >= 2) */}
         {showReputationManagement && <section id="reputation" className="py-24 relative overflow-hidden" style={{ backgroundColor }}>
           <div className="container max-w-6xl mx-auto px-4 relative z-10">
             <AnimatedSection>
               <div className="text-center mb-16">
                 <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{ color: secondaryColor }}>
-                  Brand Protection & Growth
+                  <EditableText value="Brand Protection & Growth" path="reputation.eyebrow" as="span" />
                 </p>
                 <div className="flex items-center justify-center gap-3 flex-wrap mb-6">
                   <h2 className="text-3xl md:text-5xl font-display font-bold" style={{ color: textColor }}>
-                    Reputation Management
+                    <EditableText value="Reputation Management" path="reputation.headline" as="span" />
                   </h2>
                   <CalloutBadge text="5-Star Strategy" variant="important" />
                 </div>
                 <p className="text-lg max-w-3xl mx-auto" style={{ color: textMutedColor }}>
-                  Monitor, manage, and grow your online reputation across Google, Yelp, Facebook, and industry-specific platforms.
+                  <EditableText value="Monitor, manage, and grow your online reputation across Google, Yelp, Facebook, and industry-specific platforms." path="reputation.description" as="span" multiline />
                 </p>
               </div>
             </AnimatedSection>
@@ -4085,7 +4123,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
         workflowAutomation: content.automationWorkflows
       }} crmContent={content.crmManagement || {}} textMarketingContent={content.textMarketing || {}} clientName={proposal?.client_name || 'Your Business'} primaryColor={primaryColor} secondaryColor={secondaryColor} textColor={textColor} textMutedColor={textMutedColor} cardBackground={cardBackground} borderColor={borderColor} showWorkflowAutomation={packageServices?.automatedSystems?.included || false} showAutomatedSystems={packageServices?.automatedSystems?.included || false} showCrm={packageServices?.automatedCRM?.included || false} showTextMarketing={packageServices?.textingCampaigns?.included || false} />}
 
-        {/* Influencer & UGC Section - Premium Silver+ (tier >= 5) */}
+        {/* Influencer & UGC Section - Premium Silver+ (tier >= 2) */}
         {(showInfluencer || showUgc) && <section id="influencer" className="py-24 relative overflow-hidden" style={{
           background: `linear-gradient(180deg, ${backgroundColor}, color-mix(in srgb, ${secondaryColor} 3%, ${backgroundColor}))`
         }}>
@@ -4104,16 +4142,16 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
             <AnimatedSection>
               <div className="text-center mb-16">
                 <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{ color: secondaryColor }}>
-                  Creator Partnerships
+                  <EditableText value="Creator Partnerships" path="influencer.eyebrow" as="span" />
                 </p>
                 <div className="flex items-center justify-center gap-3 flex-wrap mb-6">
                   <h2 className="text-3xl md:text-5xl font-display font-bold" style={{ color: textColor }}>
-                    Influencer & UGC Program
+                    <EditableText value="Influencer & UGC Program" path="influencer.headline" as="span" />
                   </h2>
                   <CalloutBadge text="Authentic Reach" variant="highlight" />
                 </div>
                 <p className="text-lg max-w-3xl mx-auto" style={{ color: textMutedColor }}>
-                  Strategic partnerships with micro and macro influencers combined with authentic user-generated content to expand your reach and build brand advocacy.
+                  <EditableText value="Strategic partnerships with micro and macro influencers combined with authentic user-generated content to expand your reach and build brand advocacy." path="influencer.description" as="span" multiline />
                 </p>
               </div>
             </AnimatedSection>
@@ -4152,12 +4190,12 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   <div className="text-center mb-12">
                     <div className="flex items-center justify-center gap-3 flex-wrap mb-4">
                       <h3 className="text-2xl md:text-3xl font-display font-bold" style={{ color: textColor }}>
-                        User-Generated Content
+                        <EditableText value="User-Generated Content" path="ugc.title" as="span" />
                       </h3>
                       <CalloutBadge text="Creator-Led" variant="important" />
                     </div>
                     <p className="text-lg max-w-3xl mx-auto mb-6" style={{ color: textMutedColor }}>
-                      {content.ugc.strategy}
+                      <EditableText value={content.ugc.strategy || ''} path="ugc.strategy" as="span" multiline />
                     </p>
                     
                     {/* Platform Logos */}
@@ -4214,7 +4252,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                         <p className="text-4xl font-display font-bold mb-2" style={{ color: textColor }}>
                           <AnimatedCounter value={content.ugc.annualOutput} />
                         </p>
-                        <p className="text-lg font-medium" style={{ color: textMutedColor }}>Content Pieces Annually</p>
+                        <p className="text-lg font-medium" style={{ color: textMutedColor }}><EditableText value="Content Pieces Annually" path="ugc.annualOutputLabel" as="span" /></p>
                       </div>
                     )}
                     
@@ -4223,7 +4261,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                         background: cardBackground,
                         border: `1px solid ${borderColor}`
                       }}>
-                        <h4 className="font-bold text-xl mb-4" style={{ color: textColor }}>Content Pillars</h4>
+                        <h4 className="font-bold text-xl mb-4" style={{ color: textColor }}><EditableText value="Content Pillars" path="ugc.contentPillarsTitle" as="span" /></h4>
                         <div className="flex flex-wrap gap-2">
                           {content.ugc.contentPillars.map((pillar, i) => (
                             <span key={i} className="px-4 py-2 rounded-lg text-sm font-medium" style={{
@@ -4244,22 +4282,22 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
           </div>
         </section>}
 
-        {/* Television Ads Section - Premium Silver+ (tier >= 5) */}
+        {/* Television Ads Section - Premium Gold+ (tier >= 3) */}
         {showTvAds && <section id="tv-ads" className="py-24 relative overflow-hidden" style={{ backgroundColor }}>
           <div className="container max-w-6xl mx-auto px-4 relative z-10">
             <AnimatedSection>
               <div className="text-center mb-16">
                 <p className="font-medium uppercase tracking-widest text-sm mb-4" style={{ color: secondaryColor }}>
-                  Traditional Media Dominance
+                  <EditableText value="Traditional Media Dominance" path="tvAds.eyebrow" as="span" />
                 </p>
                 <div className="flex items-center justify-center gap-3 flex-wrap mb-6">
                   <h2 className="text-3xl md:text-5xl font-display font-bold" style={{ color: textColor }}>
-                    Television Advertising
+                    <EditableText value="Television Advertising" path="tvAds.headline" as="span" />
                   </h2>
                   <CalloutBadge text="Mass Reach" variant="important" />
                 </div>
                 <p className="text-lg max-w-3xl mx-auto" style={{ color: textMutedColor }}>
-                  Strategic TV placements for maximum brand awareness. We handle everything from creative production to media buying and performance tracking.
+                  <EditableText value="Strategic TV placements for maximum brand awareness. We handle everything from creative production to media buying and performance tracking." path="tvAds.description" as="span" multiline />
                 </p>
               </div>
             </AnimatedSection>
@@ -4268,7 +4306,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
               <div className="grid md:grid-cols-2 gap-8">
                 <div className="p-8 rounded-3xl" style={{ background: cardBackground, border: `1px solid ${borderColor}` }}>
                   <Monitor className="w-12 h-12 mb-4" style={{ color: primaryColor }} />
-                  <h3 className="text-xl font-bold mb-4" style={{ color: textColor }}>What's Included</h3>
+                  <h3 className="text-xl font-bold mb-4" style={{ color: textColor }}><EditableText value="What's Included" path="tvAds.includedTitle" as="span" /></h3>
                   <ul className="space-y-3">
                     {['Commercial Production', 'Media Planning & Buying', 'Audience Targeting', 'Performance Analytics', 'A/B Testing Creatives'].map((item, i) => (
                       <li key={i} className="flex items-center gap-3">
@@ -4279,7 +4317,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   </ul>
                 </div>
                 <div className="p-8 rounded-3xl" style={{ background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})` }}>
-                  <h3 className="text-xl font-bold mb-4 text-white">Expected Reach</h3>
+                  <h3 className="text-xl font-bold mb-4 text-white"><EditableText value="Expected Reach" path="tvAds.expectedReachTitle" as="span" /></h3>
                   <div className="grid grid-cols-2 gap-6">
                     {[
                       { value: '500K+', label: 'Households' },
@@ -4346,7 +4384,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                     <div>
                       <h2 className="text-3xl md:text-4xl font-display font-bold" style={{
                     color: textColor
-                  }}>Investment Overview</h2>
+                  }}><EditableText value="Investment Overview" path="budget.headline" as="span" /></h2>
                       <p style={{
                     color: textMutedColor
                   }}>
@@ -4368,11 +4406,13 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                         <div className="text-left">
                           <p className="text-sm font-medium mb-1" style={{
                         color: textMutedColor
-                      }}>Monthly Investment</p>
+                      }}><EditableText value={displayPackage?.pricingModel ? "Pricing Model" : "Monthly Investment"} path="budget.monthlyLabel" as="span" /></p>
                           <p className="text-4xl font-display font-bold" style={{
                         color: primaryColor
                       }}>
-                            <AnimatedCounter value={`$${monthlyInvestment.toLocaleString()}`} duration={2000} />
+                            {displayPackage?.pricingModel
+                              ? <span>{displayPackage.pricingModel}</span>
+                              : <AnimatedCounter value={`$${monthlyInvestment.toLocaleString()}`} duration={2000} />}
                           </p>
                         </div>
                         <div className="w-px h-16" style={{
@@ -4381,11 +4421,13 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                         <div className="text-left">
                           <p className="text-sm font-medium mb-1" style={{
                         color: textMutedColor
-                      }}>Annual Total</p>
+                      }}><EditableText value={displayPackage?.pricingModel ? "Minimum Ad Spend" : "Annual Total"} path="budget.annualLabel" as="span" /></p>
                           <p className="text-2xl font-display font-bold" style={{
                         color: secondaryColor
                       }}>
-                            <AnimatedCounter value={`$${annualInvestment.toLocaleString()}`} duration={2500} />
+                            {displayPackage?.pricingModel
+                              ? <span>$500,000/mo</span>
+                              : <AnimatedCounter value={`$${annualInvestment.toLocaleString()}`} duration={2500} />}
                           </p>
                         </div>
                       </div>
@@ -4472,7 +4514,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
               }}>
                       <h4 className="font-medium mb-4" style={{
                   color: textColor
-                }}>Services Included in This Package:</h4>
+                }}><EditableText value="Services Included in This Package:" path="budget.servicesTitle" as="span" /></h4>
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                         {packageServices.channels?.included && <div className="flex items-center gap-2 text-sm">
                             <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -4769,12 +4811,12 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
             color: textColor,
             textShadow: !isLightBackground ? `0 0 40px ${primaryColor}30` : 'none'
           }}>
-              {isWebsiteOnly ? content.cta?.headline || "Ready to Launch Your New Website?" : content.cta?.headline || "Ready to Transform Your Marketing?"}
+              <EditableText value={isWebsiteOnly ? content.cta?.headline || "Ready to Launch Your New Website?" : content.cta?.headline || "Ready to Transform Your Marketing?"} path="cta.headline" as="span" />
             </h2>
             <p className="text-xl mb-12 max-w-2xl mx-auto" style={{
             color: textMutedColor
           }}>
-              {isWebsiteOnly ? content.cta?.subheadline || "Let's create a stunning website that converts visitors into customers" : content.cta?.subheadline || "Let's build something extraordinary together"}
+              <EditableText value={isWebsiteOnly ? content.cta?.subheadline || "Let's create a stunning website that converts visitors into customers" : content.cta?.subheadline || "Let's build something extraordinary together"} path="cta.subheadline" as="span" multiline />
             </p>
 
             {/* Summary Stats - Neon Enhanced */}
@@ -4808,7 +4850,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
             {content.cta?.nextSteps && content.cta.nextSteps.length > 0 && <div className="mb-12">
                 <h3 className="text-xl font-semibold mb-6" style={{
               color: textColor
-            }}>Next Steps</h3>
+            }}><EditableText value="Next Steps" path="cta.nextStepsTitle" as="span" /></h3>
                 <div className="flex flex-wrap justify-center gap-4">
                   {content.cta.nextSteps.map((step, i) => <div key={i} className="flex items-center gap-2 px-5 py-3 rounded-full" style={{
                 background: glassBackground
@@ -4843,7 +4885,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
           }}>
               <p className="font-display font-semibold text-lg mb-4" style={{
               color: textColor
-            }}>Get in Touch with Melleka</p>
+            }}><EditableText value="Get in Touch with Melleka" path="cta.contactTitle" as="span" /></p>
               <div className="space-y-2">
                 <a href="mailto:Support@MellekaMarketing.com" className="hover:underline block text-lg" style={{
                 color: secondaryColor
@@ -4859,17 +4901,18 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
             </div>
 
             <div className="mt-12">
-              <a href={isWebsiteOnly ? "https://melleka.com/pricing/#website-pricing" : "https://melleka.com/pricing/"} target="_blank" rel="noopener noreferrer" className="inline-block px-12 py-5 rounded-xl text-xl font-bold hover:scale-105 transition-transform" style={{
+              <a href={content.cta?.buttonUrl || "https://melleka.com/pricing"} target="_blank" rel="noopener noreferrer" className="inline-block px-12 py-5 rounded-xl text-xl font-bold hover:scale-105 transition-transform" style={{
               background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
               color: isLightColor(primaryColor) ? '#1a1a2e' : '#ffffff',
               boxShadow: `0 8px 32px color-mix(in srgb, ${primaryColor} 40%, transparent)`
             }}>
-                Let's Get Started
+                <EditableText value="Let's Get Started" path="cta.buttonText" as="span" />
               </a>
             </div>
           </div>
         </section>
 
+        {/* Custom Sections (added via admin editor) */}
         {/* Custom Sections (added via admin editor) */}
         <CustomSectionsRenderer
           primaryColor={primaryColor}
@@ -4881,116 +4924,6 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
           borderColor={borderColor}
         />
 
-        {/* Footer */}
-        <footer className="relative overflow-hidden" style={{
-        background: `linear-gradient(180deg, ${backgroundColor} 0%, color-mix(in srgb, ${primaryColor} 8%, ${backgroundColor}) 100%)`,
-        borderTop: `1px solid ${borderColor}`
-      }}>
-          {/* Decorative Background Elements */}
-          <div className="absolute inset-0 opacity-30" style={{
-          background: `radial-gradient(ellipse 80% 50% at 50% 100%, color-mix(in srgb, ${primaryColor} 15%, transparent), transparent)`
-        }} />
-          
-          <div className="relative container max-w-6xl mx-auto px-4 py-16">
-            {/* Main Footer Content */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-12 mb-12">
-              {/* Brand Column */}
-              <div className="flex flex-col items-center md:items-start">
-                <a href="https://melleka.com" target="_blank" rel="noopener noreferrer" className="group flex items-center gap-3 mb-4 transition-transform hover:scale-105">
-                  <img src={isLightBackground ? mellekaLogoDark : mellekaLogo} alt="Melleka Marketing" className="h-14 object-contain" />
-                </a>
-                <p className="text-sm text-center md:text-left max-w-xs" style={{
-                color: textMutedColor
-              }}>
-                  Empowering businesses with data-driven marketing strategies that deliver measurable results.
-                </p>
-              </div>
-
-              {/* Contact Column */}
-              <div className="flex flex-col items-center">
-                <h4 className="font-display font-semibold text-sm uppercase tracking-wider mb-4" style={{
-                color: secondaryColor
-              }}>
-                  Get in Touch
-                </h4>
-                <div className="flex flex-col items-center gap-3">
-                  <a href="mailto:Support@MellekaMarketing.com" className="flex items-center gap-2 text-sm transition-colors hover:opacity-80" style={{
-                  color: textColor
-                }}>
-                    <Mail className="w-4 h-4" style={{
-                    color: primaryColor
-                  }} />
-                    Support@MellekaMarketing.com
-                  </a>
-                  <a href="tel:818-599-2696" className="flex items-center gap-2 text-sm transition-colors hover:opacity-80" style={{
-                  color: textColor
-                }}>
-                    <Phone className="w-4 h-4" style={{
-                    color: primaryColor
-                  }} />
-                    818.599.2696
-                  </a>
-                  <a href="https://melleka.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm transition-colors hover:opacity-80" style={{
-                  color: textColor
-                }}>
-                    <ExternalLink className="w-4 h-4" style={{
-                    color: primaryColor
-                  }} />
-                    melleka.com
-                  </a>
-                </div>
-              </div>
-
-              {/* CTA Column */}
-              <div className="flex flex-col items-center md:items-end">
-                <h4 className="font-display font-semibold text-sm uppercase tracking-wider mb-4" style={{
-                color: secondaryColor
-              }}>
-                  Ready to Start?
-                </h4>
-                <a href="https://melleka.com/pricing/" target="_blank" rel="noopener noreferrer" className="group relative px-6 py-3 rounded-xl font-semibold text-sm overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-lg" style={{
-                background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
-                color: 'white',
-                boxShadow: `0 4px 20px color-mix(in srgb, ${primaryColor} 40%, transparent)`
-              }}>
-                  <span className="relative z-10 flex items-center gap-2">
-                    View Pricing
-                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                  </span>
-                </a>
-                <p className="text-xs mt-3 text-center md:text-right" style={{
-                color: textMutedColor
-              }}>
-                  No commitment required
-                </p>
-              </div>
-            </div>
-
-            {/* Divider */}
-            <div className="w-full h-px mb-8" style={{
-            background: `linear-gradient(90deg, transparent, ${borderColor}, transparent)`
-          }} />
-
-            {/* Bottom Bar */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-              <p className="text-xs" style={{
-              color: textMutedColor
-            }}>
-                Proposal by Melleka Marketing • {new Date(proposal.created_at).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-              })}
-              </p>
-              <p className="text-xs" style={{
-              color: `color-mix(in srgb, ${textMutedColor} 70%, transparent)`
-            }}>
-                © {new Date().getFullYear()} Melleka Marketing. All rights reserved.
-              </p>
-            </div>
-          </div>
-        </footer>
-        
         {/* Debug Overlay - enable with ?debug=1 in URL */}
         <ScrollDebugOverlay
           activeSection={activeSection}

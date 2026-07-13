@@ -5,7 +5,6 @@ import { TOOL_CATALOG, CATEGORY_LABELS } from '@/data/toolCatalog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { LogOut, Lock, Loader2, Bot } from 'lucide-react';
-import { MFASettings } from '@/components/MFASettings';
 import GenieLamp from '@/components/icons/GenieLamp';
 import mellekaLogo from '@/assets/melleka-logo.png';
 
@@ -129,13 +128,6 @@ const UserDashboard = () => {
             </Link>
           </div>
 
-          {/* Security Settings */}
-          <div className="mt-12 pt-8 border-t">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">
-              Security
-            </h2>
-            <MFASettings />
-          </div>
         </div>
       </main>
     </div>

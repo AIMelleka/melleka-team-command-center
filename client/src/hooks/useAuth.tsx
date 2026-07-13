@@ -7,9 +7,6 @@ interface AuthContextType {
   session: Session | null;
   isAdmin: boolean;
   isLoading: boolean;
-  mfaEnrolled: boolean;
-  mfaVerified: boolean;
-  refreshMfaStatus: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 }
@@ -19,8 +16,6 @@ const AUTH_CACHE_KEY = 'melleka_auth_cache';
 
 interface CachedAuth {
   isAdmin: boolean;
-  mfaEnrolled: boolean;
-  mfaVerified: boolean;
   userId: string;
   ts: number;
 }
@@ -74,8 +69,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(canQuickStart ? syncSession!.session : null);
   const [isAdmin, setIsAdmin] = useState(cached?.isAdmin ?? false);
   const [isLoading, setIsLoading] = useState(!canQuickStart);
-  const [mfaEnrolled, setMfaEnrolled] = useState(cached?.mfaEnrolled ?? false);
-  const [mfaVerified, setMfaVerified] = useState(cached?.mfaVerified ?? false);
 
   // Track last confirmed admin status so we don't silently downgrade on transient failures
   const adminStatusRef = useRef(false);
@@ -118,31 +111,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return adminStatusRef.current;
   };
 
-  const checkMfaStatus = async (): Promise<{ enrolled: boolean; verified: boolean }> => {
-    try {
-      const { data: factors } = await supabase.auth.mfa.listFactors();
-      const enrolled = (factors?.totp?.length ?? 0) > 0;
-      let verified = false;
-
-      if (enrolled) {
-        const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-        verified = aal?.currentLevel === 'aal2';
-      }
-
-      setMfaEnrolled(enrolled);
-      setMfaVerified(verified);
-      return { enrolled, verified };
-    } catch {
-      setMfaEnrolled(false);
-      setMfaVerified(false);
-      return { enrolled: false, verified: false };
-    }
-  };
-
-  const refreshMfaStatus = useCallback(async () => {
-    await checkMfaStatus();
-  }, []);
-
   // Guard against duplicate concurrent checks (onAuthStateChange + getSession both fire on mount)
   const checkInFlightRef = useRef<Promise<boolean> | null>(null);
 
@@ -155,17 +123,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (checkInFlightRef.current) return checkInFlightRef.current;
 
     const promise = (async () => {
-      const [adminStatus, mfa] = await Promise.all([
-        checkAdminAccess(currentUser),
-        checkMfaStatus(),
-      ]);
+      const adminStatus = await checkAdminAccess(currentUser);
       if (isMounted()) {
         setIsAdmin(adminStatus);
         adminStatusRef.current = adminStatus;
         writeAuthCache({
           isAdmin: adminStatus,
-          mfaEnrolled: mfa.enrolled,
-          mfaVerified: mfa.verified,
           userId: currentUser.id,
         });
       }
@@ -222,8 +185,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             if (cached && cached.userId === session.user.id) {
               setIsAdmin(cached.isAdmin);
               adminStatusRef.current = cached.isAdmin;
-              setMfaEnrolled(cached.mfaEnrolled);
-              setMfaVerified(cached.mfaVerified);
               setIsLoading(false);
               initialAuthResolvedRef.current = true;
               // Verify in background
@@ -248,8 +209,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         } else {
           setIsAdmin(false);
           adminStatusRef.current = false;
-          setMfaEnrolled(false);
-          setMfaVerified(false);
           clearAuthCache();
           setIsLoading(false);
           initialAuthResolvedRef.current = true;
@@ -268,8 +227,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (cached && cached.userId === session.user.id) {
           setIsAdmin(cached.isAdmin);
           adminStatusRef.current = cached.isAdmin;
-          setMfaEnrolled(cached.mfaEnrolled);
-          setMfaVerified(cached.mfaVerified);
           setIsLoading(false);
           initialAuthResolvedRef.current = true;
           // Background verify
@@ -316,13 +273,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     clearAuthCache();
     await supabase.auth.signOut();
     setIsAdmin(false);
-    setMfaEnrolled(false);
-    setMfaVerified(false);
   }, []);
 
   const value = useMemo(() => ({
-    user, session, isAdmin, isLoading, mfaEnrolled, mfaVerified, refreshMfaStatus, signIn, signOut
-  }), [user, session, isAdmin, isLoading, mfaEnrolled, mfaVerified, refreshMfaStatus, signIn, signOut]);
+    user, session, isAdmin, isLoading, signIn, signOut
+  }), [user, session, isAdmin, isLoading, signIn, signOut]);
 
   return (
     <AuthContext.Provider value={value}>

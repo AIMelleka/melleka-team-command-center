@@ -294,18 +294,15 @@ export const AudienceStrategy = ({
                     <EditableList
                       items={primaryPersona.triggers}
                       basePath="audienceStrategy.primaryPersona.triggers"
-                      className="flex flex-wrap gap-2"
+                      className="space-y-3"
                       renderItem={(trigger, i) => (
-                        <span
-                          className="px-4 py-2 rounded-full text-xs font-medium transition-all hover:scale-105"
-                          style={{
-                            background: `linear-gradient(135deg, color-mix(in srgb, ${secondaryColor} 20%, transparent), color-mix(in srgb, ${secondaryColor} 10%, transparent))`,
-                            color: secondaryColor,
-                            border: `1px solid color-mix(in srgb, ${secondaryColor} 30%, transparent)`
-                          }}
+                        <div
+                          className="flex items-start gap-3 p-3 rounded-xl transition-all hover:scale-[1.02]"
+                          style={{ backgroundColor: `color-mix(in srgb, ${secondaryColor} 5%, transparent)` }}
                         >
-                          ⚡ {trigger}
-                        </span>
+                          <span className="w-2 h-2 rounded-full mt-2 flex-shrink-0" style={{ backgroundColor: secondaryColor }} />
+                          <span className="text-sm" style={{ color: textColor }}>{trigger}</span>
+                        </div>
                       )}
                     />
                   </div>
@@ -458,18 +455,15 @@ export const AudienceStrategy = ({
                     <EditableList
                       items={secondaryPersona.triggers}
                       basePath="audienceStrategy.secondaryPersona.triggers"
-                      className="flex flex-wrap gap-2"
+                      className="space-y-3"
                       renderItem={(trigger, i) => (
-                        <span
-                          className="px-4 py-2 rounded-full text-xs font-medium transition-all hover:scale-105"
-                          style={{
-                            background: `linear-gradient(135deg, color-mix(in srgb, ${secondaryColor} 20%, transparent), color-mix(in srgb, ${secondaryColor} 10%, transparent))`,
-                            color: secondaryColor,
-                            border: `1px solid color-mix(in srgb, ${secondaryColor} 30%, transparent)`
-                          }}
+                        <div
+                          className="flex items-start gap-3 p-3 rounded-xl transition-all hover:scale-[1.02]"
+                          style={{ backgroundColor: `color-mix(in srgb, ${secondaryColor} 5%, transparent)` }}
                         >
-                          ⚡ {trigger}
-                        </span>
+                          <span className="w-2 h-2 rounded-full mt-2 flex-shrink-0" style={{ backgroundColor: secondaryColor }} />
+                          <span className="text-sm" style={{ color: textColor }}>{trigger}</span>
+                        </div>
                       )}
                     />
                   </div>

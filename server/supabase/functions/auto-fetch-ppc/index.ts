@@ -188,6 +188,10 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
+    // Parse optional request body for backfill support
+    let reqBody: any = {};
+    try { reqBody = await req.json(); } catch {}
+
     console.log('[AUTO-FETCH-PPC] Starting daily PPC snapshot collection...');
 
     // 1. Get all active clients with account mappings
@@ -235,12 +239,20 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Use today's date range (last 1 day for daily snapshot)
-    const today = new Date();
-    const dateEnd = today.toISOString().split('T')[0];
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const dateStart = yesterday.toISOString().split('T')[0];
+    // 2. Date range: use request body overrides for backfill, otherwise yesterday→today
+    let dateStart: string;
+    let dateEnd: string;
+    if (reqBody.dateStart && reqBody.dateEnd) {
+      dateStart = reqBody.dateStart;
+      dateEnd = reqBody.dateEnd;
+      console.log(`[AUTO-FETCH-PPC] Backfill mode: ${dateStart} to ${dateEnd}`);
+    } else {
+      const today = new Date();
+      dateEnd = today.toISOString().split('T')[0];
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      dateStart = yesterday.toISOString().split('T')[0];
+    }
 
     console.log(`[AUTO-FETCH-PPC] Fetching for ${Object.keys(bulkClients).length} clients, ${dateStart} to ${dateEnd}`);
 
@@ -335,6 +347,8 @@ Deno.serve(async (req) => {
           if (existing) {
             existing.spend += metrics.spend || 0;
             existing.conversions += metrics.conv || 0;
+            existing.clicks += metrics.clicks || 0;
+            existing.impressions += metrics.impressions || 0;
             existing.calls += metricCalls;
             existing.leads += metricLeads;
             existing.purchases += metricPurchases;
@@ -350,15 +364,52 @@ Deno.serve(async (req) => {
               leads: metricLeads,
               purchases: metricPurchases,
               cost_per_conversion: metrics.conv > 0 ? (metrics.spend || 0) / metrics.conv : 0,
-              clicks: 0,
-              impressions: 0,
+              clicks: metrics.clicks || 0,
+              impressions: metrics.impressions || 0,
             });
           }
         }
       }
     }
 
-    console.log(`[AUTO-FETCH-PPC] Prepared ${rows.length} snapshot rows for ${snapshotDate} (source: ${usedDirectAPIs ? 'direct APIs' : 'Supermetrics'})`);
+    // 4b. Hybrid fallback: if Supermetrics succeeded but missed Meta clients, fetch Meta directly
+    if (!usedDirectAPIs) {
+      const metaRowClients = new Set(rows.filter(r => r.platform === 'meta').map(r => r.client_name));
+      const missingMetaClients: { clientName: string; metaIds: string[] }[] = [];
+      for (const [clientName, platforms] of Object.entries(bulkClients)) {
+        const metaIds = platforms.meta_ads || [];
+        if (metaIds.length > 0 && !metaRowClients.has(clientName)) {
+          missingMetaClients.push({ clientName, metaIds });
+        }
+      }
+
+      if (missingMetaClients.length > 0) {
+        console.log(`[AUTO-FETCH-PPC] Supermetrics missed Meta for ${missingMetaClients.length} clients — fetching via direct API`);
+        for (const { clientName, metaIds } of missingMetaClients) {
+          try {
+            const mData = await fetchMetaAdsDirect(supabase, metaIds, dateStart, dateEnd);
+            if (mData.spend > 0 || mData.clicks > 0 || mData.impressions > 0) {
+              rows.push({
+                client_name: clientName,
+                platform: 'meta',
+                snapshot_date: snapshotDate,
+                spend: mData.spend,
+                conversions: mData.conversions,
+                clicks: mData.clicks,
+                impressions: mData.impressions,
+                calls: 0, leads: 0, purchases: 0,
+                cost_per_conversion: mData.conversions > 0 ? mData.spend / mData.conversions : 0,
+              });
+            }
+          } catch (e: any) {
+            console.error(`[AUTO-FETCH-PPC] Meta direct fallback failed for ${clientName}: ${e.message}`);
+          }
+          await new Promise(r => setTimeout(r, 300));
+        }
+      }
+    }
+
+    console.log(`[AUTO-FETCH-PPC] Prepared ${rows.length} snapshot rows for ${snapshotDate} (source: ${usedDirectAPIs ? 'direct APIs' : 'Supermetrics + Meta fallback'})`);
 
     // 5. Upsert into ppc_daily_snapshots (ON CONFLICT update)
     if (rows.length > 0) {

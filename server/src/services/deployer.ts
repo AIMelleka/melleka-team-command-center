@@ -117,6 +117,7 @@ export async function addCustomDomain(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ name: domain }),
+      signal: AbortSignal.timeout(45_000),
     });
 
     const data = await resp.json();

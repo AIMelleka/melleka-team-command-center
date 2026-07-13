@@ -145,6 +145,7 @@ router.get("/callback", async (req, res) => {
         code_verifier: pkce.codeVerifier,
         redirect_uri: redirectUri,
       }),
+      signal: AbortSignal.timeout(45_000),
     });
 
     const tokenData = await tokenResp.json() as {

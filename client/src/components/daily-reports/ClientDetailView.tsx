@@ -1,11 +1,13 @@
-import { ArrowLeft, Lightbulb, Loader2, CheckCircle, XCircle, AlertTriangle, Zap } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowLeft, Lightbulb, Loader2, CheckCircle, XCircle, AlertTriangle, Zap, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { ClientDailyReport, ActionableRecommendation, DeepAnalysis, Recommendation, Platform } from '@/types/dailyReports';
-import { computeReportScore, aggregateKpis } from './scoring';
+import { computeReportScore, aggregateKpis, type ClientGoals } from './scoring';
 import { SectionHeader } from './shared';
 import { ScoreCardSection } from './detail-sections/ScoreCardSection';
 import { KpiSummarySection } from './detail-sections/KpiSummarySection';
+import { ClientGoalsPanel } from './detail-sections/ClientGoalsPanel';
 import { PlatformBreakdownSection } from './sections/PlatformBreakdownSection';
 import { ActionableRecommendationsSection } from './sections/ActionableRecommendationsSection';
 
@@ -14,6 +16,10 @@ type RecStatus = ActionableRecommendation['approvalStatus'];
 interface Props {
   report: ClientDailyReport;
   onBack: () => void;
+  // Goals & benchmarks
+  goals?: ClientGoals | null;
+  onGoalsChange?: (clientName: string, goals: ClientGoals) => Promise<void>;
+  industryBenchmarks?: { googleCpa?: number; metaCpa?: number } | null;
   // Range mode / deep analysis
   isRangeMode?: boolean;
   deepAnalysis?: DeepAnalysis | null;
@@ -25,6 +31,8 @@ interface Props {
   onExecute: (key: string) => Promise<{ ok: boolean; error?: string }>;
   // One-click make change
   onMakeChange?: (rec: Recommendation, clientName: string, platforms: Platform[], key: string) => Promise<{ ok: boolean; status: string; error?: string }>;
+  // Per-client report regeneration
+  onRegenerate?: (clientName: string) => Promise<void>;
 }
 
 const priorityOrder = ['high', 'medium', 'low'] as const;
@@ -38,6 +46,9 @@ const priorityStyles: Record<string, { label: string; textColor: string; borderC
 export function ClientDetailView({
   report,
   onBack,
+  goals,
+  onGoalsChange,
+  industryBenchmarks,
   isRangeMode,
   deepAnalysis,
   getStatus,
@@ -46,9 +57,21 @@ export function ClientDetailView({
   onReject,
   onExecute,
   onMakeChange,
+  onRegenerate,
 }: Props) {
-  const scoreData = computeReportScore(report);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const scoreData = computeReportScore(report, goals, industryBenchmarks);
   const kpis = aggregateKpis(report);
+
+  const handleRegenerate = async () => {
+    if (!onRegenerate || isRegenerating) return;
+    setIsRegenerating(true);
+    try {
+      await onRegenerate(report.clientName);
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
 
   // In range mode with deep analysis, delegate to ActionableRecommendationsSection
   const hasActionableRecs = isRangeMode && deepAnalysis?.actionableRecommendations?.length;
@@ -56,16 +79,43 @@ export function ClientDetailView({
   return (
     <div className="space-y-6">
       {/* Back button + client header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={onBack} className="shrink-0">
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div>
-          <h2 className="text-lg font-bold text-foreground">{report.clientName}</h2>
-          {report.industry && (
-            <p className="text-xs text-muted-foreground">{report.industry}</p>
+      <div className="space-y-0">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={onBack} className="shrink-0">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div>
+              <h2 className="text-lg font-bold text-foreground">{report.clientName}</h2>
+              {report.industry && (
+                <p className="text-xs text-muted-foreground">{report.industry}</p>
+              )}
+            </div>
+          </div>
+          {onRegenerate && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs shrink-0"
+              disabled={isRegenerating}
+              onClick={handleRegenerate}
+            >
+              {isRegenerating ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              {isRegenerating ? 'Regenerating...' : 'Regenerate'}
+            </Button>
           )}
         </div>
+
+        {/* Client Goals — directly under the name */}
+        <ClientGoalsPanel
+          goals={goals ?? null}
+          kpis={kpis}
+          onSave={async (g) => onGoalsChange?.(report.clientName, g)}
+        />
       </div>
 
       {/* Section 1: Score Card */}

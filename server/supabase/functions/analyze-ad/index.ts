@@ -18,7 +18,7 @@ serve(async (req) => {
   }
 
   // Require admin authentication
-  const authResult = await requireToolAuth(req, 'ad-generator');
+  const authResult = await requireToolAuth(req, 'creative-studio');
   if (!authResult.authorized) {
     return createUnauthorizedResponse(
       authResult.error || "Unauthorized",

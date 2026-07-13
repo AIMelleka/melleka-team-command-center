@@ -67,7 +67,7 @@ LLMs have statistical biases toward specific UI cliché patterns. Proactively co
 To actively combat generic AI designs, systematically implement these high-end coding concepts as your baseline:
 * **"Liquid Glass" Refraction:** When glassmorphism is needed, go beyond `backdrop-blur`. Add a 1px inner border (`border-white/10`) and a subtle inner shadow (`shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]`) to simulate physical edge refraction.
 * **Magnetic Micro-physics (If MOTION_INTENSITY > 5):** Implement buttons that pull slightly toward the mouse cursor. **CRITICAL:** NEVER use React `useState` for magnetic hover or continuous animations. Use EXCLUSIVELY Framer Motion's `useMotionValue` and `useTransform` outside the React render cycle to prevent performance collapse on mobile.
-* **Perpetual Micro-Interactions:** When `MOTION_INTENSITY > 5`, embed continuous, infinite micro-animations (Pulse, Typewriter, Float, Shimmer, Carousel) in standard components (avatars, status dots, backgrounds). Apply premium Spring Physics (`type: "spring", stiffness: 100, damping: 20`) to all interactive elements—no linear easing.
+* **Perpetual Micro-Interactions:** When `MOTION_INTENSITY > 5`, embed continuous, infinite micro-animations (Pulse, Typewriter, Float, Shimmer, Carousel) in standard components (avatars, status dots, backgrounds). Apply premium Spring Physics (`type: "spring", stiffness: 100, damping: 20`) to all interactive elements -no linear easing.
 * **Layout Transitions:** Always utilize Framer Motion's `layout` and `layoutId` props for smooth re-ordering, resizing, and shared element transitions across state changes.
 * **Staggered Orchestration:** Do not mount lists or grids instantly. Use `staggerChildren` (Framer) or CSS cascade (`animation-delay: calc(var(--index) * 100ms)`) to create sequential waterfall reveals. **CRITICAL:** For `staggerChildren`, the Parent (`variants`) and Children MUST reside in the identical Client Component tree. If data is fetched asynchronously, pass the data as props into a centralized Parent Motion wrapper.
 
@@ -124,70 +124,6 @@ To guarantee a premium, non-generic output, you MUST strictly avoid these common
 * **NO Broken Unsplash Links:** Do not use Unsplash. Use absolute, reliable placeholders like `https://picsum.photos/seed/{random_string}/800/600` or SVG UI Avatars.
 * **shadcn/ui Customization:** You may use `shadcn/ui`, but NEVER in its generic default state. You MUST customize the radii, colors, and shadows to match the high-end project aesthetic.
 * **Production-Ready Cleanliness:** Code must be extremely clean, visually striking, memorable, and meticulously refined in every detail.
-
-## 8. THE CREATIVE ARSENAL (High-End Inspiration)
-Do not default to generic UI. Pull from this library of advanced concepts to ensure the output is visually striking and memorable. When appropriate, leverage **GSAP (ScrollTrigger/Parallax)** for complex scrolltelling or **ThreeJS/WebGL** for 3D/Canvas animations, rather than basic CSS motion. **CRITICAL:** Never mix GSAP/ThreeJS with Framer Motion in the same component tree. Default to Framer Motion for UI/Bento interactions. Use GSAP/ThreeJS EXCLUSIVELY for isolated full-page scrolltelling or canvas backgrounds, wrapped in strict useEffect cleanup blocks.
-
-### The Standard Hero Paradigm
-* Stop doing centered text over a dark image. Try asymmetric Hero sections: Text cleanly aligned to the left or right. The background should feature a high-quality, relevant image with a subtle stylistic fade (darkening or lightening gracefully into the background color depending on if it is Light or Dark mode).
-
-### Navigation & Menüs
-* **Mac OS Dock Magnification:** Nav-bar at the edge; icons scale fluidly on hover.
-* **Magnetic Button:** Buttons that physically pull toward the cursor.
-* **Gooey Menu:** Sub-items detach from the main button like a viscous liquid.
-* **Dynamic Island:** A pill-shaped UI component that morphs to show status/alerts.
-* **Contextual Radial Menu:** A circular menu expanding exactly at the click coordinates.
-* **Floating Speed Dial:** A FAB that springs out into a curved line of secondary actions.
-* **Mega Menu Reveal:** Full-screen dropdowns that stagger-fade complex content.
-
-### Layout & Grids
-* **Bento Grid:** Asymmetric, tile-based grouping (e.g., Apple Control Center).
-* **Masonry Layout:** Staggered grid without fixed row heights (e.g., Pinterest).
-* **Chroma Grid:** Grid borders or tiles showing subtle, continuously animating color gradients.
-* **Split Screen Scroll:** Two screen halves sliding in opposite directions on scroll.
-* **Curtain Reveal:** A Hero section parting in the middle like a curtain on scroll.
-
-### Cards & Containers
-* **Parallax Tilt Card:** A 3D-tilting card tracking the mouse coordinates.
-* **Spotlight Border Card:** Card borders that illuminate dynamically under the cursor.
-* **Glassmorphism Panel:** True frosted glass with inner refraction borders.
-* **Holographic Foil Card:** Iridescent, rainbow light reflections shifting on hover.
-* **Tinder Swipe Stack:** A physical stack of cards the user can swipe away.
-* **Morphing Modal:** A button that seamlessly expands into its own full-screen dialog container.
-
-### Scroll-Animations
-* **Sticky Scroll Stack:** Cards that stick to the top and physically stack over each other.
-* **Horizontal Scroll Hijack:** Vertical scroll translates into a smooth horizontal gallery pan.
-* **Locomotive Scroll Sequence:** Video/3D sequences where framerate is tied directly to the scrollbar.
-* **Zoom Parallax:** A central background image zooming in/out seamlessly as you scroll.
-* **Scroll Progress Path:** SVG vector lines or routes that draw themselves as the user scrolls.
-* **Liquid Swipe Transition:** Page transitions that wipe the screen like a viscous liquid.
-
-### Galleries & Media
-* **Dome Gallery:** A 3D gallery feeling like a panoramic dome.
-* **Coverflow Carousel:** 3D carousel with the center focused and edges angled back.
-* **Drag-to-Pan Grid:** A boundless grid you can freely drag in any compass direction.
-* **Accordion Image Slider:** Narrow vertical/horizontal image strips that expand fully on hover.
-* **Hover Image Trail:** The mouse leaves a trail of popping/fading images behind it.
-* **Glitch Effect Image:** Brief RGB-channel shifting digital distortion on hover.
-
-### Typography & Text
-* **Kinetic Marquee:** Endless text bands that reverse direction or speed up on scroll.
-* **Text Mask Reveal:** Massive typography acting as a transparent window to a video background.
-* **Text Scramble Effect:** Matrix-style character decoding on load or hover.
-* **Circular Text Path:** Text curved along a spinning circular path.
-* **Gradient Stroke Animation:** Outlined text with a gradient continuously running along the stroke.
-* **Kinetic Typography Grid:** A grid of letters dodging or rotating away from the cursor.
-
-### Micro-Interactions & Effects
-* **Particle Explosion Button:** CTAs that shatter into particles upon success.
-* **Liquid Pull-to-Refresh:** Mobile reload indicators acting like detaching water droplets.
-* **Skeleton Shimmer:** Shifting light reflections moving across placeholder boxes.
-* **Directional Hover Aware Button:** Hover fill entering from the exact side the mouse entered.
-* **Ripple Click Effect:** Visual waves rippling precisely from the click coordinates.
-* **Animated SVG Line Drawing:** Vectors that draw their own contours in real-time.
-* **Mesh Gradient Background:** Organic, lava-lamp-like animated color blobs.
-* **Lens Blur Depth:** Dynamic focus blurring background UI layers to highlight a foreground action.
 
 ## 9. THE "MOTION-ENGINE" BENTO PARADIGM
 When generating modern SaaS dashboards or feature sections, you MUST utilize the following "Bento 2.0" architecture and motion philosophy. This goes beyond static cards and enforces a "Vercel-core meets Dribbble-clean" aesthetic heavily reliant on perpetual physics.
@@ -260,31 +196,31 @@ Color is a scarce resource, utilized only for semantic meaning or subtle accents
 - Primary Surface (Cards): `#FFFFFF` or `#F9F9F8`.
 - Structural Borders / Dividers: Ultra-light gray `#EAEAEA` or `rgba(0,0,0,0.06)`.
 - Accent Colors: Exclusively use highly desaturated, washed-out pastels for tags, inline code backgrounds, or subtle icon backgrounds.
-  - Pale Red: `#FDEBEC` (Text: `#9F2F2D`)
-  - Pale Blue: `#E1F3FE` (Text: `#1F6C9F`)
-  - Pale Green: `#EDF3EC` (Text: `#346538`)
-  - Pale Yellow: `#FBF3DB` (Text: `#956400`)
+ - Pale Red: `#FDEBEC` (Text: `#9F2F2D`)
+ - Pale Blue: `#E1F3FE` (Text: `#1F6C9F`)
+ - Pale Green: `#EDF3EC` (Text: `#346538`)
+ - Pale Yellow: `#FBF3DB` (Text: `#956400`)
 
 ## 5. Component Specifications
 - Bento Box Feature Grids:
-  - Utilize asymmetrical CSS Grid layouts.
-  - Cards must have exactly `border: 1px solid #EAEAEA`.
-  - Border-radius must be crisp: `8px` or `12px` maximum.
-  - Internal padding must be generous (e.g., `24px` to `40px`).
+ - Utilize asymmetrical CSS Grid layouts.
+ - Cards must have exactly `border: 1px solid #EAEAEA`.
+ - Border-radius must be crisp: `8px` or `12px` maximum.
+ - Internal padding must be generous (e.g., `24px` to `40px`).
 - Primary Call-To-Action (Buttons):
-  - Solid background `#111111`, text `#FFFFFF`. 
-  - Slight border-radius (`4px` to `6px`). No box-shadow. 
-  - Hover state should be a subtle color shift to `#333333` or a micro-scale `transform: scale(0.98)`.
+ - Solid background `#111111`, text `#FFFFFF`. 
+ - Slight border-radius (`4px` to `6px`). No box-shadow. 
+ - Hover state should be a subtle color shift to `#333333` or a micro-scale `transform: scale(0.98)`.
 - Tags & Status Badges:
-  - Pill-shaped (`border-radius: 9999px`), very small typography (`text-xs`), uppercase with wide tracking (`letter-spacing: 0.05em`).
-  - Background must use the defined Muted Pastels.
+ - Pill-shaped (`border-radius: 9999px`), very small typography (`text-xs`), uppercase with wide tracking (`letter-spacing: 0.05em`).
+ - Background must use the defined Muted Pastels.
 - Accordions (FAQ):
-  - Strip all container boxes. Separate items only with a `border-bottom: 1px solid #EAEAEA`.
-  - Use a clean, sharp `+` and `-` icon for the toggle state.
+ - Strip all container boxes. Separate items only with a `border-bottom: 1px solid #EAEAEA`.
+ - Use a clean, sharp `+` and `-` icon for the toggle state.
 - Keystroke Micro-UIs:
-  - Render shortcuts as physical keys using `<kbd>` tags: `border: 1px solid #EAEAEA`, `border-radius: 4px`, `background: #F7F6F3`, using the Monospace font.
+ - Render shortcuts as physical keys using `<kbd>` tags: `border: 1px solid #EAEAEA`, `border-radius: 4px`, `background: #F7F6F3`, using the Monospace font.
 - Faux-OS Window Chrome:
-  - When mocking up software, wrap it in a minimalist container with a white top bar containing three small, light gray circles (replicating macOS window controls).
+ - When mocking up software, wrap it in a minimalist container with a white top bar containing three small, light gray circles (replicating macOS window controls).
 
 ## 6. Iconography & Imagery Directives
 - System Icons: Use "Phosphor Icons (Bold or Fill weights)" or "Radix UI Icons" for a technical, slightly thicker-stroke aesthetic. Standardize stroke width across all icons.
@@ -293,7 +229,7 @@ Color is a scarce resource, utilized only for semantic meaning or subtle accents
 - Hero & Section Backgrounds: Sections should not feel empty and flat. Use subtle full-width background imagery at very low opacity, soft radial light spots (`radial-gradient` with warm tones at `opacity: 0.03`), or minimal geometric line patterns to add depth without breaking the clean aesthetic.
 
 ## 7. Subtle Motion & Micro-Animations
-Motion should feel invisible — present but never distracting. The goal is quiet sophistication, not spectacle.
+Motion should feel invisible - present but never distracting. The goal is quiet sophistication, not spectacle.
 - Scroll Entry: Elements fade in gently as they enter the viewport. Use `translateY(12px)` + `opacity: 0` resolving over `600ms` with `cubic-bezier(0.16, 1, 0.3, 1)`. Use `IntersectionObserver`, never `window.addEventListener('scroll')`.
 - Hover States: Cards lift with an ultra-subtle shadow shift (`box-shadow` transitioning from `0 0 0` to `0 2px 8px rgba(0,0,0,0.04)` over `200ms`). Buttons respond with `scale(0.98)` on `:active`.
 - Staggered Reveals: Lists and grid items enter with a cascade delay (`animation-delay: calc(var(--index) * 80ms)`). Never mount everything at once.
@@ -307,7 +243,7 @@ When tasked with writing frontend code (HTML, React, Tailwind, Vue) or designing
 3. Apply the custom typographic hierarchy and monochromatic color variables immediately.
 4. Ensure every card, divider, and border adheres strictly to the `1px solid #EAEAEA` rule.
 5. Add scroll-entry animations to all major content blocks.
-6. Ensure sections have visual depth through imagery, ambient gradients, or subtle textures — no empty flat backgrounds.
+6. Ensure sections have visual depth through imagery, ambient gradients, or subtle textures - no empty flat backgrounds.
 7. Provide code that reflects this high-end, uncluttered, editorial aesthetic natively without requiring manual adjustments.
 ---
 name: full-output-enforcement
@@ -318,7 +254,7 @@ description: Overrides default LLM truncation behavior. Enforces complete code g
 
 ## Baseline
 
-Treat every task as production-critical. A partial output is a broken output. Do not optimize for brevity — optimize for completeness. If the user asks for a full file, deliver the full file. If the user asks for 5 components, deliver 5 components. No exceptions.
+Treat every task as production-critical. A partial output is a broken output. Do not optimize for brevity - optimize for completeness. If the user asks for a full file, deliver the full file. If the user asks for 5 components, deliver 5 components. No exceptions.
 
 ## Banned Output Patterns
 
@@ -332,9 +268,9 @@ The following patterns are hard failures. Never produce them:
 
 ## Execution Process
 
-1. **Scope** — Read the full request. Count how many distinct deliverables are expected (files, functions, sections, answers). Lock that number.
-2. **Build** — Generate every deliverable completely. No partial drafts, no "you can extend this later."
-3. **Cross-check** — Before output, re-read the original request. Compare your deliverable count against the scope count. If anything is missing, add it before responding.
+1. **Scope** - Read the full request. Count how many distinct deliverables are expected (files, functions, sections, answers). Lock that number.
+2. **Build** - Generate every deliverable completely. No partial drafts, no "you can extend this later."
+3. **Cross-check** - Before output, re-read the original request. Compare your deliverable count against the scope count. If anything is missing, add it before responding.
 
 ## Handling Long Outputs
 
@@ -346,7 +282,7 @@ When a response approaches the token limit:
 - End with:
 
 ```
-[PAUSED — X of Y complete. Send "continue" to resume from: next section name]
+[PAUSED - X of Y complete. Send "continue" to resume from: next section name]
 ```
 
 On "continue", pick up exactly where you stopped. No recap, no repetition.
@@ -369,9 +305,9 @@ description: Upgrades existing websites and apps to premium quality. Audits curr
 
 When applied to an existing project, follow this sequence:
 
-1. **Scan** — Read the codebase. Identify the framework, styling method (Tailwind, vanilla CSS, styled-components, etc.), and current design patterns.
-2. **Diagnose** — Run through the audit below. List every generic pattern, weak point, and missing state you find.
-3. **Fix** — Apply targeted upgrades working with the existing stack. Do not rewrite from scratch. Improve what's there.
+1. **Scan** - Read the codebase. Identify the framework, styling method (Tailwind, vanilla CSS, styled-components, etc.), and current design patterns.
+2. **Diagnose** - Run through the audit below. List every generic pattern, weak point, and missing state you find.
+3. **Fix** - Apply targeted upgrades working with the existing stack. Do not rewrite from scratch. Improve what's there.
 
 ## Design Audit
 
@@ -399,8 +335,8 @@ Check for these problems and fix them:
 - **Flat design with zero texture.** Add subtle noise, grain, or micro-patterns to backgrounds. Pure flat vectors feel sterile.
 - **Perfectly even gradients.** Break the uniformity with radial gradients, noise overlays, or mesh gradients instead of standard linear 45-degree fades.
 - **Inconsistent lighting direction.** Audit all shadows to ensure they suggest a single, consistent light source.
-- **Random dark sections in a light mode page (or vice versa).** A single dark-background section breaking an otherwise light page looks like a copy-paste accident. Either commit to a full dark mode or keep a consistent background tone throughout. If contrast is needed, use a slightly darker shade of the same palette — not a sudden jump to `#111` in the middle of a cream page.
-- **Empty, flat sections with no visual depth.** Sections that are just text on a plain background feel unfinished. Add high-quality background imagery (blurred, overlaid, or masked), subtle patterns, or ambient gradients. Use reliable placeholder sources like `https://picsum.photos/seed/{name}/1920/1080` when real assets are not available. Experiment with background images behind hero sections, feature blocks, or CTAs — even a subtle full-width photo at low opacity adds presence.
+- **Random dark sections in a light mode page (or vice versa).** A single dark-background section breaking an otherwise light page looks like a copy-paste accident. Either commit to a full dark mode or keep a consistent background tone throughout. If contrast is needed, use a slightly darker shade of the same palette - not a sudden jump to `#111` in the middle of a cream page.
+- **Empty, flat sections with no visual depth.** Sections that are just text on a plain background feel unfinished. Add high-quality background imagery (blurred, overlaid, or masked), subtle patterns, or ambient gradients. Use reliable placeholder sources like `https://picsum.photos/seed/{name}/1920/1080` when real assets are not available. Experiment with background images behind hero sections, feature blocks, or CTAs - even a subtle full-width photo at low opacity adds presence.
 
 ### Layout
 
@@ -412,7 +348,7 @@ Check for these problems and fix them:
 - **Cards of equal height forced by flexbox.** Allow variable heights or use masonry when content varies in length.
 - **Uniform border-radius on everything.** Vary the radius: tighter on inner elements, softer on containers.
 - **No overlap or depth.** Elements sit flat next to each other. Use negative margins to create layering and visual depth.
-- **Symmetrical vertical padding.** Top and bottom padding are always identical. Adjust optically — bottom padding often needs to be slightly larger.
+- **Symmetrical vertical padding.** Top and bottom padding are always identical. Adjust optically - bottom padding often needs to be slightly larger.
 - **Dashboard always has a left sidebar.** Try top navigation, a floating command menu, or a collapsible panel instead.
 - **Missing whitespace.** Double the spacing. Let the design breathe. Dense layouts work for data dashboards, not for marketing pages.
 - **Buttons not bottom-aligned in card groups.** When cards have different content lengths, CTAs end up at random heights. Pin buttons to the bottom of each card so they form a clean horizontal line regardless of content above.
@@ -499,7 +435,7 @@ When upgrading a project, pull from these high-impact techniques to replace gene
 - **Text mask reveals.** Large typography acting as a window to video or animated imagery behind it.
 
 ### Layout Upgrades
-- **Broken grid / asymmetry.** Elements that deliberately ignore column structure — overlapping, bleeding off-screen, or offset with calculated randomness.
+- **Broken grid / asymmetry.** Elements that deliberately ignore column structure - overlapping, bleeding off-screen, or offset with calculated randomness.
 - **Whitespace maximization.** Aggressive use of negative space to force focus on a single element.
 - **Parallax card stacks.** Sections that stick and physically stack over each other during scroll.
 - **Split-screen scroll.** Two halves of the screen sliding in opposite directions.
@@ -520,13 +456,13 @@ When upgrading a project, pull from these high-impact techniques to replace gene
 
 Apply changes in this order for maximum visual impact with minimum risk:
 
-1. **Font swap** — biggest instant improvement, lowest risk
-2. **Color palette cleanup** — remove clashing or oversaturated colors
-3. **Hover and active states** — makes the interface feel alive
-4. **Layout and spacing** — proper grid, max-width, consistent padding
-5. **Replace generic components** — swap cliche patterns for modern alternatives
-6. **Add loading, empty, and error states** — makes it feel finished
-7. **Polish typography scale and spacing** — the premium final touch
+1. **Font swap** - biggest instant improvement, lowest risk
+2. **Color palette cleanup** - remove clashing or oversaturated colors
+3. **Hover and active states** - makes the interface feel alive
+4. **Layout and spacing** - proper grid, max-width, consistent padding
+5. **Replace generic components** - swap cliche patterns for modern alternatives
+6. **Add loading, empty, and error states** - makes it feel finished
+7. **Polish typography scale and spacing** - the premium final touch
 
 ## Rules
 
@@ -566,13 +502,13 @@ Before writing code, silently "roll the dice" and select ONE combination from th
 
 ### B. Layout Archetypes (Pick 1)
 1. **The Asymmetrical Bento:** A masonry-like CSS Grid of varying card sizes (e.g., `col-span-8 row-span-2` next to stacked `col-span-4` cards) to break visual monotony.
-   - **Mobile Collapse:** Falls back to a single-column stack (`grid-cols-1`) with generous vertical gaps (`gap-6`). All `col-span` overrides reset to `col-span-1`.
+  - **Mobile Collapse:** Falls back to a single-column stack (`grid-cols-1`) with generous vertical gaps (`gap-6`). All `col-span` overrides reset to `col-span-1`.
 2. **The Z-Axis Cascade:** Elements are stacked like physical cards, slightly overlapping each other with varying depths of field, some with a subtle `-2deg` or `3deg` rotation to break the digital grid.
-   - **Mobile Collapse:** Remove all rotations and negative-margin overlaps below `768px`. Stack vertically with standard spacing. Overlapping elements cause touch-target conflicts on mobile.
+  - **Mobile Collapse:** Remove all rotations and negative-margin overlaps below `768px`. Stack vertically with standard spacing. Overlapping elements cause touch-target conflicts on mobile.
 3. **The Editorial Split:** Massive typography on the left half (`w-1/2`), with interactive, scrollable horizontal image pills or staggered interactive cards on the right.
-   - **Mobile Collapse:** Converts to a full-width vertical stack (`w-full`). Typography block sits on top, interactive content flows below with horizontal scroll preserved if needed.
+  - **Mobile Collapse:** Converts to a full-width vertical stack (`w-full`). Typography block sits on top, interactive content flows below with horizontal scroll preserved if needed.
 
-**Mobile Override (Universal):** Any asymmetric layout above `md:` MUST aggressively fall back to `w-full`, `px-4`, `py-8` on viewports below `768px`. Never use `h-screen` for full-height sections — always use `min-h-[100dvh]` to prevent iOS Safari viewport jumping.
+**Mobile Override (Universal):** Any asymmetric layout above `md:` MUST aggressively fall back to `w-full`, `px-4`, `py-8` on viewports below `768px`. Never use `h-screen` for full-height sections - always use `min-h-[100dvh]` to prevent iOS Safari viewport jumping.
 
 ## 4. HAPTIC MICRO-AESTHETICS (COMPONENT MASTERY)
 
@@ -605,11 +541,11 @@ Never use default transitions. All motion must simulate real-world mass and spri
 
 ### C. Scroll Interpolation (Entry Animations)
 - Elements never appear statically on load. As they enter the viewport, they must execute a gentle, heavy fade-up (`translate-y-16 blur-md opacity-0` resolving to `translate-y-0 blur-0 opacity-100` over 800ms+).
-- For JavaScript-driven scroll reveals, use `IntersectionObserver` or Framer Motion's `whileInView`. Never use `window.addEventListener('scroll')` — it causes continuous reflows and kills mobile performance.
+- For JavaScript-driven scroll reveals, use `IntersectionObserver` or Framer Motion's `whileInView`. Never use `window.addEventListener('scroll')` - it causes continuous reflows and kills mobile performance.
 
 ## 6. PERFORMANCE GUARDRAILS
 - **GPU-Safe Animation:** Never animate `top`, `left`, `width`, or `height`. Animate exclusively via `transform` and `opacity`. Use `will-change: transform` sparingly and only on elements that are actively animating.
-- **Blur Constraints:** Apply `backdrop-blur` only to fixed or sticky elements (navbars, overlays). Never apply blur filters to scrolling containers or large content areas — this causes continuous GPU repaints and severe mobile frame drops.
+- **Blur Constraints:** Apply `backdrop-blur` only to fixed or sticky elements (navbars, overlays). Never apply blur filters to scrolling containers or large content areas - this causes continuous GPU repaints and severe mobile frame drops.
 - **Grain/Noise Overlays:** Apply noise textures exclusively to fixed, `pointer-events-none` pseudo-elements (`position: fixed; inset: 0; z-index: 50`). Never attach them to scrolling containers.
 - **Z-Index Discipline:** Do not use arbitrary `z-50` or `z-[9999]`. Reserve z-indexes strictly for systemic layers: sticky nav, modals, overlays, tooltips.
 
@@ -627,10 +563,10 @@ Evaluate your code against this matrix before delivering. This is the last filte
 - [ ] A Vibe Archetype and Layout Archetype from Section 3 were consciously selected and applied
 - [ ] All major cards and containers use the Double-Bezel nested architecture (outer shell + inner core)
 - [ ] CTA buttons use the Button-in-Button trailing icon pattern where applicable
-- [ ] Section padding is at minimum `py-24` — the layout breathes heavily
-- [ ] All transitions use custom cubic-bezier curves — no `linear` or `ease-in-out`
-- [ ] Scroll entry animations are present — no element appears statically
+- [ ] Section padding is at minimum `py-24` - the layout breathes heavily
+- [ ] All transitions use custom cubic-bezier curves - no `linear` or `ease-in-out`
+- [ ] Scroll entry animations are present - no element appears statically
 - [ ] Layout collapses gracefully below `768px` to single-column with `w-full` and `px-4`
-- [ ] All animations use only `transform` and `opacity` — no layout-triggering properties
+- [ ] All animations use only `transform` and `opacity` - no layout-triggering properties
 - [ ] `backdrop-blur` is only applied to fixed/sticky elements, never to scrolling content
 - [ ] The overall impression reads as "$150k agency build", not "template with nice fonts"

@@ -1,4 +1,4 @@
-import { PenTool, Megaphone, Search, FileText, Mail, Video, Image, Globe, BarChart3, Activity, Layers, Target, ClipboardList, Users, Palette, Bot, Share2, Crown, Timer, Settings, BookOpen, type LucideIcon } from 'lucide-react';
+import { PenTool, Megaphone, Search, FileText, Mail, Video, Image, Globe, BarChart3, Activity, Layers, Target, ClipboardList, Users, Palette, Bot, Share2, Crown, Timer, Settings, BookOpen, CalendarCheck, type LucideIcon } from 'lucide-react';
 
 export interface ToolDefinition {
   key: string;
@@ -21,6 +21,7 @@ export const TOOL_CATALOG: ToolDefinition[] = [
   { key: 'saved-articles', label: 'Saved Articles', description: 'View and manage saved SEO articles', icon: BookOpen, route: '/saved-articles', category: 'content' },
   { key: 'websites', label: 'Websites', description: 'Manage client websites', icon: Globe, route: '/websites', category: 'content' },
   { key: 'website-builder', label: 'Website Builder', description: 'Build and edit websites', icon: Globe, route: '/website-builder', category: 'content' },
+  { key: 'commercial-maker', label: 'Commercial Maker', description: 'Create AI-powered video commercials', icon: Video, route: '/commercial-maker', category: 'content' },
 
   // Marketing
   { key: 'ad-review', label: 'Ad Review', description: 'Review and analyze ad performance', icon: Search, route: '/ad-review', category: 'marketing' },
@@ -32,11 +33,13 @@ export const TOOL_CATALOG: ToolDefinition[] = [
   // Analytics
   // Command Center removed — focusing on Daily Reports
   { key: 'client-update', label: 'Client Update', description: 'Generate client update reports', icon: BarChart3, route: '/client-update', category: 'analytics' },
+  { key: 'weekly-updates', label: 'Weekly Updates', description: 'Automated weekly client update reports with Slack and email delivery', icon: CalendarCheck, route: '/weekly-updates', category: 'analytics' },
   { key: 'client-dashboard', label: 'Client Dashboard', description: 'Overview of client performance', icon: Target, route: '/client-dashboard', category: 'analytics' },
   { key: 'ppc-optimizer', label: 'PPC Optimizer', description: 'Optimize pay-per-click campaigns', icon: Target, route: '/ppc-optimizer', category: 'analytics' },
   { key: 'daily-reports', label: 'Daily Reports', description: 'Daily ad performance reports for all clients', icon: BarChart3, route: '/daily-reports', category: 'analytics' },
 
   // Management
+  { key: 'proposals', label: 'Proposals', description: 'View and manage saved proposals', icon: FileText, route: '/proposals', category: 'management' },
   { key: 'proposal-builder', label: 'Proposal Builder', description: 'Build and manage proposals', icon: FileText, route: '/proposal-builder', category: 'management' },
   { key: 'decks', label: 'Decks', description: 'Performance report decks', icon: Layers, route: '/decks', category: 'management' },
   { key: 'deck-builder', label: 'Deck Builder', description: 'Build performance decks', icon: Layers, route: '/deck-builder', category: 'management' },

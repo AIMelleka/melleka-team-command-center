@@ -15,10 +15,6 @@ export interface AuthRequest extends Request {
   anthropicApiKey?: string;
 }
 
-// Cache MFA enrollment status per user to avoid 2 extra Supabase calls per request
-const mfaCache = new Map<string, { hasTotp: boolean; expiresAt: number }>();
-const MFA_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
 // Cache per-user API keys (refresh every 5 min so key changes propagate)
 const apiKeyCache = new Map<string, { key: string | null; expiresAt: number }>();
 const API_KEY_CACHE_TTL = 5 * 60 * 1000;

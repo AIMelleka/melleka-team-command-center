@@ -51,6 +51,11 @@ const SavedArticles = lazy(() => import("./pages/SavedArticles"));
 const OnboardingBot = lazy(() => import("./pages/OnboardingBot"));
 const VideoGenerator = lazy(() => import("./pages/VideoGenerator"));
 const CommercialMaker = lazy(() => import("./pages/CommercialMaker"));
+const Employees = lazy(() => import("./pages/Employees"));
+const EmployeeDetail = lazy(() => import("./pages/EmployeeDetail"));
+const EvaluationForm = lazy(() => import("./pages/EvaluationForm"));
+const WeeklyClientUpdates = lazy(() => import("./pages/WeeklyClientUpdates"));
+const AutoClientUpdates = lazy(() => import("./pages/AutoClientUpdates"));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
@@ -109,6 +114,10 @@ const KEEP_ALIVE_ROUTES: { path: string; element: React.ReactNode; requireAdmin?
   { path: "/website-builder", element: <WebsiteBuilder />, requireAdmin: true },
   { path: "/saved-articles", element: <SavedArticles />, requireAdmin: true },
   { path: "/commercial-maker", element: <CommercialMaker />, requireAdmin: true },
+  { path: "/employees", element: <Employees />, requireAdmin: true },
+  { path: "/evaluate", element: <EvaluationForm />, requireAdmin: true },
+  { path: "/weekly-updates", element: <WeeklyClientUpdates />, requireAdmin: true },
+  { path: "/auto-client-updates", element: <AutoClientUpdates />, requireAdmin: true },
   { path: "/user", element: <UserDashboard />, requireAdmin: false },
   { path: "/login", element: <Login />, requireAdmin: false },
 ];
@@ -188,6 +197,9 @@ function KeepAliveRouter() {
       {!matchedKA && !redirectTo && (
         <Suspense fallback={<PageLoader />}>
           <Routes>
+            <Route path="/employees/:id" element={
+              <ProtectedRoute requireAdmin><SafePage><EmployeeDetail /></SafePage></ProtectedRoute>
+            } />
             <Route path="/website-builder/:slug" element={
               <ProtectedRoute requireAdmin><SafePage><WebsiteBuilder /></SafePage></ProtectedRoute>
             } />

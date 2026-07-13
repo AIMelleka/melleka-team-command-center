@@ -20,6 +20,7 @@ async function refreshGoogleToken(): Promise<string> {
       client_secret: clientSecret,
       grant_type: "refresh_token",
     }),
+    signal: AbortSignal.timeout(45_000),
   });
   const data = (await resp.json()) as { access_token?: string; error?: string; error_description?: string };
   if (!data.access_token) {
@@ -44,7 +45,7 @@ router.get("/accounts", requireAuth, async (_req: AuthRequest, res: Response) =>
     // Step 1: list accessible customer IDs
     const listResp = await fetch(
       `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers:listAccessibleCustomers`,
-      { headers },
+      { headers, signal: AbortSignal.timeout(45_000) },
     );
     const listData = (await listResp.json()) as { resourceNames?: string[]; error?: unknown };
     if (!listResp.ok) {
@@ -68,6 +69,7 @@ router.get("/accounts", requireAuth, async (_req: AuthRequest, res: Response) =>
         body: JSON.stringify({
           query: `SELECT customer_client.id, customer_client.descriptive_name, customer_client.level FROM customer_client WHERE customer_client.level <= 1`,
         }),
+        signal: AbortSignal.timeout(45_000),
       },
     );
     const nameData = (await nameResp.json()) as {

@@ -126,6 +126,7 @@ export function isAmbiguousWord(word: string): boolean {
     "global", "national", "international", "american", "usa",
     "services", "solutions", "partners", "group", "consulting",
     "management", "associates", "industries", "enterprises",
+    "traffic", "digital", "media", "marketing", "agency", "creative",
     "the", "and", "for", "inc", "llc", "co", "company"
   ]);
   return ambiguousWords.has(word.toLowerCase());
@@ -135,7 +136,8 @@ export function isCommonWord(word: string): boolean {
   const commonWords = new Set([
     "the", "and", "for", "inc", "llc", "co", "company", "group", "services",
     "global", "usa", "america", "american", "national", "international",
-    "solutions", "consulting", "management", "partners", "associates"
+    "solutions", "consulting", "management", "partners", "associates",
+    "traffic", "digital", "media", "marketing", "agency", "creative"
   ]);
   return commonWords.has(word.toLowerCase());
 }

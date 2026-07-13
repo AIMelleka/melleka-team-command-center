@@ -27,7 +27,7 @@ router.post("/", requireAuth, async (req, res) => {
     const ttsModel = model || "eleven_flash_v2_5"; // fastest for conversation
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
+    const timeout = setTimeout(() => controller.abort(), 60_000);
 
     try {
       const upstream = await fetch(

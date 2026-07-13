@@ -8,7 +8,7 @@ const router = Router();
 router.get("/", requireAuth, async (req: AuthRequest, res) => {
   const { data } = await supabase
     .from("team_conversations")
-    .select("id, title, created_at, updated_at, is_cron, has_unread")
+    .select("id, title, created_at, updated_at, is_cron, has_unread, project_id, folder_id")
     .eq("member_name", req.memberName!.toLowerCase())
     .order("updated_at", { ascending: false })
     .limit(200);
@@ -47,11 +47,12 @@ router.get("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
   res.json(messages ?? []);
 });
 
-// Rename a conversation
+// Update a conversation (rename, move to folder)
 router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
-  const { title } = req.body;
-  if (!title || typeof title !== "string") {
-    res.status(400).json({ error: "Title is required." });
+  const { title, folder_id } = req.body;
+
+  if (!title && folder_id === undefined) {
+    res.status(400).json({ error: "Title or folder_id is required." });
     return;
   }
 
@@ -66,9 +67,13 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
+  const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+  if (typeof title === "string") updates.title = title.trim();
+  if (folder_id !== undefined) updates.folder_id = folder_id; // null to unfile
+
   await supabase
     .from("team_conversations")
-    .update({ title: title.trim(), updated_at: new Date().toISOString() })
+    .update(updates)
     .eq("id", req.params.id);
 
   res.json({ ok: true });

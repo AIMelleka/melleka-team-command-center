@@ -29,13 +29,15 @@ interface Props {
 const PLATFORMS = [
   { key: 'google_ads', smKey: 'AW', label: 'Google Ads', color: 'bg-blue-500/15 text-blue-400 border-blue-500/20', manual: false },
   { key: 'meta_ads', smKey: 'FA', label: 'Meta Ads', color: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20', manual: false },
+  { key: 'reddit_ads', smKey: '', label: 'Reddit Ads', color: 'bg-orange-600/15 text-orange-500 border-orange-600/20', manual: false },
   { key: 'tiktok_ads', smKey: 'TT', label: 'TikTok Ads', color: 'bg-pink-500/15 text-pink-400 border-pink-500/20', manual: false },
   { key: 'bing_ads', smKey: 'BI', label: 'Microsoft Ads', color: 'bg-teal-500/15 text-teal-400 border-teal-500/20', manual: false },
   { key: 'linkedin_ads', smKey: 'LI', label: 'LinkedIn Ads', color: 'bg-sky-500/15 text-sky-400 border-sky-500/20', manual: false },
   { key: 'facebook_page', smKey: '', label: 'Facebook Page', color: 'bg-blue-600/15 text-blue-500 border-blue-600/20', manual: false, source: 'meta' as const },
   { key: 'instagram_account', smKey: '', label: 'Instagram Account', color: 'bg-pink-600/15 text-pink-500 border-pink-600/20', manual: false, source: 'meta' as const },
-  { key: 'ayrshare_profile', smKey: '', label: 'Ayrshare Profile', color: 'bg-purple-500/15 text-purple-400 border-purple-500/20', manual: true },
   { key: 'ghl', smKey: '', label: 'GoHighLevel', color: 'bg-orange-500/15 text-orange-400 border-orange-500/20', manual: false, source: 'ghl' as const },
+  { key: 'ga4', smKey: '', label: 'Google Analytics 4', color: 'bg-green-500/15 text-green-400 border-green-500/20', manual: false },
+  { key: 'klaviyo', smKey: '', label: 'Klaviyo', color: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20', manual: false },
 ];
 
 export default function AccountMappingModal({ clientName, smAccounts, onClose, onSaved }: Props) {
@@ -68,9 +70,26 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
   const [metaAdsAccounts, setMetaAdsAccounts] = useState<SupermetricsAccount[]>([]);
   const [metaAdsLoading, setMetaAdsLoading] = useState(false);
 
+  // Reddit Ads accounts (from direct API)
+  const [redditAdsAccounts, setRedditAdsAccounts] = useState<SupermetricsAccount[]>([]);
+  const [redditAdsLoading, setRedditAdsLoading] = useState(false);
+
   // GHL locations (from agency-level API)
   const [ghlLocations, setGhlLocations] = useState<{ id: string; name: string }[]>([]);
   const [ghlLoading, setGhlLoading] = useState(false);
+
+  // GA4 properties (Supermetrics GAWA)
+  const [ga4Properties, setGa4Properties] = useState<SupermetricsAccount[]>([]);
+  const [ga4Loading, setGa4Loading] = useState(false);
+
+  // Klaviyo accounts (Supermetrics KLAV)
+  const [klaviyoAccounts, setKlaviyoAccounts] = useState<SupermetricsAccount[]>([]);
+  const [klaviyoLoading, setKlaviyoLoading] = useState(false);
+
+  // HubSpot CRM credential (stored server-side, never returned to client)
+  const [hubspotToken, setHubspotToken] = useState('');
+  const [hubspotSaving, setHubspotSaving] = useState(false);
+  const [hubspotTesting, setHubspotTesting] = useState(false);
 
   // Load existing mappings
   useEffect(() => {
@@ -160,6 +179,27 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     })();
   }, []);
 
+  // Fetch Reddit Ads accounts (via /me/businesses → ad_accounts)
+  useEffect(() => {
+    (async () => {
+      setRedditAdsLoading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) {
+          const resp = await fetch(`${API_URL}/reddit-ads/accounts`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (resp.ok) {
+            const json = await resp.json();
+            if (json?.accounts?.length) setRedditAdsAccounts(json.accounts);
+          }
+        }
+      } catch { /* Reddit Ads API unavailable */ }
+      setRedditAdsLoading(false);
+    })();
+  }, []);
+
   // Fetch GHL locations from edge function
   useEffect(() => {
     (async () => {
@@ -195,6 +235,48 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     })();
   }, []);
 
+  // Fetch GA4 properties via analytics endpoint (Supermetrics GAWA)
+  useEffect(() => {
+    (async () => {
+      setGa4Loading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) {
+          const resp = await fetch(`${API_URL}/analytics/ga4-properties`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (resp.ok) {
+            const json = await resp.json();
+            if (json?.accounts?.length) setGa4Properties(json.accounts);
+          }
+        }
+      } catch { /* GA4 properties unavailable */ }
+      setGa4Loading(false);
+    })();
+  }, []);
+
+  // Fetch Klaviyo accounts via analytics endpoint (Supermetrics KLAV)
+  useEffect(() => {
+    (async () => {
+      setKlaviyoLoading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) {
+          const resp = await fetch(`${API_URL}/analytics/klaviyo-accounts`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (resp.ok) {
+            const json = await resp.json();
+            if (json?.accounts?.length) setKlaviyoAccounts(json.accounts);
+          }
+        }
+      } catch { /* Klaviyo accounts unavailable */ }
+      setKlaviyoLoading(false);
+    })();
+  }, []);
+
   // Get available accounts for Meta or GHL platforms
   const getSourceAccountsForPlatform = (platformKey: string): SupermetricsAccount[] => {
     if (platformKey === 'facebook_page') {
@@ -215,6 +297,12 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
   const getAccountsForPlatform = (platformKey: string): SupermetricsAccount[] => {
     // Google Ads: always use direct API
     if (platformKey === 'google_ads') return googleAdsAccounts;
+    // Reddit Ads: always use direct API
+    if (platformKey === 'reddit_ads') return redditAdsAccounts;
+    // GA4: Supermetrics GAWA via analytics endpoint
+    if (platformKey === 'ga4') return ga4Properties;
+    // Klaviyo: Supermetrics KLAV via analytics endpoint
+    if (platformKey === 'klaviyo') return klaviyoAccounts;
     // Meta Ads: direct API first, Supermetrics as fallback
     if (platformKey === 'meta_ads') {
       if (metaAdsAccounts.length > 0) return metaAdsAccounts;
@@ -331,6 +419,68 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
     setIsSaving(false);
   };
 
+  // Save HubSpot Private App token to server (stored server-side only, read-only)
+  const saveHubSpotToken = async () => {
+    if (!hubspotToken.trim()) return;
+    setHubspotSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token;
+      if (!authToken) { toast({ title: 'Not authenticated', variant: 'destructive' }); return; }
+
+      const resp = await fetch(`${API_URL}/crm/save-credential`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ client_name: clientName, platform: 'hubspot', token: hubspotToken.trim() }),
+      });
+      const json = await resp.json();
+
+      if (!resp.ok) {
+        toast({ title: 'Failed to connect HubSpot', description: json.error || 'Unknown error', variant: 'destructive' });
+      } else {
+        toast({ title: 'HubSpot CRM connected', description: json.message });
+        setHubspotToken('');
+        hasChanged.current = true;
+        // Optimistically add the mapping to local state so UI shows "Connected"
+        setMappings(prev => [
+          ...prev.filter(m => m.platform !== 'hubspot'),
+          { id: `hubspot-${Date.now()}`, client_name: clientName, platform: 'hubspot', account_id: 'hubspot_crm', account_name: 'HubSpot CRM' },
+        ]);
+      }
+    } catch (err: any) {
+      toast({ title: 'Failed to connect HubSpot', description: err.message, variant: 'destructive' });
+    } finally {
+      setHubspotSaving(false);
+    }
+  };
+
+  // Test the stored HubSpot connection — shows the raw API response for debugging
+  const testHubSpotConnection = async () => {
+    setHubspotTesting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token;
+      if (!authToken) return;
+      const resp = await fetch(`${API_URL}/crm/test-connection?client_name=${encodeURIComponent(clientName)}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const json = await resp.json();
+      if (json.ok) {
+        toast({ title: 'HubSpot connection OK', description: `HTTP ${json.status} — credential type: ${json.credentialType}` });
+      } else {
+        toast({
+          title: 'HubSpot connection failed',
+          description: `${json.error || ''} ${json.hubspotResponse?.message || JSON.stringify(json.hubspotResponse || '')}`.trim(),
+          variant: 'destructive',
+        });
+      }
+    } catch (err: any) {
+      toast({ title: 'Test failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setHubspotTesting(false);
+    }
+  };
+
   const handleClose = async () => {
     if (hasChanged.current) {
       const result = await syncAfterMappingChange(clientName);
@@ -346,7 +496,7 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
   };
 
   // Platforms with direct API sources (always show, never hide)
-  const DIRECT_API_PLATFORMS = new Set(['google_ads', 'meta_ads']);
+  const DIRECT_API_PLATFORMS = new Set(['google_ads', 'meta_ads', 'reddit_ads', 'ga4', 'klaviyo']);
 
   // Check if there are any accounts available (direct API, Supermetrics, Meta, GHL, or manual platforms)
   const hasAnyAccounts = PLATFORMS.some(p => p.manual || DIRECT_API_PLATFORMS.has(p.key) || (p as any).source === 'meta' || (p as any).source === 'ghl' || getAccountsForPlatform(p.key).length > 0);
@@ -467,7 +617,7 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
                         <div className="flex gap-2">
                           <input
                             type="text"
-                            placeholder={platform.key === 'facebook_page' ? 'Facebook Page ID' : platform.key === 'instagram_account' ? 'Instagram Account ID' : 'Ayrshare Profile Key'}
+                            placeholder={platform.key === 'facebook_page' ? 'Facebook Page ID' : platform.key === 'instagram_account' ? 'Instagram Account ID' : platform.key === 'reddit_ads' ? 'Reddit Ad Account ID (e.g. t2_xxxxx)' : 'Ayrshare Profile Key'}
                             value={manualInputs[platform.key]?.id || ''}
                             onChange={(e) => setManualInputs(prev => ({ ...prev, [platform.key]: { ...prev[platform.key], id: e.target.value, name: prev[platform.key]?.name || '' } }))}
                             className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
@@ -492,14 +642,14 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
                         <p className="text-[10px] text-muted-foreground">
                           {platform.key === 'facebook_page' && 'Find your Page ID in Meta Business Suite under Page Settings.'}
                           {platform.key === 'instagram_account' && 'Find your IG Business Account ID in Meta Business Suite.'}
-                          {platform.key === 'ayrshare_profile' && 'Enter the Ayrshare profile key for this client (found in Ayrshare dashboard).'}
+
                         </p>
                       </div>
                     ) : !isMulti ? (
                       /* Single account mode — one dropdown that replaces */
                       <div>
                         {/* Show loading spinner for platforms with direct API */}
-                        {accounts.length === 0 && ((platform.key === 'google_ads' && googleAdsLoading) || (platform.key === 'meta_ads' && metaAdsLoading)) ? (
+                        {accounts.length === 0 && ((platform.key === 'google_ads' && googleAdsLoading) || (platform.key === 'meta_ads' && metaAdsLoading) || (platform.key === 'reddit_ads' && redditAdsLoading) || (platform.key === 'ga4' && ga4Loading) || (platform.key === 'klaviyo' && klaviyoLoading)) ? (
                           <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-input bg-background text-sm text-muted-foreground">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             Loading {platform.label} accounts...
@@ -507,15 +657,23 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
                         ) : accounts.length === 0 && DIRECT_API_PLATFORMS.has(platform.key) ? (
                           <p className="text-xs text-muted-foreground italic py-2">
                             {platform.key === 'google_ads' ? 'No Google Ads accounts found. Check your Google Ads API credentials.' :
+                             platform.key === 'reddit_ads' ? 'No Reddit Ads accounts found. Check your Reddit API credentials.' :
+                             platform.key === 'ga4' ? 'No GA4 properties found. Make sure Supermetrics has Google Analytics 4 connected.' :
+                             platform.key === 'klaviyo' ? 'No Klaviyo accounts found. Make sure Supermetrics has Klaviyo connected.' :
                              'No Meta ad accounts found. Check your Meta access token.'}
                           </p>
                         ) : (
                           <>
                             <select
                               value={currentMappings[0]?.account_id || ''}
-                              onChange={(e) => {
+                              onChange={async (e) => {
                                 const val = e.target.value;
-                                if (val) replaceMapping(platform.key, val);
+                                if (val) {
+                                  replaceMapping(platform.key, val);
+                                } else if (currentMappings[0]) {
+                                  // Unlink: user selected "None" / placeholder
+                                  await removeMapping(currentMappings[0]);
+                                }
                               }}
                               disabled={isSaving || accounts.length === 0}
                               className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer"
@@ -620,6 +778,12 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
                              platform.key === 'google_ads' ? 'No Google Ads accounts found. Check your Google Ads API credentials.' :
                              platform.key === 'meta_ads' && metaAdsLoading ? 'Loading Meta ad accounts...' :
                              platform.key === 'meta_ads' ? 'No Meta ad accounts found. Check your Meta access token.' :
+                             platform.key === 'reddit_ads' && redditAdsLoading ? 'Loading Reddit Ads accounts...' :
+                             platform.key === 'reddit_ads' ? 'No Reddit Ads accounts found. Check your Reddit API credentials.' :
+                             platform.key === 'ga4' && ga4Loading ? 'Loading GA4 properties...' :
+                             platform.key === 'ga4' ? 'No GA4 properties found. Make sure Supermetrics has Google Analytics 4 connected.' :
+                             platform.key === 'klaviyo' && klaviyoLoading ? 'Loading Klaviyo accounts...' :
+                             platform.key === 'klaviyo' ? 'No Klaviyo accounts found. Make sure Supermetrics has Klaviyo connected.' :
                              'No accounts available from Supermetrics for this platform.'}
                           </p>
                         )}
@@ -630,6 +794,64 @@ export default function AccountMappingModal({ clientName, smAccounts, onClose, o
               );
             })
           )}
+
+          {/* CRM Credentials — stored server-side only, read-only access */}
+          <div className="mt-2 pt-4 border-t border-border space-y-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">CRM Credentials</p>
+
+            {/* HubSpot */}
+            <div className="rounded-lg border border-border overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs bg-orange-400/15 text-orange-400 border-orange-400/20">
+                    HubSpot CRM
+                  </Badge>
+                  {mappings.some(m => m.platform === 'hubspot') ? (
+                    <span className="text-xs text-emerald-400 flex items-center gap-1">
+                      <Check className="h-3 w-3" /> Connected
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Not connected</span>
+                  )}
+                </div>
+              </div>
+              <div className="px-4 py-3 space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    placeholder="HubSpot API key or Private App token"
+                    value={hubspotToken}
+                    onChange={(e) => setHubspotToken(e.target.value)}
+                    className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!hubspotToken.trim() || hubspotSaving}
+                    onClick={saveHubSpotToken}
+                    className="h-9 px-3 gap-1.5"
+                  >
+                    {hubspotSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link className="h-3.5 w-3.5" />}
+                    {hubspotSaving ? 'Saving...' : 'Connect'}
+                  </Button>
+                  {mappings.some(m => m.platform === 'hubspot') && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={hubspotTesting}
+                      onClick={testHubSpotConnection}
+                      className="h-9 px-3 text-xs text-muted-foreground"
+                    >
+                      {hubspotTesting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Test'}
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Paste your HubSpot API key (UUID) or Private App token (pat-...). Stored server-side only, used for read-only CRM data in client reports.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Footer */}

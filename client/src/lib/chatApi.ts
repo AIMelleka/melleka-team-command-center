@@ -37,6 +37,41 @@ export interface Conversation {
   updated_at: string;
   is_cron?: boolean;
   has_unread?: boolean;
+  project_id?: string | null;
+  folder_id?: string | null;
+}
+
+export interface ChatFolder {
+  id: string;
+  name: string;
+  sort_order: number;
+  is_collapsed: boolean;
+  created_at: string;
+}
+
+export interface ChatProject {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  created_at: string;
+  updated_at: string;
+  resource_count: number;
+}
+
+export interface ChatProjectResource {
+  id: string;
+  type: "link" | "file" | "image" | "doc";
+  name: string;
+  url?: string;
+  mime_type?: string;
+  file_size?: number;
+  metadata?: Record<string, any>;
+  created_at: string;
+}
+
+export interface ChatProjectWithResources extends ChatProject {
+  resources: ChatProjectResource[];
 }
 
 export interface Message {
@@ -196,8 +231,146 @@ export async function ensureTeamMember(): Promise<{ name: string; userId: string
   return res.json();
 }
 
+// ── Chat Folders API ──
+
+export async function fetchChatFolders(): Promise<ChatFolder[]> {
+  const res = await fetch(`${API_BASE}/chat-folders`, { headers: await authHeaders() });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function createChatFolder(name: string): Promise<ChatFolder> {
+  const res = await fetch(`${API_BASE}/chat-folders`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error("Failed to create folder");
+  return res.json();
+}
+
+export async function updateChatFolder(id: string, updates: { name?: string; is_collapsed?: boolean }): Promise<void> {
+  const res = await fetch(`${API_BASE}/chat-folders/${id}`, {
+    method: "PATCH",
+    headers: await authHeaders(),
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error("Failed to update folder");
+}
+
+export async function deleteChatFolder(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/chat-folders/${id}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete folder");
+}
+
+export async function reorderChatFolders(folderIds: string[]): Promise<void> {
+  const res = await fetch(`${API_BASE}/chat-folders/reorder`, {
+    method: "PATCH",
+    headers: await authHeaders(),
+    body: JSON.stringify({ folderIds }),
+  });
+  if (!res.ok) throw new Error("Failed to reorder folders");
+}
+
+export async function moveConversationToFolder(convId: string, folderId: string | null): Promise<void> {
+  const res = await fetch(`${API_BASE}/conversations/${convId}`, {
+    method: "PATCH",
+    headers: await authHeaders(),
+    body: JSON.stringify({ folder_id: folderId }),
+  });
+  if (!res.ok) throw new Error("Failed to move conversation");
+}
+
+// ── Chat Projects API ──
+
+export async function fetchChatProjects(): Promise<ChatProject[]> {
+  const res = await fetch(`${API_BASE}/chat-projects`, { headers: await authHeaders() });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function createChatProject(name: string, description?: string): Promise<ChatProject> {
+  const res = await fetch(`${API_BASE}/chat-projects`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ name, description }),
+  });
+  if (!res.ok) throw new Error("Failed to create project");
+  return res.json();
+}
+
+export async function getChatProject(id: string): Promise<ChatProjectWithResources> {
+  const res = await fetch(`${API_BASE}/chat-projects/${id}`, { headers: await authHeaders() });
+  if (!res.ok) throw new Error("Failed to load project");
+  return res.json();
+}
+
+export async function updateChatProject(id: string, updates: { name?: string; description?: string }): Promise<void> {
+  const res = await fetch(`${API_BASE}/chat-projects/${id}`, {
+    method: "PATCH",
+    headers: await authHeaders(),
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error("Failed to update project");
+}
+
+export async function deleteChatProject(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/chat-projects/${id}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete project");
+}
+
+export async function addProjectResource(
+  projectId: string,
+  data: { type: "link"; name?: string; url: string } | { type: "file" | "image" | "doc"; name?: string; file: File }
+): Promise<ChatProjectResource> {
+  if (data.type === "link") {
+    const res = await fetch(`${API_BASE}/chat-projects/${projectId}/resources`, {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ type: "link", name: data.name, url: data.url }),
+    });
+    if (!res.ok) throw new Error("Failed to add link");
+    return res.json();
+  }
+
+  const formData = new FormData();
+  formData.append("type", data.type);
+  if (data.name) formData.append("name", data.name);
+  formData.append("file", data.file);
+
+  const res = await fetch(`${API_BASE}/chat-projects/${projectId}/resources`, {
+    method: "POST",
+    headers: await authHeadersNoContentType(),
+    body: formData,
+  });
+  if (!res.ok) throw new Error("Failed to upload file");
+  return res.json();
+}
+
+export async function deleteProjectResource(projectId: string, resourceId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/chat-projects/${projectId}/resources/${resourceId}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete resource");
+}
+
+export async function rescrapeProjectResource(projectId: string, resourceId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/chat-projects/${projectId}/resources/${resourceId}/rescrape`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to re-scrape");
+}
+
 export interface SSEEvent {
-  type: "text" | "tool_start" | "tool_result" | "done" | "error" | "html_content";
+  type: "start" | "text" | "tool_start" | "tool_result" | "done" | "error" | "html_content";
   delta?: string;
   name?: string;
   output?: string;
@@ -221,6 +394,7 @@ export function streamMessage(
   onDisconnect?: () => void,
   lowTokenMode?: boolean,
   model?: string,
+  chatProjectId?: string | null,
 ): () => void {
   const controller = new AbortController();
   let aborted = false;
@@ -241,13 +415,14 @@ export function streamMessage(
       }
       if (lowTokenMode) formData.append("lowTokenMode", "true");
       if (model) formData.append("model", model);
+      if (chatProjectId) formData.append("chatProjectId", chatProjectId);
       for (const file of files) {
         formData.append("files", file);
       }
       body = formData;
       fetchHeaders = await authHeadersNoContentType();
     } else {
-      body = JSON.stringify({ message, conversationId, mentionedClients, lowTokenMode, model });
+      body = JSON.stringify({ message, conversationId, mentionedClients, lowTokenMode, model, chatProjectId });
       fetchHeaders = await authHeaders();
     }
 
@@ -263,9 +438,24 @@ export function streamMessage(
 
       if (!res.ok || !res.body) {
         const text = await res.text().catch(() => "");
-        // Retry on 502/503/504 (proxy errors)
         const status = res.status;
-        if ([401, 502, 503, 504].includes(status) && retryCount < MAX_RETRIES && !aborted) {
+
+        // On 401, force a token refresh before retrying
+        if (status === 401 && retryCount < MAX_RETRIES && !aborted) {
+          const { error } = await supabase.auth.refreshSession();
+          if (error) {
+            // Session is truly dead — don't waste remaining retries
+            onEvent({ type: "error", message: "Session expired — please log in again" });
+            onDone();
+            return;
+          }
+          const delay = RETRY_DELAYS[retryCount] || 8000;
+          await new Promise((r) => setTimeout(r, delay));
+          return attemptStream(retryCount + 1);
+        }
+
+        // Retry on 502/503/504 (proxy errors)
+        if ([502, 503, 504].includes(status) && retryCount < MAX_RETRIES && !aborted) {
           const delay = RETRY_DELAYS[retryCount] || 8000;
           await new Promise((r) => setTimeout(r, delay));
           return attemptStream(retryCount + 1);
@@ -382,15 +572,29 @@ export async function checkJobStatus(conversationId: string): Promise<{
   startedAt?: number;
   eventCount?: number;
 }> {
-  try {
-    const res = await fetch(`${API_BASE}/chat/status/${conversationId}`, {
-      headers: await authHeaders(),
-    });
-    if (!res.ok) return { active: false };
-    return res.json();
-  } catch {
-    return { active: false };
+  const MAX_ATTEMPTS = 2;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(`${API_BASE}/chat/status/${conversationId}`, {
+        headers: await authHeaders(),
+      });
+      if (!res.ok) {
+        if (attempt < MAX_ATTEMPTS - 1) {
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        return { active: false };
+      }
+      return res.json();
+    } catch {
+      if (attempt < MAX_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+      return { active: false };
+    }
   }
+  return { active: false };
 }
 
 export async function fetchActiveJobs(): Promise<string[]> {
@@ -417,12 +621,29 @@ export function reconnectToJob(
     let receivedDone = false;
 
     try {
-      const res = await fetch(`${API_BASE}/chat/reconnect/${conversationId}`, {
-        headers: await authHeaders(),
-        signal: controller.signal,
-      });
+      let res: Response | null = null;
+      const MAX_ATTEMPTS = 2;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        try {
+          res = await fetch(`${API_BASE}/chat/reconnect/${conversationId}`, {
+            headers: await authHeaders(),
+            signal: controller.signal,
+          });
+          if (res.ok && res.body) break;
+          res = null;
+          if (attempt < MAX_ATTEMPTS - 1) {
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+        } catch (fetchErr) {
+          if ((fetchErr as Error).name === "AbortError") throw fetchErr;
+          res = null;
+          if (attempt < MAX_ATTEMPTS - 1) {
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+        }
+      }
 
-      if (!res.ok || !res.body) {
+      if (!res || !res.ok || !res.body) {
         onDone();
         return;
       }

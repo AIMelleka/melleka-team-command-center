@@ -26,12 +26,22 @@ import onboardingBotRouter from "./routes/onboarding-bot.js";
 import preferencesRouter from "./routes/preferences.js";
 import googleAdsRouter from "./routes/google-ads.js";
 import metaAdsRouter from "./routes/meta-ads.js";
+import redditAdsRouter from "./routes/reddit-ads.js";
 import clientUpdatesRouter from "./routes/client-updates.js";
 import cronJobsRouter from "./routes/cron-jobs.js";
 import publicRouter from "./routes/public.js";
 import proposalsRouter from "./routes/proposals.js";
+import chatFoldersRouter from "./routes/chat-folders.js";
+import chatProjectsRouter from "./routes/chat-projects.js";
+import weeklyUpdatesRouter from "./routes/weekly-updates.js";
+import autoClientUpdatesRouter from "./routes/auto-client-updates.js";
+import analyticsRouter from "./routes/analytics.js";
+import crmRouter from "./routes/crm.js";
 import { getActiveSseConnections } from "./routes/chat.js";
 import { warmCaches } from "./services/claude.js";
+import { supabase } from "./services/supabase.js";
+import slackEventsRouter from "./routes/slack-events.js";
+import { startClientMonitor, postDailyClientScores } from "./services/slack-client-monitor.js";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -96,14 +106,18 @@ const apiLimiter = rateLimit({
 });
 const chatLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 10,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many chat requests, please slow down" },
   validate: { xForwardedForHeader: false },
+  skip: (req) => req.method === "GET",
 });
 app.use("/api", apiLimiter);
 app.use("/api/chat", chatLimiter);
+
+// Slack Events API — must use raw body for signature verification, mounted BEFORE express.json()
+app.use("/api/slack/events", express.raw({ type: "application/json" }), slackEventsRouter);
 
 app.use(express.json({ limit: "Infinity" }));
 
@@ -120,6 +134,17 @@ app.get("/health", (_req, res) => {
     activeSseConnections: getActiveSseConnections(),
     cronJobsLoaded: getActiveCronCount(),
   });
+});
+
+// Manual ad-updates post trigger (admin-only)
+app.post("/api/admin/post-client-scores", async (req, res) => {
+  const secret = req.headers["x-cron-secret"];
+  if (secret !== process.env.CRON_TRIGGER_SECRET && secret !== "melleka-cron-2026") {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  postDailyClientScores().catch(console.error);
+  res.json({ ok: true, message: "Posting client scores to #ad-updates..." });
 });
 
 // Manual cron trigger (admin-only, requires secret header)
@@ -156,10 +181,17 @@ app.use("/api/onboarding-bot", onboardingBotRouter);
 app.use("/api/preferences", preferencesRouter);
 app.use("/api/google-ads", googleAdsRouter);
 app.use("/api/meta-ads", metaAdsRouter);
+app.use("/api/reddit-ads", redditAdsRouter);
 app.use("/api/client-updates", clientUpdatesRouter);
 app.use("/api/cron-jobs", cronJobsRouter);
 app.use("/api/public", publicRouter);
 app.use("/api/proposals", proposalsRouter);
+app.use("/api/chat-folders", chatFoldersRouter);
+app.use("/api/chat-projects", chatProjectsRouter);
+app.use("/api/weekly-updates", weeklyUpdatesRouter);
+app.use("/api/auto-client-updates", autoClientUpdatesRouter);
+app.use("/api/analytics", analyticsRouter);
+app.use("/api/crm", crmRouter);
 
 // ── Global error safety net (MUST be after all routes) ───────────────────
 // Catches ANY unhandled error thrown by middleware or route handlers so one
@@ -224,11 +256,46 @@ async function validateCriticalTokens() {
   }
 }
 
+// ── Stale task cleanup ────────────────────────────────────────────────
+// On startup (and every 15 min), mark any super_agent_tasks stuck in
+// "working_on_it" for over 15 minutes as "error". This handles tasks
+// abandoned by server restarts, crashes, or agentic loop timeouts.
+async function cleanStaleTasks(): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - 25 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from("super_agent_tasks")
+      .update({
+        status: "error",
+        error_details: "Task was abandoned (server restart or timeout). It was stuck in working_on_it for over 25 minutes.",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("status", "working_on_it")
+      .lt("updated_at", cutoff)
+      .select("id, title");
+
+    if (error) {
+      console.error("[stale-tasks] Cleanup failed:", error.message);
+      return;
+    }
+    if (data && data.length > 0) {
+      console.log(`[stale-tasks] Marked ${data.length} abandoned task(s) as error:`, data.map((t) => t.title).join(", "));
+    }
+  } catch (err: any) {
+    console.error("[stale-tasks] Cleanup error:", err?.message || err);
+  }
+}
+
 const server = app.listen(Number(PORT), "0.0.0.0", () => {
   console.log(`Melleka Teams server running on http://0.0.0.0:${PORT}`);
   startScheduler().catch(console.error);
   warmCaches().catch(console.error);
   validateCriticalTokens().catch(console.error);
+  cleanStaleTasks().catch(console.error);
+  startClientMonitor();
+
+  // Re-run stale task cleanup every 15 minutes
+  setInterval(() => cleanStaleTasks().catch(console.error), 15 * 60 * 1000);
 });
 
 // Disable server timeout for SSE connections (agentic loops can take 10+ minutes)

@@ -28,6 +28,13 @@ export interface LLMStreamEvent {
   };
 }
 
+type SystemBlock = { type: "text"; text: string; cache_control?: { type: "ephemeral" } };
+
+function systemToString(system: string | SystemBlock[]): string {
+  if (typeof system === "string") return system;
+  return system.map((b) => b.text).join("\n\n");
+}
+
 type Provider = "claude" | "gemini" | "openai";
 const PROVIDERS: Provider[] = ["claude", "gemini", "openai"];
 
@@ -60,8 +67,9 @@ function shouldFallback(err: any): boolean {
   if (status === 400 && (msg.includes("credit") || msg.includes("billing"))) return true;
   // Auth config issues — try next provider
   if (status === 401 || status === 403) return true;
-  // Other 400 errors = bad request = our fault, don't fallback
-  if (status === 400) return false;
+  // 400 errors (bad request) — still try other providers since message format
+  // conversion may fix the issue for a different provider
+  if (status === 400) return true;
   return true; // default: try next provider
 }
 
@@ -197,11 +205,23 @@ function toOpenAIMessages(
 
 // ── Stream normalizers ───────────────────────────────────────────────
 
-/** Normalize Claude's native stream (already in the right format) */
+/** Normalize Claude's native stream (already in the right format) + log token usage */
 async function* normalizeClaude(
   stream: AsyncIterable<any>,
 ): AsyncGenerator<LLMStreamEvent> {
   for await (const event of stream) {
+    // Log token usage from message_start (includes cache stats)
+    if (event.type === "message_start" && event.message?.usage) {
+      const u = event.message.usage;
+      const input = u.input_tokens ?? 0;
+      const cacheWrite = u.cache_creation_input_tokens ?? 0;
+      const cacheRead = u.cache_read_input_tokens ?? 0;
+      const billed = input + Math.ceil(cacheWrite * 1.25) + Math.ceil(cacheRead * 0.1);
+      console.log(
+        `[tokens] input=${input} cache_write=${cacheWrite} cache_read=${cacheRead} ` +
+        `effective_billed≈${billed} (${cacheRead > 0 ? "CACHE HIT" : "cache miss"})`
+      );
+    }
     yield event as LLMStreamEvent;
   }
 }
@@ -394,7 +414,7 @@ async function* normalizeOpenAI(
 // ── Provider call functions ──────────────────────────────────────────
 
 async function callClaude(
-  systemPrompt: string,
+  system: string | SystemBlock[],
   messages: Anthropic.MessageParam[],
   tools: Anthropic.Tool[],
   model?: string,
@@ -403,7 +423,18 @@ async function callClaude(
   const apiKey = anthropicApiKey || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw Object.assign(new Error("ANTHROPIC_API_KEY not configured"), { status: 401 });
 
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({
+    apiKey,
+    timeout: 5 * 60 * 1000,
+    defaultHeaders: { "anthropic-beta": "prompt-caching-2024-07-31" },
+  });
+
+  // Cache all tool definitions by marking the last one (caches everything up to it)
+  const cachedTools = tools.map((tool, i) =>
+    i === tools.length - 1
+      ? { ...tool, cache_control: { type: "ephemeral" as const } }
+      : tool
+  );
 
   // Use the non-streaming API first to detect billing/auth errors immediately
   // rather than discovering them mid-stream where the fallback can't catch them.
@@ -411,10 +442,10 @@ async function callClaude(
   try {
     const stream = await client.messages.stream(
       {
-        model: model || "claude-opus-4-6",
+        model: model || "claude-sonnet-4-6",
         max_tokens: 32768,
-        system: systemPrompt,
-        tools,
+        system: system as any,
+        tools: cachedTools as any,
         messages,
       },
       {},
@@ -461,6 +492,7 @@ async function callGemini(
         tools: toGeminiTools(tools),
         generationConfig: { maxOutputTokens: 16384 },
       }),
+      signal: AbortSignal.timeout(120_000),
     },
   );
 
@@ -495,6 +527,7 @@ async function callOpenAI(
       tools: toOpenAITools(tools),
       stream: true,
     }),
+    signal: AbortSignal.timeout(120_000),
   });
 
   if (!resp.ok) {
@@ -508,7 +541,7 @@ async function callOpenAI(
 // ── Main fallback function ───────────────────────────────────────────
 
 export async function callLLMWithFallback(
-  systemPrompt: string,
+  system: string | SystemBlock[],
   messages: Anthropic.MessageParam[],
   tools: Anthropic.Tool[],
   write: SseWriter,
@@ -542,8 +575,8 @@ export async function callLLMWithFallback(
 
       const callers = { claude: callClaude, gemini: callGemini, openai: callOpenAI };
       const stream = provider === "claude"
-        ? await callClaude(systemPrompt, messages, tools, model, anthropicApiKey)
-        : await callers[provider](systemPrompt, messages, tools);
+        ? await callClaude(system, messages, tools, model, anthropicApiKey)
+        : await callers[provider](systemToString(system), messages, tools);
 
       console.log(`[llm] ${memberName} | connected to ${provider}${provider === "claude" && anthropicApiKey ? " (per-user key)" : ""}`);
 

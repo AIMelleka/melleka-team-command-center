@@ -35,6 +35,7 @@ router.get("/accounts", requireAuth, async (_req: AuthRequest, res: Response) =>
 
     const resp = await fetch(
       `https://graph.facebook.com/${META_API_VERSION}/me/adaccounts?fields=account_id,name&limit=500&access_token=${token}`,
+      { signal: AbortSignal.timeout(45_000) },
     );
     const data = (await resp.json()) as {
       data?: Array<{ account_id: string; name: string; id: string }>;

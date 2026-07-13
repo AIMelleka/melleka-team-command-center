@@ -89,6 +89,7 @@ router.get("/", requireAuth, async (_req, res) => {
       method: "POST",
       headers: notionHeaders(),
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(45_000),
     });
 
     if (!resp.ok) {
@@ -112,6 +113,7 @@ router.get("/database", requireAuth, async (_req, res) => {
 
     const resp = await fetch(`${NOTION_API}/databases/${databaseId}`, {
       headers: notionHeaders(),
+      signal: AbortSignal.timeout(45_000),
     });
 
     if (!resp.ok) {
@@ -133,6 +135,7 @@ router.get("/:id", requireAuth, async (req, res) => {
   try {
     const resp = await fetch(`${NOTION_API}/pages/${req.params.id}`, {
       headers: notionHeaders(),
+      signal: AbortSignal.timeout(45_000),
     });
 
     if (!resp.ok) {
@@ -154,7 +157,7 @@ router.get("/:id/blocks", requireAuth, async (req, res) => {
   try {
     const resp = await fetch(
       `${NOTION_API}/blocks/${req.params.id}/children?page_size=100`,
-      { headers: notionHeaders() }
+      { headers: notionHeaders(), signal: AbortSignal.timeout(45_000) }
     );
 
     if (!resp.ok) {
@@ -184,6 +187,7 @@ router.post("/", requireAuth, async (req, res) => {
         parent: { database_id: dbId },
         properties,
       }),
+      signal: AbortSignal.timeout(45_000),
     });
 
     if (!resp.ok) {
@@ -209,6 +213,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
       method: "PATCH",
       headers: notionHeaders(),
       body: JSON.stringify({ properties }),
+      signal: AbortSignal.timeout(45_000),
     });
 
     if (!resp.ok) {
@@ -232,6 +237,7 @@ router.delete("/:id", requireAuth, async (req, res) => {
       method: "PATCH",
       headers: notionHeaders(),
       body: JSON.stringify({ in_trash: true }),
+      signal: AbortSignal.timeout(45_000),
     });
 
     if (!resp.ok) {
@@ -258,6 +264,7 @@ router.post("/:id/blocks", requireAuth, async (req, res) => {
         method: "PATCH",
         headers: notionHeaders(),
         body: JSON.stringify({ children }),
+        signal: AbortSignal.timeout(45_000),
       }
     );
 

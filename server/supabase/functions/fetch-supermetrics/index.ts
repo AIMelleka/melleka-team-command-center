@@ -1273,10 +1273,10 @@ serve(async (req: Request) => {
       }
 
       // Now assemble per-client results from the shared query results
-      const clientResults: Record<string, Record<string, { spend: number; conv: number; calls: number; costPerConv: number; leads: number; purchases: number; error?: string }>> = {};
+      const clientResults: Record<string, Record<string, { spend: number; conv: number; clicks: number; impressions: number; calls: number; costPerConv: number; leads: number; purchases: number; error?: string }>> = {};
 
       for (const [clientName, accountMap] of Object.entries(bulkClients)) {
-        const clientResult: Record<string, { spend: number; conv: number; calls: number; costPerConv: number; leads: number; purchases: number; error?: string }> = {};
+        const clientResult: Record<string, { spend: number; conv: number; clicks: number; impressions: number; calls: number; costPerConv: number; leads: number; purchases: number; error?: string }> = {};
 
         for (const [dsKey, accountIds] of Object.entries(accountMap)) {
           const ds = DATA_SOURCES[dsKey];
@@ -1285,6 +1285,7 @@ serve(async (req: Request) => {
           if (!def) continue;
 
           let totalSpend = 0, totalConv = 0, totalCalls = 0, totalLeads = 0, totalPurchases = 0;
+          let totalClicks = 0, totalImpressions = 0;
           const errors: string[] = [];
 
           for (const accountId of accountIds) {
@@ -1296,6 +1297,8 @@ serve(async (req: Request) => {
               const dr = queryResult._directApiResult;
               totalSpend += dr.spend;
               totalConv += dr.conv;
+              totalClicks += dr.clicks || 0;
+              totalImpressions += dr.impressions || 0;
               totalLeads += dr.leads;
               totalPurchases += dr.purchases;
               totalCalls += dr.calls;
@@ -1309,6 +1312,8 @@ serve(async (req: Request) => {
             const summary = buildSummary(queryResult.rows, col, ds.id);
             totalSpend += summary._cost || 0;
             totalConv += summary._conversions || 0;
+            totalClicks += summary._clicks || 0;
+            totalImpressions += summary._impressions || 0;
 
             // Use conversion action breakdown if available (for AW/AC), otherwise use default
             const accountBreakdown = breakdownResults[ds.id]?.[accountId];
@@ -1328,6 +1333,8 @@ serve(async (req: Request) => {
             clientResult[dsKey] = {
               spend: totalSpend,
               conv: totalConv,
+              clicks: totalClicks,
+              impressions: totalImpressions,
               calls: totalCalls,
               leads: totalLeads,
               purchases: totalPurchases,
@@ -1335,7 +1342,7 @@ serve(async (req: Request) => {
               ...(errors.length > 0 ? { error: errors[0] } : {}),
             };
           } else if (errors.length > 0) {
-            clientResult[dsKey] = { spend: 0, conv: 0, calls: 0, leads: 0, purchases: 0, costPerConv: 0, error: errors[0] };
+            clientResult[dsKey] = { spend: 0, conv: 0, clicks: 0, impressions: 0, calls: 0, leads: 0, purchases: 0, costPerConv: 0, error: errors[0] };
           }
         }
 

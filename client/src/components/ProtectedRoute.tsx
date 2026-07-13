@@ -5,8 +5,6 @@ import { useUserPermissions } from '@/hooks/useUserPermissions';
 import { routeToToolKey, TOOL_CATALOG } from '@/data/toolCatalog';
 import { Loader2, RefreshCw, LogIn, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { EnrollMFA } from '@/components/EnrollMFA';
-import { MFA_EXEMPT_EMAILS } from '@/lib/mfaConfig';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -15,12 +13,11 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute = ({ children, requireAdmin = false, routePath }: ProtectedRouteProps) => {
-  const { user, isAdmin, isLoading, mfaEnrolled, refreshMfaStatus } = useAuth();
+  const { user, isAdmin, isLoading } = useAuth();
   const { hasToolAccess, isLoading: permLoading } = useUserPermissions();
   const navigate = useNavigate();
   const location = useLocation();
   const [timedOut, setTimedOut] = useState(false);
-  const [forcingEnroll, setForcingEnroll] = useState(false);
 
   // Once children have been rendered successfully, never unmount them for a
   // transient loading flicker. This prevents keep-alive pages from losing
@@ -84,31 +81,10 @@ const ProtectedRoute = ({ children, requireAdmin = false, routePath }: Protected
     return <>{children}</>;
   }
 
-  // Force MFA enrollment for all users who haven't set it up (exempt service accounts)
-  const userEmail = user?.email?.toLowerCase() ?? '';
-  if (user && !mfaEnrolled && !MFA_EXEMPT_EMAILS.includes(userEmail)) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
-        <div className="w-full max-w-md mb-6 text-center">
-          <h1 className="text-xl font-bold text-foreground mb-2">Two-Factor Authentication Required</h1>
-          <p className="text-sm text-muted-foreground">
-            You must enable two-factor authentication to continue.
-          </p>
-        </div>
-        <EnrollMFA
-          hideCancelButton
-          onEnrolled={async () => {
-            await refreshMfaStatus();
-          }}
-        />
-      </div>
-    );
-  }
-
   // Mark that we've successfully rendered children
   hasRenderedChildrenRef.current = true;
 
-  // Admins always have full access (after MFA check)
+  // Admins always have full access
   if (isAdmin) {
     return <>{children}</>;
   }

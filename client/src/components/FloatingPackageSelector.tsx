@@ -402,8 +402,8 @@ export const FloatingPackageSelector = ({
                           <p className="text-sm text-muted-foreground mt-0.5">{pkg.channels}</p>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-primary">${pkg.monthlyPrice.toLocaleString()}</p>
-                          <p className="text-xs text-muted-foreground">/month</p>
+                          <p className="font-bold text-primary">{pkg.pricingModel || `$${pkg.monthlyPrice.toLocaleString()}`}</p>
+                          <p className="text-xs text-muted-foreground">{pkg.pricingModel ? 'of ad spend' : '/month'}</p>
                         </div>
                       </div>
 

@@ -207,7 +207,7 @@ async function generateWithOpenAI(
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const authResult = await requireToolAuth(req, 'image-generator');
+  const authResult = await requireToolAuth(req, 'creative-studio');
   if (!authResult.authorized) {
     return createUnauthorizedResponse(
       authResult.error || "Unauthorized",

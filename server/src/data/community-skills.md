@@ -1,4 +1,4 @@
-# Community Skills — Extended Knowledge Base
+# Community Skills - Extended Knowledge Base
 
 These skills come from the open-source Claude community (awesome-claude-skills). Apply them proactively when team members ask for help in these areas.
 
@@ -10,7 +10,7 @@ When asked to analyze competitor ads:
 
 1. Scrape ads from Facebook Ad Library, Google Ads Transparency Center, or LinkedIn
 2. Capture screenshots of every ad found
-3. Analyze messaging patterns — problems highlighted, value props, CTAs
+3. Analyze messaging patterns - problems highlighted, value props, CTAs
 4. Categorize by theme, audience, and format
 5. Identify what's working and why
 
@@ -97,7 +97,7 @@ When given meeting transcripts to analyze:
 Pattern categories to detect:
 - Conflict Avoidance: Hedging language, indirect phrasing, changing subject under tension
 - Speaking Ratios: % time speaking, interruptions, turn length, question vs statement ratio
-- Filler Words: "um", "uh", "like", "you know" — frequency per minute
+- Filler Words: "um", "uh", "like", "you know" - frequency per minute
 - Active Listening: References to others' points, paraphrasing, building on contributions
 - Facilitation: Decision-making approach, inclusion of quiet participants, agenda control
 
@@ -116,8 +116,8 @@ Synthesize into: Key Patterns → Communication Strengths → Growth Opportuniti
 
 Core Ranking Models:
 - Real-graph: Predicts follower interaction likelihood
-- SimClusters: Community detection — resonance within niche groups
-- TwHIN: Knowledge graph — content-user topic fit
+- SimClusters: Community detection - resonance within niche groups
+- TwHIN: Knowledge graph - content-user topic fit
 - Tweepcred: User reputation/authority scoring
 
 Engagement Signals (weighted):
@@ -126,10 +126,10 @@ Engagement Signals (weighted):
 - Negative: Block/report (heavy penalty), mute/unfollow, quick scroll-past
 
 Optimization steps for any tweet:
-1. Identify core message — what's the single takeaway?
-2. Map to algorithm — which follower segment? which community? does it fit your identity?
-3. Optimize signals — trigger replies (questions), retweets (useful/entertaining), likes (novel/validating)
-4. Check negatives — any block/report risk? off-brand? engagement bait?
+1. Identify core message - what's the single takeaway?
+2. Map to algorithm - which follower segment? which community? does it fit your identity?
+3. Optimize signals - trigger replies (questions), retweets (useful/entertaining), likes (novel/validating)
+4. Check negatives - any block/report risk? off-brand? engagement bait?
 
 Trigger formulas:
 - For replies: Ask direct questions, create debate, request opinions
@@ -169,7 +169,7 @@ Best practices: Quality > virality, community first, authenticity, timing (first
 - Create from scratch: HTML-to-PPTX workflow using pptxgenjs + playwright
 - Create from template: Slide inventory → Rearrange → Replace text/images
 - Color palettes: 18 pre-built palettes available
-- Charts: PptxGenJS — BAR, LINE, PIE, SCATTER (no # prefix on hex colors!)
+- Charts: PptxGenJS - BAR, LINE, PIE, SCATTER (no # prefix on hex colors!)
 - Visual validation: Generate thumbnail grid for QA
 
 ---
@@ -265,7 +265,7 @@ Decision tree:
 - Dynamic webapp? → Start server → Navigate → Wait for networkidle → Screenshot/inspect → Execute actions
 
 Pattern: Reconnaissance-then-action
-1. Navigate and wait for networkidle (CRITICAL — do this before any DOM inspection)
+1. Navigate and wait for networkidle (CRITICAL - do this before any DOM inspection)
 2. Take screenshot or inspect DOM
 3. Identify selectors from rendered state
 4. Execute actions with discovered selectors
@@ -438,37 +438,37 @@ The `voice` tool connects to ElevenLabs for professional-quality audio generatio
 Available actions:
 
 1. speak - Text-to-speech voiceover generation
-   - Choose from hundreds of voices (use action='voices' to browse)
-   - Default voice: Rachel (professional female narrator)
-   - Models: eleven_v3 (best quality, 70+ languages), eleven_turbo_v2_5 (fast), eleven_flash_v2_5 (fastest)
-   - Adjustable: stability (0-1), similarity_boost (0-1)
-   - Returns a public URL to the MP3 file
+  - Choose from hundreds of voices (use action='voices' to browse)
+  - Default voice: Rachel (professional female narrator)
+  - Models: eleven_v3 (best quality, 70+ languages), eleven_turbo_v2_5 (fast), eleven_flash_v2_5 (fastest)
+  - Adjustable: stability (0-1), similarity_boost (0-1)
+  - Returns a public URL to the MP3 file
 
 2. voices - Browse and search available voices
-   - Search by name or keyword (e.g. "british male", "narrator")
-   - Returns voice IDs needed for the speak action
-   - Shows voice category, labels (gender, age, accent), and description
+  - Search by name or keyword (e.g. "british male", "narrator")
+  - Returns voice IDs needed for the speak action
+  - Shows voice category, labels (gender, age, accent), and description
 
 3. sound_effect - Generate sound effects from text descriptions
-   - Describe any sound: "thunder rumbling in the distance", "keyboard typing", "crowd cheering"
-   - Max 30 seconds per generation
-   - Returns a public URL to the audio file
+  - Describe any sound: "thunder rumbling in the distance", "keyboard typing", "crowd cheering"
+  - Max 30 seconds per generation
+  - Returns a public URL to the audio file
 
 4. isolate - Remove background noise from audio
-   - Provide a URL to a noisy audio file
-   - Returns a cleaned-up version with isolated vocals
-   - Great for cleaning up recordings, interviews, podcasts
+  - Provide a URL to a noisy audio file
+  - Returns a cleaned-up version with isolated vocals
+  - Great for cleaning up recordings, interviews, podcasts
 
 5. clone - Clone a voice from an audio sample
-   - Provide a URL to 1-2 minutes of clear speech audio
-   - Creates a new voice that mimics the speaker
-   - Returns a voice_id to use with the speak action
+  - Provide a URL to 1-2 minutes of clear speech audio
+  - Creates a new voice that mimics the speaker
+  - Returns a voice_id to use with the speak action
 
 6. dub - Translate and dub audio to another language
-   - Provide a URL to the source audio and target language code
-   - Supports 32 languages (es, fr, de, ja, pt, zh, ko, it, etc.)
-   - Preserves speaker voice characteristics in the new language
-   - Asynchronous: returns a dubbing ID to check status
+  - Provide a URL to the source audio and target language code
+  - Supports 32 languages (es, fr, de, ja, pt, zh, ko, it, etc.)
+  - Preserves speaker voice characteristics in the new language
+  - Asynchronous: returns a dubbing ID to check status
 
 Workflow for voiceovers:
 1. If the user wants a specific voice type, search with action='voices' first

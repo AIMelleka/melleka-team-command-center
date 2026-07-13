@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAdminEdit } from './AdminEditContext';
-import { Shield, ShieldCheck, Save, X, Undo, Plus, Palette, ArrowUpDown, Eye, Lock, EyeOff } from 'lucide-react';
+import { Shield, ShieldCheck, Save, X, Undo, Plus, Palette, ArrowUpDown, Eye, Lock, EyeOff, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AdminToolbarProps {
@@ -13,7 +13,7 @@ interface AdminToolbarProps {
 }
 
 export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false, onAddSection, onTogglePreview, onReorderSections }: AdminToolbarProps) => {
-  const { isEditMode, isAdminVerified, verifyAdmin, logout, hasChanges, getChanges, clearChanges, setIsEditMode } = useAdminEdit();
+  const { isEditMode, isAdminVerified, verifyAdmin, logout, hasChanges, getChanges, clearChanges, discardChanges, setIsEditMode } = useAdminEdit();
   const [showPinInput, setShowPinInput] = useState(false);
   const [pin, setPin] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -21,6 +21,13 @@ export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false
 
   // The shield button is always available on proposal pages.
   // The PIN modal is the access control gate — not the auth state.
+
+  const copyClientLink = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('admin');
+    navigator.clipboard.writeText(url.toString());
+    toast.success('Client link copied!');
+  };
 
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,7 +61,7 @@ export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false
   };
 
   const handleDiscard = () => {
-    clearChanges();
+    discardChanges();
     toast.info('Changes discarded');
   };
 
@@ -75,15 +82,24 @@ export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false
   if (!isAdminVerified) {
     return (
       <>
-        {/* Floating admin access button */}
-        <button
-          onClick={() => setShowPinInput(true)}
-          className="fixed bottom-6 right-6 z-50 p-3 rounded-full shadow-lg transition-all duration-300 hover:scale-110 group"
-          style={{ backgroundColor: primaryColor }}
-          title="Admin Edit Mode"
-        >
-          <Shield className="w-5 h-5 text-white" />
-        </button>
+        {/* Floating admin access + share buttons */}
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 items-end">
+          <button
+            onClick={copyClientLink}
+            className="p-2.5 rounded-full shadow-lg transition-all duration-300 hover:scale-110 bg-white/90 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700"
+            title="Copy Client Link"
+          >
+            <Share2 className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+          </button>
+          <button
+            onClick={() => setShowPinInput(true)}
+            className="p-3 rounded-full shadow-lg transition-all duration-300 hover:scale-110 group"
+            style={{ backgroundColor: primaryColor }}
+            title="Admin Edit Mode"
+          >
+            <Shield className="w-5 h-5 text-white" />
+          </button>
+        </div>
 
         {/* PIN Input Modal */}
         {showPinInput && (
@@ -127,9 +143,6 @@ export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false
                 </div>
               </form>
 
-              <p className="text-xs text-muted-foreground text-center mt-4">
-                Default PIN: 1234
-              </p>
             </div>
           </div>
         )}
@@ -206,6 +219,14 @@ export const AdminToolbar = ({ onSave, primaryColor = '#7c3aed', isAdmin = false
 
           {/* Right side - actions */}
           <div className="flex items-center gap-2">
+            <button
+              onClick={copyClientLink}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors"
+              title="Copy Client Link"
+            >
+              <Share2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Client Link</span>
+            </button>
             {hasChanges && (
               <>
                 <button

@@ -110,6 +110,7 @@ async function alertSlack(jobName: string, errorMsg: string): Promise<void> {
     // Post to #cron-alerts or first available non-general channel
     const channelsResp = await fetch("https://slack.com/api/conversations.list?types=public_channel&limit=50", {
       headers: { Authorization: `Bearer ${secret.value}` },
+      signal: AbortSignal.timeout(45_000),
     });
     const channelsData = await channelsResp.json() as { ok: boolean; channels?: { id: string; name: string; is_member: boolean }[] };
     if (!channelsData.ok || !channelsData.channels) return;
@@ -129,6 +130,7 @@ async function alertSlack(jobName: string, errorMsg: string): Promise<void> {
         channel: target.id,
         text: `CRON JOB FAILED: "${jobName}"\n\nError: ${shortError}\n\nThe job will auto-retry once. Check Railway logs for details.`,
       }),
+      signal: AbortSignal.timeout(45_000),
     });
   } catch {
     // Slack alert is best-effort, don't let it break anything

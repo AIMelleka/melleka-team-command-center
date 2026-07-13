@@ -2,14 +2,19 @@ import { Users, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react';
 import type { ClientDailyReport } from '@/types/dailyReports';
 import { fmtCurrency } from './shared';
 import { ClientOverviewCard } from './ClientOverviewCard';
-import { computeReportScore, aggregateKpis, tierFromScore } from './scoring';
+import { computeReportScore, aggregateKpis, tierFromScore, type ClientGoals } from './scoring';
 
 interface Props {
   reports: ClientDailyReport[];
   onSelectClient: (clientName: string) => void;
+  goalsMap?: Map<string, ClientGoals>;
+  getBenchmarks?: (industry: string | null) => { googleCpa?: number; metaCpa?: number };
 }
 
-export function ClientsOverview({ reports, onSelectClient }: Props) {
+export function ClientsOverview({ reports, onSelectClient, goalsMap, getBenchmarks }: Props) {
+  const scoreFor = (r: ClientDailyReport) =>
+    computeReportScore(r, goalsMap?.get(r.clientName), getBenchmarks?.(r.industry));
+
   // Fleet-level stats
   const fleetStats = (() => {
     let totalSpend = 0;
@@ -23,7 +28,7 @@ export function ClientsOverview({ reports, onSelectClient }: Props) {
       totalSpend += kpis.spend;
       totalConversions += kpis.conversions;
 
-      const { score } = computeReportScore(r);
+      const { score } = scoreFor(r);
       totalScore += score;
       const tier = tierFromScore(score);
       if (tier === 'excellent') excellent++;
@@ -41,8 +46,8 @@ export function ClientsOverview({ reports, onSelectClient }: Props) {
 
   // Sort by score ascending (lowest first — needs attention)
   const sortedReports = [...reports].sort((a, b) => {
-    const sa = computeReportScore(a).score;
-    const sb = computeReportScore(b).score;
+    const sa = scoreFor(a).score;
+    const sb = scoreFor(b).score;
     return sa - sb;
   });
 
@@ -85,6 +90,8 @@ export function ClientsOverview({ reports, onSelectClient }: Props) {
             key={report.id}
             report={report}
             onClick={() => onSelectClient(report.clientName)}
+            goals={goalsMap?.get(report.clientName)}
+            industryBenchmarks={getBenchmarks?.(report.industry)}
           />
         ))}
       </div>

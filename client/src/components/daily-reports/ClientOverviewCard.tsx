@@ -3,11 +3,13 @@ import { Badge } from '@/components/ui/badge';
 import type { ClientDailyReport } from '@/types/dailyReports';
 import { fmtCurrency, fmtNumber } from './shared';
 import { ScoreRing } from './ScoreRing';
-import { computeReportScore, aggregateKpis, type ReportScore, type AggregatedKpis } from './scoring';
+import { computeReportScore, aggregateKpis, type ReportScore, type AggregatedKpis, type ClientGoals } from './scoring';
 
 interface Props {
   report: ClientDailyReport;
   onClick: () => void;
+  goals?: ClientGoals | null;
+  industryBenchmarks?: { googleCpa?: number; metaCpa?: number } | null;
 }
 
 const trendIcons = {
@@ -23,8 +25,8 @@ const tierBadgeStyles: Record<string, string> = {
   critical: 'bg-red-500/10 text-red-500 border-red-500/30',
 };
 
-export function ClientOverviewCard({ report, onClick }: Props) {
-  const { score, tier }: ReportScore = computeReportScore(report);
+export function ClientOverviewCard({ report, onClick, goals, industryBenchmarks }: Props) {
+  const { score, tier }: ReportScore = computeReportScore(report, goals, industryBenchmarks);
   const kpis: AggregatedKpis = aggregateKpis(report);
 
   const highRecs = report.recommendations.filter(r => r.priority === 'high').length;

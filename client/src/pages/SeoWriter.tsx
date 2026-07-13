@@ -231,6 +231,38 @@ interface TopicWriterResult {
   faqSchema: { question: string; answer: string }[];
 }
 
+/** Normalize a raw API result into a safe TopicWriterResult with all fields guaranteed */
+function normalizeTopicResult(raw: any): TopicWriterResult {
+  return {
+    topic: raw?.topic || '',
+    primaryKeyword: raw?.primaryKeyword || '',
+    secondaryKeywords: Array.isArray(raw?.secondaryKeywords) ? raw.secondaryKeywords : [],
+    searchIntent: raw?.searchIntent || 'Informational',
+    competitorAnalysis: {
+      avgWordCount: raw?.competitorAnalysis?.avgWordCount ?? 0,
+      avgHeadings: raw?.competitorAnalysis?.avgHeadings ?? 0,
+      commonTopics: Array.isArray(raw?.competitorAnalysis?.commonTopics) ? raw.competitorAnalysis.commonTopics : [],
+      contentGaps: Array.isArray(raw?.competitorAnalysis?.contentGaps) ? raw.competitorAnalysis.contentGaps : [],
+    },
+    serpFeatures: Array.isArray(raw?.serpFeatures) ? raw.serpFeatures : [],
+    outline: Array.isArray(raw?.outline) ? raw.outline : [],
+    fullContent: raw?.fullContent || '',
+    wordCount: raw?.wordCount ?? 0,
+    contentScore: {
+      overall: raw?.contentScore?.overall ?? 0,
+      keywordDensity: raw?.contentScore?.keywordDensity ?? 0,
+      readability: raw?.contentScore?.readability ?? 0,
+      wordCount: raw?.contentScore?.wordCount ?? 0,
+      headingStructure: raw?.contentScore?.headingStructure ?? 0,
+      suggestions: Array.isArray(raw?.contentScore?.suggestions) ? raw.contentScore.suggestions : [],
+    },
+    metaTitle: raw?.metaTitle || '',
+    metaDescription: raw?.metaDescription || '',
+    internalLinkingSuggestions: Array.isArray(raw?.internalLinkingSuggestions) ? raw.internalLinkingSuggestions : [],
+    faqSchema: Array.isArray(raw?.faqSchema) ? raw.faqSchema : [],
+  };
+}
+
 type SeoWriterJobStatus = 'queued' | 'processing' | 'complete' | 'failed';
 interface SeoWriterJobRow {
   id: string;
@@ -775,7 +807,7 @@ const SeoWriter = () => {
 
       if ((data as any)?.result) {
         setTopicWriterStage(10);
-        setTopicResult((data as any).result as TopicWriterResult);
+        setTopicResult(normalizeTopicResult((data as any).result));
         toast.success('Article generated successfully!');
         return;
       }
@@ -785,7 +817,7 @@ const SeoWriter = () => {
         const completed = await startSeoJobSync(jobId);
         if (completed.result) {
           setTopicWriterStage(10);
-          setTopicResult(completed.result as TopicWriterResult);
+          setTopicResult(normalizeTopicResult(completed.result));
           toast.success('Article generated successfully!');
           return;
         }
@@ -1027,11 +1059,11 @@ const SeoWriter = () => {
       if ((data as any)?.job_id) {
         const jobResult = await startSeoJobSync((data as any).job_id);
         if (jobResult?.result) {
-          setTopicResult(jobResult.result as TopicWriterResult);
+          setTopicResult(normalizeTopicResult(jobResult.result));
           toast.success('Article generated successfully!');
         }
       } else if ((data as any)?.result) {
-        setTopicResult((data as any).result as TopicWriterResult);
+        setTopicResult(normalizeTopicResult((data as any).result));
         toast.success('Article generated successfully!');
       }
     } catch (err: any) {
@@ -1069,22 +1101,13 @@ const SeoWriter = () => {
         const jobResult = await startSeoJobSync((data as any).job_id);
         if (jobResult?.result) {
           const r = jobResult.result as any;
-          setTopicResult({
+          setTopicResult(normalizeTopicResult({
             topic: 'Edited Article',
             primaryKeyword: editorKeywords.split(',')[0]?.trim() || '',
-            secondaryKeywords: [],
-            searchIntent: 'Informational',
-            competitorAnalysis: { avgWordCount: 0, avgHeadings: 0, commonTopics: [], contentGaps: [] },
-            serpFeatures: [],
-            outline: [],
             fullContent: r.fullContent,
             wordCount: r.wordCount,
             contentScore: r.contentScore,
-            metaTitle: '',
-            metaDescription: '',
-            internalLinkingSuggestions: [],
-            faqSchema: [],
-          });
+          }));
           toast.success('Article rewritten successfully!');
         }
       }
@@ -2218,7 +2241,7 @@ const SeoWriter = () => {
                       </Badge>
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {topicResult.secondaryKeywords.slice(0, 5).map((kw, i) => (
+                      {(topicResult.secondaryKeywords || []).slice(0, 5).map((kw, i) => (
                         <Badge key={i} variant="secondary" className="text-xs">
                           {kw}
                         </Badge>
@@ -2332,7 +2355,7 @@ const SeoWriter = () => {
                   <div className="pt-2">
                     <span className="text-xs text-muted-foreground">Content Gaps Found:</span>
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {topicResult.competitorAnalysis.contentGaps.slice(0, 3).map((gap, i) => (
+                      {(topicResult.competitorAnalysis?.contentGaps || []).slice(0, 3).map((gap, i) => (
                         <Badge key={i} variant="outline" className="text-xs bg-green-500/10 text-green-600">
                           {gap}
                         </Badge>
@@ -2739,7 +2762,7 @@ const SeoWriter = () => {
                   <CardContent>
                     <div className="space-y-3">
                       {(analysisOutput.keywords?.quickWins?.length || 0) > 0 ? (
-                        analysisOutput.keywords.quickWins!.map((kw, i) => (
+                        (analysisOutput.keywords?.quickWins || []).map((kw, i) => (
                           <div 
                             key={i} 
                             className={`p-4 rounded-lg border flex items-center gap-4 cursor-pointer transition-all ${
@@ -2802,7 +2825,7 @@ const SeoWriter = () => {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
-                        {analysisOutput.keywords.questions!.map((q, i) => (
+                        {(analysisOutput.keywords?.questions || []).map((q, i) => (
                           <div 
                             key={i} 
                             className={`p-3 rounded-lg flex items-center gap-3 cursor-pointer transition-all ${
@@ -2847,7 +2870,7 @@ const SeoWriter = () => {
                   <CardContent>
                     <div className="space-y-3">
                       {(analysisOutput.keywords?.goldenKeywords?.length || 0) > 0 ? (
-                        analysisOutput.keywords.goldenKeywords!.map((kw, i) => (
+                        (analysisOutput.keywords?.goldenKeywords || []).map((kw, i) => (
                           <div 
                             key={i} 
                             className={`p-4 rounded-lg border flex items-center gap-4 cursor-pointer transition-all ${
@@ -2900,7 +2923,7 @@ const SeoWriter = () => {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
-                        {analysisOutput.keywords.keywordGaps!.map((gap, i) => (
+                        {(analysisOutput.keywords?.keywordGaps || []).map((gap, i) => (
                           <div 
                             key={i} 
                             className={`p-3 rounded-lg flex items-center gap-3 cursor-pointer transition-all ${
@@ -2945,7 +2968,7 @@ const SeoWriter = () => {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
-                        {analysisOutput.keywords.existingRankings!.slice(0, 10).map((kw, i) => (
+                        {(analysisOutput.keywords?.existingRankings || []).slice(0, 10).map((kw, i) => (
                           <div key={i} className="p-3 rounded-lg bg-muted/30 flex items-center justify-between">
                             <div className="flex items-center gap-4">
                               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
@@ -2982,7 +3005,7 @@ const SeoWriter = () => {
                   <CardContent>
                     <div className="space-y-2">
                       {(analysisOutput.keywords?.highOpportunity?.length || 0) > 0 ? (
-                        analysisOutput.keywords.highOpportunity!.map((kw, i) => (
+                        (analysisOutput.keywords?.highOpportunity || []).map((kw, i) => (
                           <div 
                             key={i} 
                             className={`p-3 rounded-lg flex items-center gap-3 cursor-pointer transition-all ${
@@ -3026,7 +3049,7 @@ const SeoWriter = () => {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
-                        {analysisOutput.keywords.longTail!.map((kw, i) => (
+                        {(analysisOutput.keywords?.longTail || []).map((kw, i) => (
                           <div 
                             key={i} 
                             className={`p-2 rounded-lg flex items-center gap-3 cursor-pointer transition-all ${
@@ -3078,7 +3101,7 @@ const SeoWriter = () => {
                   <CardContent>
                     <div className="space-y-4">
                       {(analysisOutput.blogTopics?.length || 0) > 0 ? (
-                        analysisOutput.blogTopics!.map((topic, i) => (
+                        (analysisOutput.blogTopics || []).map((topic, i) => (
                           <div 
                             key={i} 
                             className={`p-4 rounded-lg border cursor-pointer transition-all ${
@@ -3151,7 +3174,7 @@ const SeoWriter = () => {
                   <CardContent>
                     <div className="space-y-4">
                       {(analysisOutput.serpFeatures?.length || 0) > 0 ? (
-                        analysisOutput.serpFeatures!.map((feature, i) => (
+                        (analysisOutput.serpFeatures || []).map((feature, i) => (
                           <div key={i} className={`p-4 rounded-lg border ${feature.present ? 'bg-green-500/10 border-green-500/30' : 'bg-muted/30 border-border'}`}>
                             <div className="flex items-start gap-3">
                               <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${feature.present ? 'bg-green-500/20' : 'bg-muted'}`}>
@@ -3222,7 +3245,7 @@ const SeoWriter = () => {
                     {(analysisOutput.metaTags?.services?.length || 0) > 0 && (
                       <>
                         <h4 className="font-semibold mt-4">Service Pages</h4>
-                        {analysisOutput.metaTags.services!.map((service, i) => (
+                        {(analysisOutput.metaTags?.services || []).map((service, i) => (
                           <div 
                             key={i} 
                             className={`p-3 rounded-lg cursor-pointer transition-all ${
@@ -3265,7 +3288,7 @@ const SeoWriter = () => {
                     </CardHeader>
                     <CardContent>
                       <div className="grid md:grid-cols-3 gap-4">
-                        {analysisOutput.contentCalendar!.map((month, i) => (
+                        {(analysisOutput.contentCalendar || []).map((month, i) => (
                           <div key={i} className="p-4 rounded-lg bg-muted/50 border">
                             <h4 className="font-semibold text-genie-purple">{month.month}</h4>
                             <p className="text-xs text-muted-foreground mb-3">Focus: {month.focus}</p>
@@ -3296,7 +3319,7 @@ const SeoWriter = () => {
                   <CardContent>
                     <div className="space-y-3">
                       {(analysisOutput.recommendations?.length || 0) > 0 ? (
-                        analysisOutput.recommendations!.map((rec, i) => (
+                        (analysisOutput.recommendations || []).map((rec, i) => (
                           <div key={i} className={`p-4 rounded-lg border ${
                             rec.priority === 'critical' ? 'bg-red-500/10 border-red-500/30' :
                             rec.priority === 'high' ? 'bg-orange-500/10 border-orange-500/30' :
@@ -3337,7 +3360,7 @@ const SeoWriter = () => {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
-                        {analysisOutput.contentGaps!.map((gap, i) => (
+                        {(analysisOutput.contentGaps || []).map((gap, i) => (
                           <div key={i} className="p-3 rounded-lg bg-muted/50 flex items-center justify-between">
                             <div className="flex items-start gap-3">
                               {gap.priority && (
@@ -3369,7 +3392,7 @@ const SeoWriter = () => {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
-                        {analysisOutput.competitors!.map((comp, i) => (
+                        {(analysisOutput.competitors || []).map((comp, i) => (
                           <div key={i} className="p-3 rounded-lg bg-muted/50 flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full bg-genie-purple/20 flex items-center justify-center text-sm font-bold">

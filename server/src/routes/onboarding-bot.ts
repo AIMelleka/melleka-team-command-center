@@ -118,7 +118,7 @@ router.post("/push-to-notion", requireAuth, async (req, res) => {
     const needsUserLookup = tasks.some(t => t.assignee || t.manager);
     if (needsUserLookup) {
       try {
-        const usersResp = await fetch(`${NOTION_API}/users`, { headers: notionHeaders() });
+        const usersResp = await fetch(`${NOTION_API}/users`, { headers: notionHeaders(), signal: AbortSignal.timeout(45_000) });
         if (usersResp.ok) {
           const usersData = await usersResp.json();
           notionUsers = (usersData.results || [])
@@ -195,6 +195,7 @@ router.post("/push-to-notion", requireAuth, async (req, res) => {
             parent: { database_id: DEFAULT_DB_ID },
             properties,
           }),
+          signal: AbortSignal.timeout(45_000),
         });
 
         if (!resp.ok) {

@@ -44,6 +44,7 @@ async function refreshAccessToken(): Promise<string | null> {
         refresh_token: refreshToken,
         client_id: clientId,
       }),
+      signal: AbortSignal.timeout(45_000),
     });
 
     if (!resp.ok) return null;

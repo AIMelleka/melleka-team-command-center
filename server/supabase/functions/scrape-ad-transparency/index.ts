@@ -4,7 +4,7 @@ import {
   validateString,
   createValidationErrorResponse,
 } from "../_shared/validation.ts";
-import { requireAdminAuth, createUnauthorizedResponse } from "../_shared/auth.ts";
+import { requireToolAuth, createUnauthorizedResponse } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,7 +17,7 @@ serve(async (req) => {
   }
 
   // Require admin authentication
-  const authResult = await requireAdminAuth(req);
+  const authResult = await requireToolAuth(req, 'creative-studio');
   if (!authResult.authorized) {
     return createUnauthorizedResponse(
       authResult.error || "Unauthorized",

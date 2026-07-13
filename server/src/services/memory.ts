@@ -132,13 +132,80 @@ export async function findMemoryByTitle(
   return (data as MemoryEntry) || null;
 }
 
-export async function buildMemoryForPrompt(memberName: string): Promise<string> {
+export async function buildMemoryForPrompt(memberName: string, messageHint = ""): Promise<string> {
   const entries = await listMemoryEntries(memberName);
   if (entries.length === 0) return "";
-  return entries
-    .reverse() // oldest first for chronological order
-    .map((e) => `### ${e.title}\n${e.content}`)
+
+  // Deduplicate by title — keep the most recently updated version of each
+  const seen = new Map<string, MemoryEntry>();
+  for (const e of entries) {
+    const key = e.title.toLowerCase().trim();
+    if (!seen.has(key)) seen.set(key, e); // listMemoryEntries returns desc, so first = newest
+  }
+  const unique = Array.from(seen.values());
+
+  // Keywords from the current message — used to load relevant large entries on demand
+  const keywords = messageHint
+    .toLowerCase()
+    .split(/[\s,@]+/)
+    .filter((w) => w.length > 3);
+
+  // Separate small (always-load) from large (load only when relevant)
+  const small: MemoryEntry[] = [];
+  const relevant: MemoryEntry[] = [];
+  const skipped: string[] = [];
+
+  for (const e of unique) {
+    if (e.content.length <= 2000) {
+      small.push(e);
+    } else {
+      const titleLower = e.title.toLowerCase();
+      const matched = keywords.some((k) => titleLower.includes(k));
+      if (matched) {
+        relevant.push(e);
+      } else {
+        skipped.push(e.title);
+      }
+    }
+  }
+
+  const MAX_CHARS = 20000;
+  const MAX_ENTRY_CHARS = 5000; // truncate any single large entry to this
+  let totalChars = 0;
+  const included: Array<{ title: string; text: string }> = [];
+
+  const addEntry = (e: MemoryEntry, maxContent: number): boolean => {
+    const truncated = e.content.length > maxContent
+      ? e.content.slice(0, maxContent) + `\n[...${e.content.length - maxContent} more chars — use list_memories to read full entry]`
+      : e.content;
+    const text = `### ${e.title}\n${truncated}`;
+    if (totalChars + text.length > MAX_CHARS) {
+      skipped.push(e.title);
+      return false;
+    }
+    included.push({ title: e.title, text });
+    totalChars += text.length + 2;
+    return true;
+  };
+
+  // Small entries always load in full
+  for (const e of small) addEntry(e, e.content.length);
+
+  // Large keyword-matched entries load (truncated if needed)
+  for (const e of relevant) addEntry(e, MAX_ENTRY_CHARS);
+
+  const body = included
+    .reverse() // chronological (oldest first)
+    .map((e) => e.text)
     .join("\n\n");
+
+  if (skipped.length === 0) return body;
+
+  const hint = `\n\n[${skipped.length} large memories not loaded (saving tokens): ${
+    skipped.slice(0, 8).join(", ")
+  }${skipped.length > 8 ? ` +${skipped.length - 8} more` : ""}. Mention the client/topic or use list_memories to retrieve.]`;
+
+  return body + hint;
 }
 
 const migratedMembers = new Set<string>();

@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AdminHeader from '@/components/AdminHeader';
 import { useDailyReports } from '@/hooks/useDailyReports';
+import { useClientGoals } from '@/hooks/useClientGoals';
+import { INDUSTRY_BENCHMARKS, DEFAULT_BENCHMARK } from '@/data/industryBenchmarks';
 import { useDeepAnalysis } from '@/hooks/useDeepAnalysis';
 import { useRecommendationActions } from '@/hooks/useRecommendationActions';
 import { useAutoOptimizeData } from '@/hooks/useAutoOptimizeData';
@@ -109,6 +111,37 @@ export default function DailyReports() {
     }
   };
 
+  const handleRegenerateSingle = async (clientName: string) => {
+    const startTime = Date.now();
+    const today = new Date().toISOString().split('T')[0];
+
+    toast({ title: `Regenerating ${clientName}...`, description: 'This takes 30-120 seconds.' });
+
+    // Fire and forget — the edge function may run longer than the client timeout
+    supabase.functions.invoke('bulk-ad-review', { body: { clientName } }).catch(() => {});
+
+    // Poll until the new report row appears
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(async () => {
+        const { data } = await supabase
+          .from('ad_review_history')
+          .select('id')
+          .eq('client_name', clientName)
+          .eq('review_date', today)
+          .gte('created_at', new Date(startTime).toISOString())
+          .limit(1);
+
+        if ((data && data.length > 0) || Date.now() - startTime > 150000) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 5000);
+    });
+
+    reload();
+    toast({ title: `Report regenerated for ${clientName}` });
+  };
+
   const stopPolling = () => {
     cancelRef.current = true;
     if (pollRef.current) {
@@ -150,6 +183,43 @@ export default function DailyReports() {
     execute,
     makeChange,
   } = useRecommendationActions();
+
+  const { goalsMap, updateGoals } = useClientGoals();
+
+  // Look up industry benchmarks (CPA) for a given industry string
+  // Always returns at least DEFAULT_BENCHMARK so scoring has a baseline
+  const getBenchmarks = (industry: string | null): { googleCpa?: number; metaCpa?: number } => {
+    if (!industry) return { googleCpa: DEFAULT_BENCHMARK.google.cpa, metaCpa: DEFAULT_BENCHMARK.facebook.cpa };
+    const lower = industry.toLowerCase();
+
+    // 1. Exact match (case-insensitive)
+    const exact = INDUSTRY_BENCHMARKS.find(b => b.industry.toLowerCase() === lower);
+    if (exact) return { googleCpa: exact.google.cpa, metaCpa: exact.facebook.cpa };
+
+    // 2. Partial/contains match
+    const partial = INDUSTRY_BENCHMARKS.find(b =>
+      b.industry.toLowerCase().includes(lower) || lower.includes(b.industry.toLowerCase().split(' ')[0])
+    );
+    if (partial) return { googleCpa: partial.google.cpa, metaCpa: partial.facebook.cpa };
+
+    // 3. Keyword match
+    let bestMatch: typeof INDUSTRY_BENCHMARKS[0] | null = null;
+    let bestScore = 0;
+    for (const bm of INDUSTRY_BENCHMARKS) {
+      let score = 0;
+      for (const kw of bm.keywords) {
+        if (lower.includes(kw)) score += 2;
+      }
+      for (const word of lower.split(/\s+/)) {
+        if (word.length >= 3 && bm.keywords.some(kw => kw.includes(word))) score += 1;
+      }
+      if (score > bestScore) { bestScore = score; bestMatch = bm; }
+    }
+    if (bestMatch && bestScore >= 2) return { googleCpa: bestMatch.google.cpa, metaCpa: bestMatch.facebook.cpa };
+
+    // 4. Fallback to default benchmark
+    return { googleCpa: DEFAULT_BENCHMARK.google.cpa, metaCpa: DEFAULT_BENCHMARK.facebook.cpa };
+  };
 
   const [activeView, setActiveView] = useState<'reports' | 'auto-updates'>('reports');
 
@@ -275,7 +345,7 @@ export default function DailyReports() {
                     disabled={isLoading}
                   >
                     <Zap className="h-3.5 w-3.5" />
-                    Regenerate Reports
+                    Regenerate All
                   </Button>
                 ))}
 
@@ -329,7 +399,7 @@ export default function DailyReports() {
                   ) : (
                     <Button onClick={handleRegenerate} className="gap-2">
                       <Zap className="h-4 w-4" />
-                      Regenerate Reports
+                      Regenerate All
                     </Button>
                   )}
                 </div>
@@ -339,6 +409,9 @@ export default function DailyReports() {
               <ClientDetailView
                 report={selectedReport}
                 onBack={() => setSelectedClient(null)}
+                goals={goalsMap.get(selectedReport.clientName)}
+                onGoalsChange={updateGoals}
+                industryBenchmarks={getBenchmarks(selectedReport.industry)}
                 isRangeMode={isRangeMode}
                 deepAnalysis={analyses.get(selectedReport.clientName) || null}
                 getStatus={getStatus}
@@ -347,12 +420,15 @@ export default function DailyReports() {
                 onReject={reject}
                 onExecute={execute}
                 onMakeChange={makeChange}
+                onRegenerate={handleRegenerateSingle}
               />
             ) : (
               /* Level 1: Overview Grid */
               <ClientsOverview
                 reports={reports}
                 onSelectClient={setSelectedClient}
+                goalsMap={goalsMap}
+                getBenchmarks={getBenchmarks}
               />
             )}
           </TabsContent>

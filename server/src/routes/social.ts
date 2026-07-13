@@ -24,7 +24,7 @@ async function ayrFetch(
     opts.body = JSON.stringify(body);
   }
 
-  const resp = await fetch(`${AYRSHARE_BASE}${path}`, opts);
+  const resp = await fetch(`${AYRSHARE_BASE}${path}`, { ...opts, signal: AbortSignal.timeout(45_000) });
   let data: unknown;
   try {
     data = await resp.json();
@@ -318,7 +318,8 @@ router.get("/meta-pages", requireAuth, async (_req: AuthRequest, res) => {
 
     // Fetch all pages the token has access to, including connected Instagram account IDs
     const pagesResp = await fetch(
-      `${baseUrl}/me/accounts?fields=id,name,instagram_business_account&limit=100&access_token=${token}`
+      `${baseUrl}/me/accounts?fields=id,name,instagram_business_account&limit=100&access_token=${token}`,
+      { signal: AbortSignal.timeout(45_000) }
     );
     const pagesData = await pagesResp.json() as { data?: Array<{ id: string; name: string; instagram_business_account?: { id: string } }>; error?: any };
 
@@ -336,7 +337,7 @@ router.get("/meta-pages", requireAuth, async (_req: AuthRequest, res) => {
     if (igIds.length > 0) {
       const results = await Promise.allSettled(
         igIds.map(async (igId) => {
-          const r = await fetch(`${baseUrl}/${igId}?fields=id,username,name&access_token=${token}`);
+          const r = await fetch(`${baseUrl}/${igId}?fields=id,username,name&access_token=${token}`, { signal: AbortSignal.timeout(45_000) });
           if (r.ok) {
             const d = await r.json() as { id: string; username?: string; name?: string };
             igDetails[igId] = { username: d.username || d.name || igId, name: d.name || d.username || igId };

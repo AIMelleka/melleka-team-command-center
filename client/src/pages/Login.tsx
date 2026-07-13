@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -8,8 +8,6 @@ import { toast } from 'sonner';
 import { Loader2, Lock, ArrowLeft, Mail, CheckCircle, KeyRound } from 'lucide-react';
 import GenieLamp from '@/components/icons/GenieLamp';
 import { supabase } from '@/integrations/supabase/client';
-import { MFAVerify } from '@/components/MFAVerify';
-import { MFA_EXEMPT_EMAILS } from '@/lib/mfaConfig';
 
 type ResetStep = 'email' | 'code' | 'newPassword';
 
@@ -17,7 +15,10 @@ const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showMFA, setShowMFA] = useState(false);
+  const [showEmailVerify, setShowEmailVerify] = useState(false);
+  const [verifyEmail, setVerifyEmail] = useState('');
+  const [emailCode, setEmailCode] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetStep, setResetStep] = useState<ResetStep>('email');
   const [resetEmail, setResetEmail] = useState('');
@@ -27,6 +28,13 @@ const Login = () => {
   const [resetLoading, setResetLoading] = useState(false);
   const { signIn } = useAuth();
   const navigate = useNavigate();
+
+  // Countdown timer for resend cooldown
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const id = window.setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
+    return () => window.clearTimeout(id);
+  }, [resendCooldown]);
 
   const redirectAfterLogin = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -42,14 +50,25 @@ const Login = () => {
     }
   };
 
+  const sendOtp = useCallback(async (targetEmail: string) => {
+    const { error } = await supabase.auth.signInWithOtp({
+      email: targetEmail,
+      options: { shouldCreateUser: false },
+    });
+    if (error) throw error;
+    setResendCooldown(60);
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
     const normalizedEmail = email.trim().toLowerCase();
-    const { error, data } = await supabase.auth.signInWithPassword({ 
-      email: normalizedEmail, 
-      password 
+
+    // Step 1: Validate credentials
+    const { error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
     });
 
     if (error) {
@@ -58,31 +77,61 @@ const Login = () => {
       return;
     }
 
-    // Check if user has MFA enrolled (skip for exempt accounts)
-    const userEmail = normalizedEmail;
+    // Step 2: Credentials valid — sign out and send email OTP
+    await supabase.auth.signOut();
 
-    if (!MFA_EXEMPT_EMAILS.includes(userEmail)) {
-      const { data: aalData, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-      
-      if (!aalError && aalData.nextLevel === 'aal2' && aalData.currentLevel === 'aal1') {
-        // User has MFA enabled, need to verify
-        setShowMFA(true);
-        setIsLoading(false);
-        return;
-      }
+    try {
+      await sendOtp(normalizedEmail);
+    } catch (otpError: any) {
+      toast.error('Failed to send verification code', { description: otpError.message });
+      setIsLoading(false);
+      return;
     }
 
-    // No MFA required, proceed
+    setVerifyEmail(normalizedEmail);
+    setShowEmailVerify(true);
+    setIsLoading(false);
+  };
+
+  const handleVerifyEmailCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailCode.trim()) {
+      toast.error('Please enter the verification code');
+      return;
+    }
+
+    setIsLoading(true);
+
+    const { error } = await supabase.auth.verifyOtp({
+      email: verifyEmail,
+      token: emailCode.trim(),
+      type: 'email',
+    });
+
+    if (error) {
+      toast.error('Invalid or expired code', { description: error.message });
+      setIsLoading(false);
+      return;
+    }
+
     await redirectAfterLogin();
   };
 
-  const handleMFAVerified = async () => {
-    await redirectAfterLogin();
+  const handleResendCode = async () => {
+    if (resendCooldown > 0) return;
+    try {
+      await sendOtp(verifyEmail);
+      toast.success('New code sent to your email');
+    } catch (err: any) {
+      toast.error('Failed to resend code', { description: err.message });
+    }
   };
 
-  const handleMFACancel = async () => {
-    await supabase.auth.signOut();
-    setShowMFA(false);
+  const handleCancelVerify = () => {
+    setShowEmailVerify(false);
+    setVerifyEmail('');
+    setEmailCode('');
+    setResendCooldown(0);
     setEmail('');
     setPassword('');
   };
@@ -170,8 +219,61 @@ const Login = () => {
     setResetLoading(false);
   };
 
-  if (showMFA) {
-    return <MFAVerify onVerified={handleMFAVerified} onCancel={handleMFACancel} />;
+  // Email verification code entry screen
+  if (showEmailVerify) {
+    return (
+      <div className="min-h-screen min-h-[100dvh] bg-background flex flex-col items-center justify-center px-4 overflow-y-auto">
+        <div className="w-full max-w-sm">
+          <div className="flex flex-col items-center mb-8">
+            <GenieLamp size={48} className="mb-4 animate-float" />
+            <h1 className="text-2xl font-display font-bold genie-gradient-text text-center">
+              Check Your Email
+            </h1>
+            <p className="text-muted-foreground mt-2 text-sm text-center">
+              Enter the 6-digit code sent to {verifyEmail}
+            </p>
+          </div>
+
+          <form onSubmit={handleVerifyEmailCode} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email-code">Verification Code</Label>
+              <Input
+                id="email-code"
+                type="text"
+                placeholder="Enter 6-digit code"
+                value={emailCode}
+                onChange={(e) => setEmailCode(e.target.value)}
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                required
+                disabled={isLoading}
+                autoFocus
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verifying...</>
+              ) : (
+                <><CheckCircle className="mr-2 h-4 w-4" />Verify Code</>
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full"
+              onClick={handleResendCode}
+              disabled={resendCooldown > 0}
+            >
+              <Mail className="mr-2 h-4 w-4" />
+              {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend code'}
+            </Button>
+            <Button type="button" variant="ghost" className="w-full" onClick={handleCancelVerify}>
+              <ArrowLeft className="mr-2 h-4 w-4" />Back to login
+            </Button>
+          </form>
+        </div>
+      </div>
+    );
   }
 
   if (showForgotPassword) {
