@@ -161,9 +161,14 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
     try { res.write(": keepalive\n\n"); } catch { /* connection gone */ }
   }, 1000);
 
-  // Track if client disconnected so we still save the response
+  // Track if client disconnected so we still save the response.
+  // The AbortController lets us signal the agentic loop to stop between iterations.
   let clientDisconnected = false;
-  res.on("close", () => { clientDisconnected = true; });
+  const abortController = new AbortController();
+  res.on("close", () => {
+    clientDisconnected = true;
+    abortController.abort();
+  });
 
   let convId = conversationId;
 
@@ -519,6 +524,15 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
       }
     }
 
+    // Guard: don't start a second agentic loop on the same conversation
+    if (isConversationRunning(convId!)) {
+      res.write(`data: ${JSON.stringify({ type: "error", message: "The assistant is still working on this conversation. Please wait a moment and try again." })}\n\n`);
+      res.end();
+      activeSseConnections--;
+      clearInterval(keepalive);
+      return;
+    }
+
     // Register active job so clients can reconnect
     registerJob(convId!, memberName);
 
@@ -532,7 +546,7 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
     const fullResponse = await Promise.race([
       streamChat(memberName, messages, res, (event) => {
         pushEvent(convId!, event as any);
-      }, convId, lowTokenMode, model, req.anthropicApiKey),
+      }, convId, lowTokenMode, model, req.anthropicApiKey, abortController.signal),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("Chat request timed out after 25 minutes")), CHAT_TIMEOUT_MS)
       ),

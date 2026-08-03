@@ -175,7 +175,7 @@ async function runJob(job: CronJob, isRetry: boolean): Promise<void> {
       timeStyle: "short",
     });
 
-    const userMessage = `[AUTOMATED CRON JOB — Scheduled run at ${runTime}]\nThis is an automated run. Do NOT ask for approval, confirmations, or user input. Execute all steps directly and completely.\n\n${job.task}`;
+    const userMessage = `[AUTOMATED CRON JOB — Scheduled run at ${runTime}]\n\n${job.task}`;
 
     // Save the triggering message
     await supabase.from("team_messages").insert({
@@ -212,8 +212,8 @@ async function runJob(job: CronJob, isRetry: boolean): Promise<void> {
       };
     });
 
-    // Run Claude with history
-    const response = await runChatBackground(job.member_name, messages, convId);
+    // Run Claude with only the current trigger (no history) to prevent context contamination
+    const response = await runChatBackground(job.member_name, messages.slice(-1), convId, { skipCronContext: true });
 
     // Cap response size before saving
     const savedResponse = response.length > MAX_RESPONSE_LENGTH

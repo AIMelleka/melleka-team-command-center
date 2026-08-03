@@ -65,6 +65,39 @@ router.get("/decks/:slug", async (req, res) => {
   res.json({ deck: data });
 });
 
+/**
+ * GET /api/public/vegamour/:token
+ * Public endpoint — serves a stored Vegamour brief with a print-to-PDF button.
+ */
+router.get("/vegamour/:token", async (req, res) => {
+  const { token } = req.params;
+
+  const { data, error } = await supabase
+    .from("vegamour_briefs")
+    .select("html")
+    .eq("token", token)
+    .maybeSingle();
+
+  if (error) {
+    res.status(500).send("Failed to load brief");
+    return;
+  }
+  if (!data) {
+    res.status(404).send("Brief not found");
+    return;
+  }
+
+  const printButton = `<div data-no-print style="position:fixed;top:20px;right:20px;z-index:9999;font-family:Arial,sans-serif;"><button onclick="window.print()" style="background:#2d1b4e;color:#fff;border:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.25);">&#x2193; Download PDF</button></div><style>@media print{[data-no-print]{display:none!important}}</style>`;
+
+  const html = data.html.includes("</body>")
+    ? data.html.replace("</body>", `${printButton}</body>`)
+    : data.html + printButton;
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.send(html);
+});
+
 // ── SEO / OG meta tags for social sharing ──────────────────────────────
 
 function esc(s: string): string {

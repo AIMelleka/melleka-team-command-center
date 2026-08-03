@@ -87,19 +87,32 @@ async function getOfficeSoldiersId(): Promise<string> {
 
   if (secret?.value) {
     _officeSoldiersId = secret.value;
-    return _officeSoldiersId!;
+  } else {
+    // Fall back to looking up by channel name via Slack API
+    const token = await getBotToken();
+    const resp = await fetch(
+      "https://slack.com/api/conversations.list?types=public_channel&limit=200",
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const json = await resp.json() as { ok: boolean; channels?: { id: string; name: string }[] };
+    const ch = json.channels?.find((c) => c.name === "respond_watcher");
+    if (!ch) throw new Error("[slack-monitor] #respond_watcher channel not found — add SLACK_OFFICE_SOLDIERS_ID to team_secrets");
+    _officeSoldiersId = ch.id;
   }
 
-  // Fall back to looking up by channel name via Slack API
-  const token = await getBotToken();
-  const resp = await fetch(
-    "https://slack.com/api/conversations.list?types=public_channel&limit=200",
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  const json = await resp.json() as { ok: boolean; channels?: { id: string; name: string }[] };
-  const ch = json.channels?.find((c) => c.name === "respond_watcher");
-  if (!ch) throw new Error("[slack-monitor] #respond_watcher channel not found — add SLACK_OFFICE_SOLDIERS_ID to team_secrets");
-  _officeSoldiersId = ch.id;
+  // Join the channel so the bot receives events from it (required to detect team replies).
+  // This is a no-op if the bot is already a member. Errors are non-fatal.
+  try {
+    const token = await getBotToken();
+    await fetch("https://slack.com/api/conversations.join", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ channel: _officeSoldiersId }),
+    });
+  } catch {
+    // Non-fatal — bot may already be a member or lack channels:join scope
+  }
+
   return _officeSoldiersId!;
 }
 
@@ -290,6 +303,40 @@ async function checkAndFireAlerts(): Promise<void> {
   }
 }
 
+// ─── Resolve alert when a team member replies to a bot alert in #respond_watcher
+// Emely (or anyone) can reply in the thread of an alert message to close it.
+async function resolveAlertFromWatcherThread(token: string, watcherChannelId: string, threadTs: string): Promise<void> {
+  try {
+    // Fetch the root message of this thread — it's the bot's alert message
+    const resp = await fetch(
+      `https://slack.com/api/conversations.replies?channel=${watcherChannelId}&ts=${threadTs}&limit=1`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const data = await resp.json() as { ok: boolean; messages?: Array<{ text?: string }> };
+    if (!data.ok || !data.messages?.[0]) return;
+
+    const rootText = data.messages[0].text || "";
+
+    // Alert text format: "... - <#C1234567>" or "<#C1234567|channel-name>"
+    const match = rootText.match(/<#(C[A-Z0-9]+)/);
+    if (!match) return;
+
+    const clientChannelId = match[1];
+
+    const { error } = await supabase
+      .from("client_response_alerts")
+      .update({ resolved: true, resolved_at: new Date().toISOString() })
+      .eq("channel_id", clientChannelId)
+      .eq("resolved", false);
+
+    if (!error) {
+      console.log(`[slack-monitor] Alert resolved for #${clientChannelId} via watcher thread reply`);
+    }
+  } catch (err) {
+    console.error("[slack-monitor] resolveAlertFromWatcherThread error:", err);
+  }
+}
+
 // ─── Handle incoming Slack message event ─────────────────────────────────────
 export async function handleSlackMessage(event: {
   channel?: string;
@@ -304,10 +351,42 @@ export async function handleSlackMessage(event: {
   if (event.bot_id || event.subtype) return;
   if (!event.user || !event.channel) return;
 
+  const isTeamMember = TEAM_MEMBER_IDS.has(event.user);
+
+  // If a team member sends any message in #respond_watcher, resolve the corresponding alert.
+  // Handles both thread replies (e.g. Emely replies "done" to a bot alert) and
+  // top-level messages that mention a channel (e.g. "<#C123> is handled").
+  if (isTeamMember) {
+    try {
+      const token = await getBotToken();
+      const watcherId = await getOfficeSoldiersId();
+      if (event.channel === watcherId) {
+        if (event.thread_ts) {
+          // Thread reply — look up root message to find the client channel
+          await resolveAlertFromWatcherThread(token, watcherId, event.thread_ts);
+        } else {
+          // Top-level message — check if the text contains a channel mention
+          const match = (event.text || "").match(/<#(C[A-Z0-9]+)/i);
+          if (match) {
+            const { error } = await supabase
+              .from("client_response_alerts")
+              .update({ resolved: true, resolved_at: new Date().toISOString() })
+              .eq("channel_id", match[1])
+              .eq("resolved", false);
+            if (!error) {
+              console.log(`[slack-monitor] Alert resolved for #${match[1]} via watcher top-level message`);
+            }
+          }
+        }
+        return;
+      }
+    } catch {
+      // Can't determine watcher channel ID — fall through to normal processing
+    }
+  }
+
   const monitoredChannels = await getMonitoredChannels();
   if (!monitoredChannels.has(event.channel)) return;
-
-  const isTeamMember = TEAM_MEMBER_IDS.has(event.user);
 
   if (isTeamMember) {
     // Team member responded — resolve all open alerts for this channel

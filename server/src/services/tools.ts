@@ -793,6 +793,44 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "send_vegamour_brief_email",
+    description:
+      "Send the completed Vegamour ROAS brief email. Handles recipients and FROM address internally — you only provide the subject and HTML body. Always use this instead of send_email for Vegamour briefs.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        subject: {
+          type: "string",
+          description: "Email subject line, e.g. 'Vegamour ROAS Brief | Jul 24, 2026 | Grade C (2.08x)'",
+        },
+        html: {
+          type: "string",
+          description: "The complete filled HTML of the brief (all placeholders replaced, download button injected).",
+        },
+      },
+      required: ["subject", "html"],
+    },
+  },
+  {
+    name: "save_vegamour_brief",
+    description:
+      "Save a Vegamour brief HTML to the archive so recipients can download it as a PDF. Call this AFTER building the HTML but BEFORE sending the email. Returns the public URL to use as a download button in the email.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        html: {
+          type: "string",
+          description: "The complete HTML of the brief (all placeholders filled in).",
+        },
+        token: {
+          type: "string",
+          description: "Unique token for this brief. Use 'daily-YYYY-MM-DD' for daily briefs or 'weekly-YYYY-MM-DD' (Sunday end date) for weekly roll-ups.",
+        },
+      },
+      required: ["html", "token"],
+    },
+  },
+  {
     name: "create_cron_job",
     description:
       "Schedule a recurring task that Claude will execute automatically. Examples: daily reports, weekly summaries, reminder emails.",
@@ -2894,6 +2932,48 @@ export async function executeTool(
         return `Error sending email (${response.status}): ${JSON.stringify(result)}`;
       }
 
+      case "send_vegamour_brief_email": {
+        const briefSubject = toolInput.subject as string;
+        const briefHtml = toolInput.html as string;
+        if (!briefHtml.includes("<") || briefHtml.length < 1000) {
+          return "Error: HTML body looks invalid or too short. Do not send.";
+        }
+        // Recipients sourced server-side from team_secrets — AI never touches this list
+        const { supabase: sbRecip } = await import("./supabase.js");
+        const { data: recipSecret } = await sbRecip
+          .from("team_secrets")
+          .select("value")
+          .eq("key", "VEGAMOUR_DAILY_RECIPIENTS")
+          .single();
+        const recipientStr = recipSecret?.value ?? "";
+        if (!recipientStr) return "Error: VEGAMOUR_DAILY_RECIPIENTS not found in team_secrets. Aborting send.";
+        const toArray = recipientStr.split(",").map((e: string) => e.trim()).filter(Boolean);
+        if (toArray.length < 5) return `Error: Only ${toArray.length} recipients found — expected at least 5. Aborting.`;
+        const fromEmail = (await getSecret("FROM_EMAIL")) ?? "Melleka AI Strategist <ai@listing.melleka.com>";
+        const resendKey = await requireSecret("RESEND_API_KEY", "Resend API Key");
+        const sendRes = await fetchWithTimeout("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ from: fromEmail, to: toArray, subject: briefSubject, html: briefHtml }),
+        });
+        const sendResult = await sendRes.json() as Record<string, unknown>;
+        if (!sendRes.ok) return `Error sending email (${sendRes.status}): ${JSON.stringify(sendResult)}`;
+        return `Vegamour brief sent to ${toArray.length} recipients (${toArray.join(", ")}). ID: ${sendResult.id}`;
+      }
+
+      case "save_vegamour_brief": {
+        const { supabase: sbClient } = await import("./supabase.js");
+        const briefHtml = toolInput.html as string;
+        const briefToken = toolInput.token as string;
+        const briefType = briefToken.startsWith("weekly") ? "weekly" : "daily";
+        const { error: saveError } = await sbClient
+          .from("vegamour_briefs")
+          .upsert({ token: briefToken, html: briefHtml, brief_type: briefType }, { onConflict: "token" });
+        if (saveError) return `Error saving brief: ${saveError.message}`;
+        const serverUrl = process.env.SERVER_URL ?? "https://server-production-0486.up.railway.app";
+        return `Brief saved. Download URL: ${serverUrl}/api/public/vegamour/${briefToken}`;
+      }
+
       case "create_cron_job": {
         const { supabase } = await import("./supabase.js");
         const jobName = toolInput.name as string;
@@ -4200,10 +4280,17 @@ export async function executeTool(
           filterClauses.push({ property: "Done ?", checkbox: { equals: false } });
         }
 
-        if (startDate) {
+        // Date filter: for "pending" and "all" queries, filter by last_edited_time.
+        // For "completed" queries with a specific client, skip the date filter entirely —
+        // last_edited_time is NOT when a task was marked done. A task completed days before
+        // the report window will have its last_edited_time outside the range and be missed.
+        // The AI applies date relevance from the system prompt instead.
+        const skipDateFilter = statusFilter === "completed" && !!clientName;
+
+        if (!skipDateFilter && startDate) {
           filterClauses.push({ timestamp: "last_edited_time", last_edited_time: { on_or_after: startDate } });
         }
-        if (endDate) {
+        if (!skipDateFilter && endDate) {
           const endPlusOne = new Date(endDate);
           endPlusOne.setDate(endPlusOne.getDate() + 1);
           filterClauses.push({ timestamp: "last_edited_time", last_edited_time: { before: endPlusOne.toISOString().split("T")[0] } });
@@ -4252,7 +4339,9 @@ export async function executeTool(
           allTasks.push(...(data.results || []));
           hasMore = Boolean(data.has_more);
           cursor = data.next_cursor || undefined;
-          if (allTasks.length >= 2000) hasMore = false;
+          // Higher cap when no date filter: completed+client queries fetch all historical tasks
+          const taskCap = skipDateFilter ? 5000 : 2000;
+          if (allTasks.length >= taskCap) hasMore = false;
         }
 
         // Use shared client matcher (strict registry + smart alias matching)
@@ -4260,6 +4349,8 @@ export async function executeTool(
 
         // Parse and filter tasks
         const results: Array<{ title: string; status: string; client: string; assignee: string; manager: string; lastEdited: string; isCompleted: boolean }> = [];
+        // Collect CLIENTS field values from tasks that were scanned but did NOT match clientName
+        const nonMatchingClientValues = new Set<string>();
 
         for (const task of allTasks) {
           const props = task.properties || {};
@@ -4277,9 +4368,9 @@ export async function executeTool(
           // Client
           let client = "";
           const cp = props["CLIENTS"];
-          if (cp?.type === "rich_text") client = cp.rich_text.map((x: any) => x.plain_text).join("");
+          if (cp?.type === "rich_text") client = cp.rich_text.map((x: any) => x.plain_text).join("").trim();
           else if (cp?.type === "multi_select") client = cp.multi_select.map((x: any) => x.name).join(", ");
-          else if (cp?.type === "select") client = cp.select?.name || "";
+          else if (cp?.type === "select") client = (cp.select?.name || "").trim();
 
           // Assignee (include email for Slack DM lookups)
           let assignee = "";
@@ -4301,14 +4392,17 @@ export async function executeTool(
 
           const lastEdited = task.last_edited_time || "";
           const statusLower = status.toLowerCase();
-          const isCompleted = ["done", "good to launch", "archived", "complete", "completed", "finished", "approved", "launched", "published"].some(s => statusLower.includes(s));
+          const isCompleted = ["done", "good to launch", "archived", "complete", "completed", "finished", "approved", "launched", "published", "delivered", "closed", "sent", "signed off", "ready to launch"].some(s => statusLower.includes(s));
           const isNonEssential = statusLower.includes("non-essential") || statusLower.includes("non essential");
 
           // Check "Done ?" checkbox
           const doneCheckbox = props["Done ?"]?.checkbox === true;
 
           if (isNonEssential) continue;
-          if (clientName && !clientMatcher(client, title)) continue;
+          if (clientName && !clientMatcher(client, title)) {
+            if (client) nonMatchingClientValues.add(client);
+            continue;
+          }
           if (statusFilter === "completed" && !isCompleted && !doneCheckbox) continue;
           if (statusFilter === "pending" && (isCompleted || doneCheckbox)) continue;
 
@@ -4328,12 +4422,25 @@ export async function executeTool(
         const label = statusFilter === "completed" ? "Completed" : statusFilter === "pending" ? "Pending" : "All";
         const scope = clientName ? `"${clientName}"` : "ALL clients";
         let output = `${label} Tasks for ${scope}\n`;
-        output += `Database: IN HOUSE TO-DO | Date range: ${startDate || "all time"} to ${endDate || "present"}\n`;
+        if (skipDateFilter) {
+          output += `Database: IN HOUSE TO-DO | Date filter: NOT APPLIED — all completed tasks returned. Use the "Edited" date on each task to determine relevance to your report period (${startDate || "?"} to ${endDate || "?"}).\n`;
+        } else {
+          output += `Database: IN HOUSE TO-DO | Date range: ${startDate || "all time"} to ${endDate || "present"}\n`;
+        }
         output += `Total tasks scanned: ${allTasks.length} | Matched: ${results.length}\n\n`;
 
         if (results.length === 0) {
-          output += `No ${label.toLowerCase()} tasks found for ${scope} in the given date range.\n`;
-          if (clientName) output += `\nTip: Try broader date range or different name/alias. Aliases tried: ${generateClientAliases(clientName, registry).join(", ")}`;
+          output += `No ${label.toLowerCase()} tasks found for ${scope}.\n`;
+          if (clientName) {
+            output += `\nAliases tried: ${generateClientAliases(clientName, registry).join(", ")}`;
+            if (nonMatchingClientValues.size > 0) {
+              const sample = [...nonMatchingClientValues].slice(0, 20);
+              output += `\nCLIENTS field values actually found in scanned tasks (did not match): ${sample.join(", ")}`;
+              output += `\nFix: Update the Notion CLIENTS field on those tasks to match one of the aliases above, or add a registry entry for the abbreviation used.`;
+            } else {
+              output += `\nNote: No tasks had a CLIENTS field value at all — the tasks may be untagged in Notion.`;
+            }
+          }
         } else {
           for (const t of results) {
             output += `- ${t.title}`;
