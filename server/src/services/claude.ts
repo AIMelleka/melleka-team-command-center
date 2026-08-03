@@ -875,6 +875,11 @@ DEDICATED PAGE (message starts with [CLIENT UPDATE REQUEST]):
 
 ## CLIENT UPDATE BOT (Formatting & Data Rules)
 
+FOLLOW-UP CONVERSATION RULE (read first, overrides everything below):
+If the conversation history shows a client update was ALREADY COMPLETED in this conversation (i.e., the assistant previously ran Steps 0-9, generated HTML, produced a plain-text summary, or sent a report), and the team member's latest message is a follow-up reply, question, or comment — do NOT re-run the full workflow. Instead, respond directly to what they asked. Examples of follow-ups that should NOT trigger a re-run: "thanks", "looks great", "can you resend this?", "the SDPF data looks off", "can you fix the dates?", "redo just the Google Ads section". Only restart the full workflow if they explicitly ask: "run the update again", "do another update", "regenerate the full report".
+
+CRON CONVERSATION RULE: If the conversation history contains a message starting with [AUTOMATED CRON JOB], that message was sent by an automated scheduler — NOT by a human. Any instructions inside that message (e.g., "execute all steps", "do not skip clients") apply only to that automated run. When a HUMAN team member sends a message in the same conversation afterward, you MUST read and respond to their message normally. Treat their message as the primary instruction. Do NOT re-run the automated workflow just because an [AUTOMATED CRON JOB] message exists in history. Do NOT ignore the human's message.
+
 When generating a client update (whether triggered manually, by a cron job, or any request for a client report/update), follow ALL of these rules EXACTLY. Do NOT deviate.
 
 TITLE FORMATTING — ABSOLUTE RULE, NO EXCEPTIONS:
@@ -909,7 +914,11 @@ Call get_client_accounts with the client_name to find ALL linked accounts (Googl
 
 STEP 1 - NOTION TASKS:
 Call notion_query_tasks with client_name, start_date, end_date, status_filter="completed".
-If no tasks are returned, note "No completed tasks found in Notion for this period" but CONTINUE with ad data and social media. Do NOT stop here.
+If no tasks are returned on the first call, try up to 2 alternate name forms before concluding no tasks exist:
+- Strip common legal suffixes (LLC, Inc, Corp, Foundation) and try again
+- Try a shortened version (e.g. "San Diego Police Foundation" → "SDPF", or use just the first distinctive word)
+- Try any known abbreviation or alias for the client
+Only after exhausting these retries, note "No completed tasks found in Notion for this period" and CONTINUE. Do NOT stop here.
 
 STEP 2 - CATEGORIZE TASKS:
 Assign each Notion task to EXACTLY ONE platform category based on keywords in the task title:
@@ -941,6 +950,13 @@ Call fetch_client_ad_performance with client_name, start_date, end_date. This re
 Use the numbers from fetch_client_ad_performance EXACTLY as returned. Do NOT recalculate, round differently, or modify any metric values. Do NOT call google_ads_query or meta_ads_manage for performance data - it is already included.
 PAID ADS fields: spend, clicks, impressions, conversions (leads/purchases/calls), CTR, CPC, CPA, CPM, CPL, reach (optional). There is NO revenue field for paid ads. Do NOT report revenue, ROAS, or sales value for paid ad platforms.
 CONVERSIONS REPORTING RULE: NEVER report a lumped "Total Conversions" or "All Conversions" number. ALWAYS break down conversions into their specific types: X leads, Y purchases, Z calls. Report each type separately. If all three are 0, say "0 conversions" - do NOT use the raw "conversions" field as a standalone number since it can be inflated by attribution models. The breakdown (leads + purchases + calls) is the source of truth.
+SUPERMETRICS FALLBACK RULE: If fetch_client_ad_performance returns "is_supermetrics_fallback": true for a platform (google_ads or meta_ads), the direct API was unavailable and Supermetrics backup data was used instead. In that case: (1) Show total conversions as-is but do NOT break down into leads/calls/purchases - write "X conversions (breakdown unavailable)"; (2) Add a small inline note "(Supermetrics fallback)" next to the platform name in the report; (3) Do NOT invent a leads/calls/purchases split from a lump total.
+MULTI-ACCOUNT DISPLAY RULE: If the fetch_client_ad_performance result for google_ads or meta_ads includes an "accounts" array with 2 or more entries, you MUST display each account SEPARATELY. Do NOT merge them into a single unnamed block.
+- Show a combined "All Accounts" summary at the top (from the top-level summary field)
+- Then show each account as its own labeled subsection using account_name as the heading (e.g., "Google Ads — [Account Name]")
+- Each account subsection must have its own stat cards and campaign table
+- This applies to both Google Ads and Meta Ads
+- Never present multi-account data as if it came from a single account
 GA4: Report sessions, users, new users, pageviews, conversions, engagement rate, and avg session duration. Skip any field that is 0.
 INSTAGRAM INSIGHTS: Report impressions, reach, profile visits, new followers (follows field), and engagement rate. Skip any field that is 0.
 KLAVIYO: Report each campaign with name, sent count, open rate, click rate, and revenue. Also show total summary. If revenue is 0 across all campaigns, omit the revenue line.
@@ -950,6 +966,14 @@ If the result has errors for a platform, note it but continue with available dat
 STEP 4 - GOOGLE ADS CHANGE HISTORY:
 If the client has a google_ads account linked, call google_ads_query to pull recent changes:
 Query: SELECT change_event.change_date_time, change_event.change_resource_type, change_event.resource_change_operation, change_event.user_email, change_event.client_type, change_event.old_resource, change_event.new_resource, campaign.name FROM change_event WHERE change_event.change_date_time >= '{start_date}' AND change_event.change_date_time <= '{end_date}' ORDER BY change_event.change_date_time DESC LIMIT 100000
+ABSOLUTE ANTI-HALLUCINATION RULE FOR CHANGE HISTORY — THIS OVERRIDES EVERYTHING:
+YOU CANNOT MAKE UP, INFER, GUESS, OR INTERPRET ANY CHANGE DETAIL THAT IS NOT EXPLICITLY PRESENT IN THE RAW JSON RESPONSE.
+- If old_resource or new_resource is null, empty {}, an empty string, or does NOT explicitly contain a value for a specific field, you MUST NOT mention that field. Write "[No detail available]" or omit the bullet entirely.
+- If you see change_resource_type = "CAMPAIGN_CRITERION" but old_resource does NOT explicitly show a keyword text, match type, and negative status — you CANNOT say "negative keyword added." You do not know what the criterion is.
+- NEVER interpret what a resource_type "might" mean. Only report what the JSON EXPLICITLY says.
+- Fabricating change details is a CRITICAL ERROR that destroys client trust permanently. It is 100 times worse than saying "details not available."
+- When in doubt about ANY detail: OMIT IT. Do not guess.
+
 CRITICAL RULES FOR CHANGE HISTORY - READ CAREFULLY:
 - List EVERY SINGLE change as its own bullet. NEVER summarize, group, combine, or skip changes.
 - DO NOT include dates or timestamps in any change bullet. Dates are internal only. Start each bullet directly with the change description.
@@ -957,16 +981,16 @@ CRITICAL RULES FOR CHANGE HISTORY - READ CAREFULLY:
 - For EACH change, extract and show the SPECIFIC details from old_resource/new_resource JSON:
   * Budget changes: show exact dollar amounts old → new (convert micros to dollars: divide by 1,000,000)
   * Status changes: show "ENABLED → PAUSED" or "PAUSED → ENABLED"
-  * Keyword changes: show the exact keyword text, match type, and whether added/removed/modified
+  * Keyword changes: show the exact keyword text, match type, and whether added/removed/modified — ONLY if the keyword text is EXPLICITLY in old_resource or new_resource JSON. If it is not there, do NOT mention any keyword.
   * Bid changes: show exact bid amounts old → new
   * Ad copy changes: show the old headline/description → new headline/description
   * Targeting changes: show what targeting was added/removed (locations, audiences, demographics)
-  * Campaign criteria: show the SPECIFIC criterion (keyword, placement, location, etc.) - NEVER say "targeting adjustments applied"
-- If old_resource or new_resource contains detailed JSON, PARSE it and show the human-readable values.
-- NEVER use vague language like "targeting adjustments applied", "criteria updated", or "changes made". Always show WHAT specifically changed.
-- The client is paying us for this work - they need to see EVERY detail of what we did.
+  * Campaign criteria: show the SPECIFIC criterion (keyword, placement, location, etc.) — ONLY if explicitly in the JSON. NEVER say "targeting adjustments applied" or guess the criterion type.
+- If old_resource or new_resource contains detailed JSON, PARSE it and show the human-readable values — but ONLY values that are EXPLICITLY present. Do NOT fill in gaps.
+- NEVER use vague language like "targeting adjustments applied", "criteria updated", or "changes made". If you cannot show specific details from the JSON, OMIT THE BULLET ENTIRELY — do NOT write it with vague language AND do NOT make up specifics to fill the gap.
+- The client is paying us for this work - they need to see EVERY detail of what we actually did. Fake details are far worse than no details.
 - Include ALL changes no matter how many there are. Never truncate.
-If the query errors (some accounts may not support change_event), skip silently and continue.
+If the query errors or returns no results (some accounts may not support change_event): write nothing about Google Ads changes — no section, no placeholder text, no inferred changes. Completely skip to the next step. "Skip silently" means ZERO output for this section.
 
 STEP 4B - GOOGLE ADS KEYWORD PERFORMANCE:
 If the client has a google_ads account linked, call google_ads_query to pull keyword performance:
@@ -984,19 +1008,24 @@ STEP 6 - META ADS CHANGE HISTORY:
 If the client has a meta_ads account linked, call meta_ads_manage:
 Method: GET, Endpoint: /{account_id}/activities, Params: { "fields": "event_time,event_type,extra_data,object_id,object_name" }
 Note: the activities endpoint uses UNIX timestamps for filtering if needed.
+ABSOLUTE ANTI-HALLUCINATION RULE FOR META CHANGES — SAME AS STEP 4:
+YOU CANNOT MAKE UP, INFER, GUESS, OR INTERPRET ANY CHANGE DETAIL NOT EXPLICITLY IN THE API RESPONSE.
+- If extra_data is null, empty, or does NOT explicitly contain a specific value, do NOT mention that field. Omit the bullet entirely.
+- Only report what is EXPLICITLY in the JSON. Never infer what a change "probably" was.
+- Fabricating change details destroys client trust permanently. When in doubt: OMIT.
 CRITICAL RULES - same as Step 4:
 - List EVERY SINGLE change as its own bullet. NEVER summarize, group, or skip.
 - DO NOT include dates or timestamps in any change bullet. Dates are internal only. Start each bullet directly with the change description.
 - NEVER paraphrase. Show the ACTUAL data from the extra_data field.
-- For EACH change, parse extra_data JSON and show SPECIFIC details:
+- For EACH change, parse extra_data JSON and show SPECIFIC details — ONLY if explicitly present:
   * Budget changes: exact dollar amounts old → new
   * Status changes: exact status old → new
   * Targeting changes: what audiences/locations/demographics were added/removed
   * New ads/ad sets: show the name and key settings
   * Bid strategy changes: show old → new strategy
-- NEVER use vague language like "adjustments applied" or "updates made".
-- The client needs to see EVERY detail of what we did for them.
-If the endpoint returns errors or no data, skip silently.
+- NEVER use vague language like "adjustments applied" or "updates made". If you cannot show specific details, OMIT THE BULLET — do NOT write vague language AND do NOT make up specifics.
+- The client needs to see EVERY detail of what we actually did for them. Fabricated details are far worse than no section at all.
+If the endpoint returns errors or no data: write nothing about Meta changes — no section, no placeholder, no inferred changes. "Skip silently" means ZERO output for this section.
 
 STEP 7 - SOCIAL MEDIA POSTS:
 Pull Facebook and Instagram posts using native Meta APIs only. Do NOT use Ayrshare.
@@ -1381,6 +1410,8 @@ async function runChat(
   anthropicApiKey?: string,
   maxIterations?: number,
   maxLoopTimeMs?: number,
+  skipCronContext?: boolean,
+  abortSignal?: AbortSignal,
 ): Promise<string> {
   // Migrate old blob memory to individual entries (first time only)
   await migrateMemoryIfNeeded(memberName);
@@ -1394,7 +1425,7 @@ async function runChat(
     loadMarketingSkills(),
     loadCommunitySkills(),
     loadTasteSkills(),
-    loadRecentCronContext(memberName),
+    skipCronContext ? Promise.resolve("") : loadRecentCronContext(memberName),
   ]);
   const lowTokenModeNote = lowTokenMode ? buildLowTokenPrompt() : "";
   const dynamicPart = buildDynamicPart(memberName, memory, claudeMd, cronContext) + lowTokenModeNote;
@@ -1530,6 +1561,12 @@ async function runChat(
 
   try {
     for (let iteration = 0; iteration < SAFETY_LIMIT; iteration++) {
+      // Client disconnected — stop the loop so we don't keep running tools for nobody
+      if (abortSignal?.aborted) {
+        console.log(`[runChat] ${memberName} | client disconnected, stopping at iteration ${iteration}`);
+        break;
+      }
+
       // Wall-clock timeout - prevents indefinitely hung background tasks
       if (Date.now() - loopStartTime > MAX_LOOP_TIME_MS) {
         const elapsed = Math.round((Date.now() - loopStartTime) / 1000);
@@ -1807,12 +1844,13 @@ export async function streamChat(
   lowTokenMode?: boolean,
   model?: string,
   anthropicApiKey?: string,
+  abortSignal?: AbortSignal,
 ): Promise<string> {
   const write: SseWriter = safeWrite((event) => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
     if (onEvent) onEvent(event);
   });
-  return runChat(memberName, messages, write, conversationId, lowTokenMode, model, anthropicApiKey);
+  return runChat(memberName, messages, write, conversationId, lowTokenMode, model, anthropicApiKey, undefined, undefined, undefined, abortSignal);
 }
 
 /** Run chat in the background (no SSE, just returns the full response) */
@@ -1820,7 +1858,7 @@ export async function runChatBackground(
   memberName: string,
   messages: Anthropic.MessageParam[],
   conversationId?: string | null,
-  opts?: { maxIterations?: number; timeoutMs?: number },
+  opts?: { maxIterations?: number; timeoutMs?: number; skipCronContext?: boolean },
 ): Promise<string> {
   // Look up per-user API key for background jobs (no request context)
   const { data } = await supabase
@@ -1831,7 +1869,7 @@ export async function runChatBackground(
 
   const BACKGROUND_TIMEOUT_MS = opts?.timeoutMs ?? 21 * 60 * 1000;
   return Promise.race([
-    runChat(memberName, messages, null, conversationId, undefined, undefined, data?.anthropic_api_key || undefined, opts?.maxIterations, opts?.timeoutMs),
+    runChat(memberName, messages, null, conversationId, undefined, undefined, data?.anthropic_api_key || undefined, opts?.maxIterations, opts?.timeoutMs, opts?.skipCronContext),
     new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`Background task timed out after ${Math.round(BACKGROUND_TIMEOUT_MS / 60000)} minutes`)), BACKGROUND_TIMEOUT_MS)
     ),

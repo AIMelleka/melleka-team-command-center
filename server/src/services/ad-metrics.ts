@@ -76,7 +76,7 @@ const PLATFORM_DEFS: Record<string, PlatformFieldDef> = {
 };
 
 // ── Conversion classification ──
-function classifyConversionAction(name: string): "leads" | "purchases" | "calls" {
+function classifyConversionAction(name: string): "leads" | "purchases" | "calls" | "other" {
   const lower = name.toLowerCase();
 
   if (
@@ -84,7 +84,9 @@ function classifyConversionAction(name: string): "leads" | "purchases" | "calls"
     lower.includes("click-to-call") || lower.includes("click to call") ||
     lower.includes("calls from ads") || lower.includes("phone_call") ||
     lower.includes("tel:") || lower.includes("call extension") ||
-    lower.includes("call asset")
+    lower.includes("call asset") || lower.includes("call tracking") ||
+    lower.includes("imported call") || lower.includes("call from") ||
+    lower.includes("mobile click") || lower.includes("gclid call")
   ) return "calls";
 
   if (
@@ -98,6 +100,22 @@ function classifyConversionAction(name: string): "leads" | "purchases" | "calls"
     lower.includes("shop") || lower.includes("cart") ||
     lower.includes("booking") || lower.includes("reservation")
   ) return "purchases";
+
+  // Skip GA4 auto-events and engagement micro-conversions — these appear in
+  // metrics.all_conversions but are not real business conversions.
+  // Treating them as "leads" causes phantom lead counts.
+  const isMicroConversion =
+    lower === "session_start" || lower === "session start" ||
+    lower === "first_visit" || lower === "first visit" ||
+    lower === "page_view" || lower === "pageview" || lower === "page view" ||
+    lower === "scroll" ||
+    lower === "user_engagement" || lower === "user engagement" ||
+    lower === "engaged_session" || lower === "engaged session" ||
+    lower === "web_engagement" || lower === "web engagement" ||
+    lower.includes("smart goal") ||
+    lower.includes("time on site") || lower.includes("time on page") ||
+    (lower.includes("video") && (lower.includes("start") || lower.includes("progress")));
+  if (isMicroConversion) return "other";
 
   return "leads";
 }
@@ -300,6 +318,7 @@ interface GoogleCampaignRow {
   clicks: number;
   spend: number;
   conversions: number;
+  phone_calls: number;
   ctr: number;
   cpc: number;
   cpa: number;
@@ -312,7 +331,7 @@ async function fetchGoogleAdsCampaigns(
   const headers = await buildGoogleAdsHeaders(accessToken);
   const cleanCustomerId = customerId.replace(/-/g, "");
 
-  const query = `SELECT campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion FROM campaign WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' AND campaign.status != 'REMOVED'`;
+  const query = `SELECT campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.all_conversions, metrics.phone_calls, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion FROM campaign WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' AND campaign.status != 'REMOVED'`;
 
   const resp = await fetch(
     `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanCustomerId}/googleAds:searchStream`,
@@ -326,7 +345,7 @@ async function fetchGoogleAdsCampaigns(
     return { rows: [], error: `Google Ads API error (${customerId}): ${errMsg}` };
   }
 
-  const data = await resp.json() as Array<{ results?: Array<{ campaign?: { name?: string }; metrics?: { impressions?: string; clicks?: string; costMicros?: string; conversions?: number; ctr?: number; averageCpc?: number; costPerConversion?: number } }> }>;
+  const data = await resp.json() as Array<{ results?: Array<{ campaign?: { name?: string }; metrics?: { impressions?: string; clicks?: string; costMicros?: string; allConversions?: number; phoneCalls?: number; ctr?: number; averageCpc?: number; costPerConversion?: number } }> }>;
 
   const rows: GoogleCampaignRow[] = [];
   for (const batch of data) {
@@ -338,7 +357,8 @@ async function fetchGoogleAdsCampaigns(
       const spend = costMicros / 1_000_000;
       const impressions = parseInt(m.impressions || "0") || 0;
       const clicks = parseInt(m.clicks || "0") || 0;
-      const conversions = m.conversions || 0;
+      const conversions = m.allConversions || 0;
+      const phone_calls = m.phoneCalls || 0;
 
       rows.push({
         campaign: result.campaign?.name || "Unknown",
@@ -346,6 +366,7 @@ async function fetchGoogleAdsCampaigns(
         clicks,
         spend,
         conversions,
+        phone_calls,
         ctr: (m.ctr || 0) * 100,
         cpc: (Number(m.averageCpc) || 0) / 1_000_000,
         cpa: (m.costPerConversion || 0) / 1_000_000,
@@ -360,7 +381,7 @@ interface GoogleConvActionRow {
   campaign: string;
   actionName: string;
   conversions: number;
-  type: "leads" | "purchases" | "calls";
+  type: "leads" | "purchases" | "calls" | "other";
 }
 
 /**
@@ -380,7 +401,12 @@ async function fetchGoogleAdsConversionsByAction(
   // counts conversions. Works for MCC-level and account-level tracking alike.
   // NOTE: conversion_action is an incompatible resource with FROM campaign — must use
   // segments.conversion_action_name instead.
-  const query = `SELECT campaign.name, segments.conversion_action_name, metrics.conversions FROM campaign WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' AND campaign.status != 'REMOVED' AND metrics.conversions > 0`;
+  // Fetch BOTH metrics:
+  //   metrics.conversions     = standard "Include in Conversions" column (matches UI, integer)
+  //   metrics.all_conversions = includes conversions excluded from standard column (needed for calls)
+  // For leads/purchases: use metrics.conversions to match Google Ads UI and avoid fractional values.
+  // For calls: use metrics.all_conversions to capture call conversions excluded from standard tracking.
+  const query = `SELECT campaign.name, segments.conversion_action_name, metrics.conversions, metrics.all_conversions FROM campaign WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' AND campaign.status != 'REMOVED' AND (metrics.conversions > 0 OR metrics.all_conversions > 0)`;
 
   const resp = await fetch(
     `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanCustomerId}/googleAds:searchStream`,
@@ -394,7 +420,7 @@ async function fetchGoogleAdsConversionsByAction(
     return { rows: [], error: `Google Ads conversion query error (${customerId}): ${errMsg}` };
   }
 
-  const data = await resp.json() as Array<{ results?: Array<{ campaign?: { name?: string }; segments?: { conversionActionName?: string }; metrics?: { conversions?: number } }> }>;
+  const data = await resp.json() as Array<{ results?: Array<{ campaign?: { name?: string }; segments?: { conversionActionName?: string }; metrics?: { allConversions?: number; conversions?: number } }> }>;
 
   const rows: GoogleConvActionRow[] = [];
   for (const batch of data) {
@@ -402,19 +428,32 @@ async function fetchGoogleAdsConversionsByAction(
     for (const result of batch.results) {
       const campaignName = result.campaign?.name || "Unknown";
       const actionName = result.segments?.conversionActionName || "";
-      const conversions = result.metrics?.conversions || 0;
+      const type = classifyConversionAction(actionName);
+
+      // For calls: use all_conversions to capture call conversions excluded from the standard
+      // "Include in Conversions" column (metrics.conversions misses them for many accounts).
+      // For leads/purchases: use metrics.conversions — this matches exactly what the Google Ads
+      // UI shows and returns integer values, avoiding fractional attribution artifacts.
+      const stdConversions = result.metrics?.conversions ?? 0;
+      const allConversions = result.metrics?.allConversions ?? 0;
+      const conversions = type === "calls" ? allConversions : stdConversions;
+
       if (conversions === 0) continue;
       rows.push({
         campaign: campaignName,
         actionName,
         conversions,
-        type: classifyConversionAction(actionName),
+        type,
       });
     }
   }
 
   const total = rows.reduce((s, r) => s + r.conversions, 0);
-  console.log(`[ad-metrics][google_ads] Conversion rows for ${customerId}: ${rows.length} rows, ${total} total conversions`);
+  const otherRows = rows.filter(r => r.type === "other");
+  if (otherRows.length > 0) {
+    console.log(`[ad-metrics][google_ads] Skipping ${otherRows.length} micro-conversion row(s) for ${customerId}: ${[...new Set(otherRows.map(r => r.actionName))].join(", ")}`);
+  }
+  console.log(`[ad-metrics][google_ads] Conversion rows for ${customerId}: ${rows.length} rows, ${total} total conversions (${rows.filter(r => r.type !== "other").length} real)`);
   return { rows };
 }
 
@@ -692,21 +731,36 @@ function buildGoogleSummary(
   }
 
   // Sum conversions directly from the segmented conversion action query.
-  // This matches exactly what Google Ads UI shows — no estimation needed.
+  // Skip "other" rows (GA4 micro-conversions like session_start, page_view, scroll)
+  // which appear in metrics.all_conversions but are not real business conversions.
   let leads = 0, purchases = 0, calls = 0;
   for (const r of convRows) {
+    if (r.type === "other") continue;
     if (r.type === "calls") calls += r.conversions;
     else if (r.type === "purchases") purchases += r.conversions;
     else leads += r.conversions;
   }
 
-  // If the conversion action query returned nothing, fall back to campaign-level
-  // metrics.conversions as a last resort (classified as leads).
-  if (leads + purchases + calls === 0) {
+  // Only fall back to campaign-level metrics.conversions if the conversion action
+  // query returned NO rows at all (API error / empty account). If it returned rows
+  // but they were all micro-conversions, trust that and show 0 real conversions —
+  // do NOT fall back, because campaign-level all_conversions also includes those micro-conversions.
+  if (leads + purchases + calls === 0 && convRows.length === 0) {
     const fallback = rows.reduce((s, r) => s + (r.conversions || 0), 0);
     if (fallback > 0) {
       leads = fallback;
-      console.warn(`[ad-metrics][google_ads] Conversion action query returned 0; falling back to campaign-level metrics.conversions (${fallback})`);
+      console.warn(`[ad-metrics][google_ads] Conversion action query returned 0 rows; falling back to campaign-level metrics.conversions (${fallback})`);
+    }
+  }
+
+  // If no calls found via conversion actions, fall back to metrics.phone_calls from
+  // campaign rows. These are calls from call extensions that aren't tracked as conversion
+  // actions — they show up in the Google Ads UI "Calls" column but not in conversion tracking.
+  if (calls === 0) {
+    const phoneCalls = rows.reduce((s, r) => s + (r.phone_calls || 0), 0);
+    if (phoneCalls > 0) {
+      calls = phoneCalls;
+      console.log(`[ad-metrics][google_ads] Using phone_calls metric (${phoneCalls}) since no call conversion actions found`);
     }
   }
 
@@ -742,16 +796,21 @@ function buildGoogleCampaigns(
     campMap[row.campaign].spend += row.spend;
   }
 
-  // Exact conversion counts per campaign from the segmented conversion action query
+  // Exact conversion counts per campaign from the segmented conversion action query.
+  // Skip "other" (GA4 micro-conversions) — not real business conversions.
   const campConvMap: Record<string, { leads: number; purchases: number; calls: number }> = {};
   for (const r of convRows) {
+    if (r.type === "other") continue;
     if (!campConvMap[r.campaign]) campConvMap[r.campaign] = { leads: 0, purchases: 0, calls: 0 };
     if (r.type === "calls") campConvMap[r.campaign].calls += r.conversions;
     else if (r.type === "purchases") campConvMap[r.campaign].purchases += r.conversions;
     else campConvMap[r.campaign].leads += r.conversions;
   }
 
-  // If conversion action query had no data, fall back to campaign-level metrics.conversions
+  // Fall back to campaign-level metrics ONLY when the conversion action query returned
+  // no rows at all (API error / empty account). When convRows exist but are all micro-
+  // conversions (type="other"), show 0 — do NOT fall back to all_conversions which
+  // includes those same micro-conversions and creates phantom lead counts.
   const hasConvData = convRows.length > 0;
   const campConvFallback: Record<string, number> = {};
   if (!hasConvData) {
@@ -761,13 +820,22 @@ function buildGoogleCampaigns(
     }
   }
 
+  // Build per-campaign phone_calls map as fallback when no call conversion actions found
+  const campPhoneCalls: Record<string, number> = {};
+  for (const row of rows) {
+    if (!campPhoneCalls[row.campaign]) campPhoneCalls[row.campaign] = 0;
+    campPhoneCalls[row.campaign] += row.phone_calls || 0;
+  }
+
   return Object.entries(campMap)
     .filter(([_, v]) => v.spend > 0 || v.clicks > 0)
     .map(([name, v]) => {
       const conv = campConvMap[name] || { leads: 0, purchases: 0, calls: 0 };
       const leads = hasConvData ? conv.leads : (campConvFallback[name] || 0);
       const purchases = hasConvData ? conv.purchases : 0;
-      const calls = hasConvData ? conv.calls : 0;
+      // Use call conversion actions if present; fall back to phone_calls (call extensions)
+      // when no call conversion actions exist for this campaign.
+      const calls = hasConvData ? (conv.calls || campPhoneCalls[name] || 0) : 0;
       const conversions = leads + purchases + calls;
       return {
         name,
@@ -1601,6 +1669,7 @@ interface PlatformResult {
   platform_label: string;
   summary: SummaryMetrics;
   campaigns: CampaignMetrics[];
+  is_supermetrics_fallback?: boolean;
 }
 
 interface AdPerformanceResult {
@@ -1749,8 +1818,13 @@ export async function fetchClientAdPerformance(
         let smApiKey: string | null = null;
         try { smApiKey = await requireSecret("SUPERMETRICS_API_KEY", "Supermetrics API Key"); } catch {}
 
-        let allRows: MetaCampaignRow[] = [];
+        // Track per-account data for multi-account breakdown
+        const perAccount: Array<{ account_id: string; account_name: string; rows: MetaCampaignRow[] }> = [];
+
         for (const accountId of accountIds) {
+          const accountMapping = effectiveMappings.find(m => m.platform === "meta_ads" && m.account_id === accountId);
+          const accountName = accountMapping?.account_name || accountId;
+
           const [{ rows, error }, smResult] = await Promise.all([
             fetchMetaInsights(token, accountId, startDate, endDate),
             smApiKey ? fetchSupermetricsCheck(smApiKey, "FA", accountId, startDate, endDate) : Promise.resolve(null),
@@ -1758,10 +1832,9 @@ export async function fetchClientAdPerformance(
 
           if (error) {
             errors.push(error);
-            // If direct API failed, try Supermetrics fallback
             if (smResult && smResult.spend > 0) {
               console.warn(`[ad-metrics][meta_ads] Direct API failed for ${accountId}, using Supermetrics fallback ($${smResult.spend} spend)`);
-              allRows.push({ campaign: "All Campaigns (Supermetrics)", impressions: smResult.impressions, clicks: smResult.clicks, spend: smResult.spend, leads: smResult.conversions, purchases: 0, calls: 0, reach: 0, frequency: 0 });
+              perAccount.push({ account_id: accountId, account_name: accountName, rows: [{ campaign: "All Campaigns (Supermetrics)", impressions: smResult.impressions, clicks: smResult.clicks, spend: smResult.spend, leads: smResult.conversions, purchases: 0, calls: 0, reach: 0, frequency: 0 }] });
             }
             continue;
           }
@@ -1769,20 +1842,32 @@ export async function fetchClientAdPerformance(
           const directSpend = rows.reduce((s, r) => s + r.spend, 0);
           const { useFallback, fallback } = reconcileWithSupermetrics(`meta_ads/${accountId}`, directSpend, smResult);
 
-          if (useFallback && fallback) {
-            allRows.push({ campaign: "All Campaigns (Supermetrics)", impressions: fallback.impressions, clicks: fallback.clicks, spend: fallback.spend, leads: fallback.conversions, purchases: 0, calls: 0, reach: 0, frequency: 0 });
-          } else {
-            allRows = allRows.concat(rows);
-          }
-          console.log(`[ad-metrics][meta_ads] Got ${rows.length} campaign rows for ${accountId}`);
+          const effectiveRows = (useFallback && fallback)
+            ? [{ campaign: "All Campaigns (Supermetrics)", impressions: fallback.impressions, clicks: fallback.clicks, spend: fallback.spend, leads: fallback.conversions, purchases: 0, calls: 0, reach: 0, frequency: 0 }]
+            : rows;
+
+          console.log(`[ad-metrics][meta_ads] Got ${effectiveRows.length} campaign rows for ${accountId}`);
+          perAccount.push({ account_id: accountId, account_name: accountName, rows: effectiveRows });
         }
 
+        const allRows = perAccount.flatMap(a => a.rows);
         if (allRows.length === 0) return;
 
+        const metaIsFallback = allRows.some(r => r.campaign === "All Campaigns (Supermetrics)");
         (result as any)[platformKey] = {
           platform_label: ds.label,
           summary: buildMetaSummary(allRows),
           campaigns: buildMetaCampaigns(allRows),
+          ...(metaIsFallback ? { is_supermetrics_fallback: true } : {}),
+          // Include per-account breakdown only when multiple accounts exist
+          ...(perAccount.length > 1 ? {
+            accounts: perAccount.map(a => ({
+              account_id: a.account_id,
+              account_name: a.account_name,
+              summary: buildMetaSummary(a.rows),
+              campaigns: buildMetaCampaigns(a.rows),
+            })),
+          } : {}),
         } as PlatformResult;
       } catch (err: any) {
         errors.push(`Meta Ads error: ${err.message}`);
@@ -1798,10 +1883,13 @@ export async function fetchClientAdPerformance(
         let smApiKey: string | null = null;
         try { smApiKey = await requireSecret("SUPERMETRICS_API_KEY", "Supermetrics API Key"); } catch {}
 
-        let allRows: GoogleCampaignRow[] = [];
-        let allConvRows: GoogleConvActionRow[] = [];
+        // Track per-account data for multi-account breakdown
+        const perAccount: Array<{ account_id: string; account_name: string; rows: GoogleCampaignRow[]; convRows: GoogleConvActionRow[] }> = [];
 
         for (const accountId of accountIds) {
+          const accountMapping = effectiveMappings.find(m => m.platform === "google_ads" && m.account_id === accountId);
+          const accountName = accountMapping?.account_name || accountId;
+
           const [{ rows, error }, { rows: convRows, error: convError }, smResult] = await Promise.all([
             fetchGoogleAdsCampaigns(accessToken, accountId, startDate, endDate),
             fetchGoogleAdsConversionsByAction(accessToken, accountId, startDate, endDate),
@@ -1812,7 +1900,7 @@ export async function fetchClientAdPerformance(
             errors.push(error);
             if (smResult && smResult.spend > 0) {
               console.warn(`[ad-metrics][google_ads] Direct API failed for ${accountId}, using Supermetrics fallback ($${smResult.spend} spend)`);
-              allRows.push({ campaign: "All Campaigns (Supermetrics)", impressions: smResult.impressions, clicks: smResult.clicks, spend: smResult.spend, conversions: smResult.conversions, ctr: 0, cpc: 0, cpa: 0 });
+              perAccount.push({ account_id: accountId, account_name: accountName, rows: [{ campaign: "All Campaigns (Supermetrics)", impressions: smResult.impressions, clicks: smResult.clicks, spend: smResult.spend, conversions: smResult.conversions, phone_calls: 0, ctr: 0, cpc: 0, cpa: 0 }], convRows: [] });
             }
             continue;
           }
@@ -1820,26 +1908,39 @@ export async function fetchClientAdPerformance(
           const directSpend = rows.reduce((s, r) => s + r.spend, 0);
           const { useFallback, fallback } = reconcileWithSupermetrics(`google_ads/${accountId}`, directSpend, smResult);
 
-          if (useFallback && fallback) {
-            allRows.push({ campaign: "All Campaigns (Supermetrics)", impressions: fallback.impressions, clicks: fallback.clicks, spend: fallback.spend, conversions: fallback.conversions, ctr: 0, cpc: 0, cpa: 0 });
-          } else {
-            allRows = allRows.concat(rows);
-          }
-          console.log(`[ad-metrics][google_ads] Got ${rows.length} campaign rows for ${accountId}`);
+          const effectiveRows = (useFallback && fallback)
+            ? [{ campaign: "All Campaigns (Supermetrics)", impressions: fallback.impressions, clicks: fallback.clicks, spend: fallback.spend, conversions: fallback.conversions, phone_calls: 0, ctr: 0, cpc: 0, cpa: 0 }]
+            : rows;
 
           if (convError) {
             console.warn(`[ad-metrics][google_ads] Conversion action query failed for ${accountId}: ${convError}`);
-          } else {
-            allConvRows = allConvRows.concat(convRows);
           }
+          console.log(`[ad-metrics][google_ads] Got ${effectiveRows.length} campaign rows for ${accountId}`);
+          // Clear convRows when Supermetrics fallback fired — campaign names won't match
+          // direct-API conversion action rows, causing broken per-campaign conv breakdown.
+          perAccount.push({ account_id: accountId, account_name: accountName, rows: effectiveRows, convRows: (convError || useFallback) ? [] : convRows });
         }
+
+        const allRows = perAccount.flatMap(a => a.rows);
+        const allConvRows = perAccount.flatMap(a => a.convRows);
 
         if (allRows.length === 0) return;
 
+        const googleIsFallback = allRows.some(r => r.campaign === "All Campaigns (Supermetrics)");
         (result as any)[platformKey] = {
           platform_label: ds.label,
           summary: buildGoogleSummary(allRows, allConvRows),
           campaigns: buildGoogleCampaigns(allRows, allConvRows),
+          ...(googleIsFallback ? { is_supermetrics_fallback: true } : {}),
+          // Include per-account breakdown only when multiple accounts exist
+          ...(perAccount.length > 1 ? {
+            accounts: perAccount.map(a => ({
+              account_id: a.account_id,
+              account_name: a.account_name,
+              summary: buildGoogleSummary(a.rows, a.convRows),
+              campaigns: buildGoogleCampaigns(a.rows, a.convRows),
+            })),
+          } : {}),
         } as PlatformResult;
       } catch (err: any) {
         errors.push(`Google Ads error: ${err.message}`);
