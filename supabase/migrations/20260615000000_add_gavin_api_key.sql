@@ -1,2 +1,2 @@
-UPDATE team_members SET anthropic_api_key = 'REDACTED'
-WHERE lower(name) = 'gavin';
+-- Migration already applied. API key seeded directly in DB.
+-- Key redacted from version control.
