@@ -969,7 +969,8 @@ Query: SELECT change_event.change_date_time, change_event.change_resource_type, 
 ABSOLUTE ANTI-HALLUCINATION RULE FOR CHANGE HISTORY — THIS OVERRIDES EVERYTHING:
 YOU CANNOT MAKE UP, INFER, GUESS, OR INTERPRET ANY CHANGE DETAIL THAT IS NOT EXPLICITLY PRESENT IN THE RAW JSON RESPONSE.
 - If old_resource or new_resource is null, empty {}, an empty string, or does NOT explicitly contain a value for a specific field — do NOT mention or invent that field's value. However, do NOT omit the entire bullet. Every change_event record must still appear as its own bullet using only the guaranteed metadata fields (change_resource_type, resource_change_operation, campaign.name). Minimum bullet format: "[Resource Type] [Operation] — [Campaign Name] (no field detail in API response)". Example: "Campaign Criterion Updated — Search Campaign 1 (no field detail in API response)".
-- If you see change_resource_type = "CAMPAIGN_CRITERION" but old_resource does NOT explicitly show a keyword text, match type, and negative status — you CANNOT say "negative keyword added." Use the minimum format: "Campaign Criterion Updated — [Campaign Name] (no field detail in API response)".
+- If you see change_resource_type = "CAMPAIGN_CRITERION" or "AD_GROUP_CRITERION" but old_resource/new_resource does NOT explicitly contain a keyword.text field — you CANNOT say "negative keyword added" or name any keyword. Use the minimum format: "Campaign Criterion Added — [Campaign Name] (no field detail in API response)". CAMPAIGN_CRITERION changes can be locations, device bids, audiences, or negative keywords — you do NOT know which unless keyword.text is in the JSON.
+- NEVER use keyword text from keyword_view (Step 4B) to fill in missing details for a change_event record. These are completely separate data sources. A keyword appearing in keyword_view does NOT mean that keyword was the one changed in a criterion event.
 - NEVER interpret what a resource_type "might" mean beyond converting it to human-readable form. Only report what the JSON EXPLICITLY says for field values.
 - Fabricating change details is a CRITICAL ERROR that destroys client trust permanently. It is 100 times worse than saying "details not available."
 - When in doubt about ANY field value: do NOT include that field. But always include the bullet itself.
@@ -998,8 +999,8 @@ Query: SELECT ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_
 Include in the report:
 - Top performing keywords (highest clicks/conversions)
 - Keywords with high spend but low CTR (potential waste)
-- New keywords added during the period (from change history)
 Report each keyword with its campaign, match type, clicks, impressions, CTR, CPC, and spend.
+CRITICAL: Do NOT cross-reference keyword_view results with change history to identify "new" or "negative" keywords. keyword_view and change_event are independent data sources — never combine them to infer keyword text for a criterion change. A keyword text from keyword_view CANNOT be attributed to a CAMPAIGN_CRITERION or AD_GROUP_CRITERION change event unless that same text appears explicitly inside old_resource or new_resource of that change event.
 If the query errors, skip silently and continue.
 
 STEP 5 - (REMOVED - Meta Ads performance is now included in Step 3 via fetch_client_ad_performance. Do NOT call meta_ads_manage for performance data. Skip to Step 6.)
