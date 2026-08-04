@@ -9,19 +9,24 @@ import { supabase } from "./supabase.js";
 export type MatchingRegistry = Record<string, { aliases: string[]; excludePatterns: string[]; exactOnly?: boolean }>;
 
 export const CLIENT_ALIAS_REGISTRY: MatchingRegistry = {
-  // Global Guard Insurance Services - CLIENTS field uses: "Global Guard", "GGIS", "Global Guard Insurance"
+  // Global Guard Insurance Services - CLIENTS field uses: "Global Guard", "GGIS", "Global Guard Insurance", "Global Guard Insurance Services"
   "global guard": {
-    aliases: ["ggis", "global guard", "global guard insurance", "global guardins"],
+    aliases: ["ggis", "global guard", "global guard insurance", "global guardins", "global guard insurance services", "global guard insurance services llc"],
     excludePatterns: ["gsp", "global staffing partners"],
     exactOnly: true,
   },
   "global guard insurance": {
-    aliases: ["ggis", "global guard", "global guard insurance", "global guardins"],
+    aliases: ["ggis", "global guard", "global guard insurance", "global guardins", "global guard insurance services", "global guard insurance services llc"],
     excludePatterns: ["gsp", "global staffing partners"],
     exactOnly: true,
   },
   "ggis": {
-    aliases: ["ggis", "global guard", "global guard insurance", "global guardins"],
+    aliases: ["ggis", "global guard", "global guard insurance", "global guardins", "global guard insurance services", "global guard insurance services llc"],
+    excludePatterns: ["gsp", "global staffing partners"],
+    exactOnly: true,
+  },
+  "global guard insurance services": {
+    aliases: ["ggis", "global guard", "global guard insurance", "global guardins", "global guard insurance services", "global guard insurance services llc"],
     excludePatterns: ["gsp", "global staffing partners"],
     exactOnly: true,
   },

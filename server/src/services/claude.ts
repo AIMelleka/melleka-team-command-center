@@ -968,17 +968,17 @@ If the client has a google_ads account linked, call google_ads_query to pull rec
 Query: SELECT change_event.change_date_time, change_event.change_resource_type, change_event.resource_change_operation, change_event.user_email, change_event.client_type, change_event.old_resource, change_event.new_resource, campaign.name FROM change_event WHERE change_event.change_date_time >= '{start_date}' AND change_event.change_date_time <= '{end_date}' ORDER BY change_event.change_date_time DESC LIMIT 100000
 ABSOLUTE ANTI-HALLUCINATION RULE FOR CHANGE HISTORY — THIS OVERRIDES EVERYTHING:
 YOU CANNOT MAKE UP, INFER, GUESS, OR INTERPRET ANY CHANGE DETAIL THAT IS NOT EXPLICITLY PRESENT IN THE RAW JSON RESPONSE.
-- If old_resource or new_resource is null, empty {}, an empty string, or does NOT explicitly contain a value for a specific field, you MUST NOT mention that field. Write "[No detail available]" or omit the bullet entirely.
-- If you see change_resource_type = "CAMPAIGN_CRITERION" but old_resource does NOT explicitly show a keyword text, match type, and negative status — you CANNOT say "negative keyword added." You do not know what the criterion is.
-- NEVER interpret what a resource_type "might" mean. Only report what the JSON EXPLICITLY says.
+- If old_resource or new_resource is null, empty {}, an empty string, or does NOT explicitly contain a value for a specific field — do NOT mention or invent that field's value. However, do NOT omit the entire bullet. Every change_event record must still appear as its own bullet using only the guaranteed metadata fields (change_resource_type, resource_change_operation, campaign.name). Minimum bullet format: "[Resource Type] [Operation] — [Campaign Name] (no field detail in API response)". Example: "Campaign Criterion Updated — Search Campaign 1 (no field detail in API response)".
+- If you see change_resource_type = "CAMPAIGN_CRITERION" but old_resource does NOT explicitly show a keyword text, match type, and negative status — you CANNOT say "negative keyword added." Use the minimum format: "Campaign Criterion Updated — [Campaign Name] (no field detail in API response)".
+- NEVER interpret what a resource_type "might" mean beyond converting it to human-readable form. Only report what the JSON EXPLICITLY says for field values.
 - Fabricating change details is a CRITICAL ERROR that destroys client trust permanently. It is 100 times worse than saying "details not available."
-- When in doubt about ANY detail: OMIT IT. Do not guess.
+- When in doubt about ANY field value: do NOT include that field. But always include the bullet itself.
 
 CRITICAL RULES FOR CHANGE HISTORY - READ CAREFULLY:
 - List EVERY SINGLE change as its own bullet. NEVER summarize, group, combine, or skip changes.
 - DO NOT include dates or timestamps in any change bullet. Dates are internal only. Start each bullet directly with the change description.
 - NEVER paraphrase. Show the ACTUAL data from old_resource and new_resource fields.
-- For EACH change, extract and show the SPECIFIC details from old_resource/new_resource JSON:
+- For EACH change, extract and show the SPECIFIC details from old_resource/new_resource JSON when present:
   * Budget changes: show exact dollar amounts old → new (convert micros to dollars: divide by 1,000,000)
   * Status changes: show "ENABLED → PAUSED" or "PAUSED → ENABLED"
   * Keyword changes: show the exact keyword text, match type, and whether added/removed/modified — ONLY if the keyword text is EXPLICITLY in old_resource or new_resource JSON. If it is not there, do NOT mention any keyword.
@@ -987,8 +987,8 @@ CRITICAL RULES FOR CHANGE HISTORY - READ CAREFULLY:
   * Targeting changes: show what targeting was added/removed (locations, audiences, demographics)
   * Campaign criteria: show the SPECIFIC criterion (keyword, placement, location, etc.) — ONLY if explicitly in the JSON. NEVER say "targeting adjustments applied" or guess the criterion type.
 - If old_resource or new_resource contains detailed JSON, PARSE it and show the human-readable values — but ONLY values that are EXPLICITLY present. Do NOT fill in gaps.
-- NEVER use vague language like "targeting adjustments applied", "criteria updated", or "changes made". If you cannot show specific details from the JSON, OMIT THE BULLET ENTIRELY — do NOT write it with vague language AND do NOT make up specifics to fill the gap.
-- The client is paying us for this work - they need to see EVERY detail of what we actually did. Fake details are far worse than no details.
+- NEVER use vague language like "targeting adjustments applied", "criteria updated", or "changes made". If you cannot show specific field details from the JSON, show only the metadata fields (resource type + operation + campaign name) with "(no field detail in API response)" — do NOT fabricate values, but do NOT drop the bullet.
+- The client is paying us for this work - they need to see EVERY change we made. Showing "X Updated — Campaign Y (no detail)" is far better than silently hiding that work.
 - Include ALL changes no matter how many there are. Never truncate.
 If the query errors or returns no results (some accounts may not support change_event): write nothing about Google Ads changes — no section, no placeholder text, no inferred changes. Completely skip to the next step. "Skip silently" means ZERO output for this section.
 
@@ -1010,9 +1010,9 @@ Method: GET, Endpoint: /{account_id}/activities, Params: { "fields": "event_time
 Note: the activities endpoint uses UNIX timestamps for filtering if needed.
 ABSOLUTE ANTI-HALLUCINATION RULE FOR META CHANGES — SAME AS STEP 4:
 YOU CANNOT MAKE UP, INFER, GUESS, OR INTERPRET ANY CHANGE DETAIL NOT EXPLICITLY IN THE API RESPONSE.
-- If extra_data is null, empty, or does NOT explicitly contain a specific value, do NOT mention that field. Omit the bullet entirely.
+- If extra_data is null, empty, or does NOT explicitly contain a specific value, do NOT mention that field. However, do NOT omit the bullet. Always show every activity record using the guaranteed fields (event_type, object_name/object_id). Minimum format: "[Event Type] — [Object Name or ID] (no detail in API response)".
 - Only report what is EXPLICITLY in the JSON. Never infer what a change "probably" was.
-- Fabricating change details destroys client trust permanently. When in doubt: OMIT.
+- Fabricating change details destroys client trust permanently. When in doubt about a field value: OMIT THAT FIELD, but keep the bullet.
 CRITICAL RULES - same as Step 4:
 - List EVERY SINGLE change as its own bullet. NEVER summarize, group, or skip.
 - DO NOT include dates or timestamps in any change bullet. Dates are internal only. Start each bullet directly with the change description.
@@ -1023,8 +1023,8 @@ CRITICAL RULES - same as Step 4:
   * Targeting changes: what audiences/locations/demographics were added/removed
   * New ads/ad sets: show the name and key settings
   * Bid strategy changes: show old → new strategy
-- NEVER use vague language like "adjustments applied" or "updates made". If you cannot show specific details, OMIT THE BULLET — do NOT write vague language AND do NOT make up specifics.
-- The client needs to see EVERY detail of what we actually did for them. Fabricated details are far worse than no section at all.
+- NEVER use vague language like "adjustments applied" or "updates made". If you cannot show specific field details, show only the metadata (event_type + object name) with "(no detail in API response)" — do NOT fabricate values, but do NOT drop the bullet.
+- The client needs to see EVERY change made. Showing "Budget Updated — Campaign X (no detail)" is far better than hiding that work entirely.
 If the endpoint returns errors or no data: write nothing about Meta changes — no section, no placeholder, no inferred changes. "Skip silently" means ZERO output for this section.
 
 STEP 7 - SOCIAL MEDIA POSTS:
