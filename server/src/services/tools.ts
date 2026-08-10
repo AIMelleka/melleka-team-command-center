@@ -4393,12 +4393,14 @@ export async function executeTool(
           const lastEdited = task.last_edited_time || "";
           const statusLower = status.toLowerCase();
           const isCompleted = ["done", "good to launch", "archived", "complete", "completed", "finished", "approved", "launched", "published", "delivered", "closed", "sent", "signed off", "ready to launch"].some(s => statusLower.includes(s));
-          const isNonEssential = statusLower.includes("non-essential") || statusLower.includes("non essential");
+          // Skip non-essential tasks only if they are NOT marked done
+          // "NON-ESSENTIAL (DONE)" counts as a completed task and must pass through
+          const isNonEssentialNotDone = (statusLower.includes("non-essential") || statusLower.includes("non essential")) && !statusLower.includes("(done)");
 
           // Check "Done ?" checkbox
           const doneCheckbox = props["Done ?"]?.checkbox === true;
 
-          if (isNonEssential) continue;
+          if (isNonEssentialNotDone) continue;
           if (clientName && !clientMatcher(client, title)) {
             if (client) nonMatchingClientValues.add(client);
             continue;

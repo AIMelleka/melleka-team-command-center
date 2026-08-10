@@ -895,7 +895,7 @@ OBJECTIVE: For each client, produce a COMPREHENSIVE update that includes ALL com
 CRITICAL RULES (NON-NEGOTIABLE):
 - RESPECT ALL USER INSTRUCTIONS AND EXCLUSIONS. If the user says "do not include X", "exclude X", "skip X", or any similar exclusion instruction, you MUST follow it exactly. Filter out ALL data, tasks, accounts, and mentions related to the excluded item. This applies to client names, categories, platforms, and any other exclusion the user specifies. User exclusion instructions override ALL other rules.
 - NEVER get clients confused. Before outputting, double-check ALL data (Notion tasks, ad accounts, social media) belongs to the correct client. Verify client_name matches across every data source. If two clients have similar names (e.g., "Traffic Services" vs "Traffic Management"), treat them as COMPLETELY SEPARATE entities. Only include data for the EXACT client requested.
-- NEVER include tasks tagged as "Non Essential" or "Non-Essential" in Notion. Filter them out.
+- NEVER include tasks tagged as "Non Essential" or "Non-Essential" in Notion. Filter them out. EXCEPTION: Tasks with status "NON-ESSENTIAL (DONE)" must be included — count them in the total tasks completed and list them in the Work Completed section like any other completed task.
 - NEVER include tasks containing "(internal)" in the title. These are internal-only.
 - NEVER include tasks that are NOT marked as completed/checked off.
 - DO NOT use any team member's name (manager, assignee) in the update. The client doesn't need to know who did what.
