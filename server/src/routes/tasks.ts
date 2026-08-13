@@ -1,24 +1,57 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
+import { getSecret } from "../services/secrets.js";
 
 const router = Router();
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
-const DEFAULT_DB_ID = process.env.NOTION_TASK_DATABASE_ID || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
 
-function notionHeaders() {
+async function notionHeaders(): Promise<Record<string, string>> {
+  const key = await getSecret("NOTION_API_KEY");
   return {
-    Authorization: `Bearer ${process.env.NOTION_API_KEY}`,
+    Authorization: `Bearer ${key}`,
     "Notion-Version": NOTION_VERSION,
     "Content-Type": "application/json",
   };
 }
 
+async function getDefaultDbId(): Promise<string> {
+  return (await getSecret("NOTION_TASK_DATABASE_ID")) || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
+}
+
+// ── Stats cache (in-memory, 5-min TTL, max 20 entries) ────────────────────
+interface StatsCacheEntry { tasks: any[]; fetchedAt: number; }
+const statsCache = new Map<string, StatsCacheEntry>();
+const STATS_TTL_MS = 5 * 60 * 1000;
+
+function pruneStatsCache(): void {
+  if (statsCache.size <= 20) return;
+  let oldestKey = "";
+  let oldestTime = Infinity;
+  for (const [k, v] of statsCache) {
+    if (v.fetchedAt < oldestTime) { oldestKey = k; oldestTime = v.fetchedAt; }
+  }
+  if (oldestKey) statsCache.delete(oldestKey);
+}
+
+// Mirrors STATUS_GROUPS from client/src/hooks/useNotionTasks.ts
+const COMPLETE_STATUSES = new Set([
+  "1QA - Needed", "2QA - Needed", "REJECTED - QA", "NON-ESSENTIAL (DONE)",
+  "2QA - DONE (Tony)", "2QA - DONE (Lexie)", "2QA - DONE (Bryan)",
+  "2QA DONE (send to client)", "\u2705 Done (NO QA) \u2705",
+]);
+const IN_PROGRESS_STATUSES = new Set([
+  "\u{1F465}TEAM IS WORKING ON IT \u{1F465}",
+  "READY \u{1F680}", "\u{1F6D1} ATTENTION \u{1F6D1}", "IN PROGRESS",
+  "\u23F1\uFE0F ON-GOING \u23F1\uFE0F", "\u26A0\uFE0F HELD UP \u26A0\uFE0F",
+  "\u{1F6E0}\uFE0F Working on it \u{1F6E0}\uFE0F",
+]);
+
 // ── GET /api/tasks — list tasks from Notion database ──────────────────────
 router.get("/", requireAuth, async (_req, res) => {
   try {
-    const databaseId = (_req.query.databaseId as string) || DEFAULT_DB_ID;
+    const databaseId = (_req.query.databaseId as string) || await getDefaultDbId();
     const cursor = _req.query.cursor as string | undefined;
     const pageSize = Math.min(Number(_req.query.pageSize) || 100, 100);
 
@@ -87,7 +120,7 @@ router.get("/", requireAuth, async (_req, res) => {
 
     const resp = await fetch(`${NOTION_API}/databases/${databaseId}/query`, {
       method: "POST",
-      headers: notionHeaders(),
+      headers: await notionHeaders(),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(45_000),
     });
@@ -109,10 +142,10 @@ router.get("/", requireAuth, async (_req, res) => {
 // ── GET /api/tasks/database — get database schema ─────────────────────────
 router.get("/database", requireAuth, async (_req, res) => {
   try {
-    const databaseId = (_req.query.databaseId as string) || DEFAULT_DB_ID;
+    const databaseId = (_req.query.databaseId as string) || await getDefaultDbId();
 
     const resp = await fetch(`${NOTION_API}/databases/${databaseId}`, {
-      headers: notionHeaders(),
+      headers: await notionHeaders(),
       signal: AbortSignal.timeout(45_000),
     });
 
@@ -130,11 +163,94 @@ router.get("/database", requireAuth, async (_req, res) => {
   }
 });
 
+// ── GET /api/tasks/stats — paginate ALL tasks for date range + compute stats
+router.get("/stats", requireAuth, async (req, res) => {
+  try {
+    const databaseId = (req.query.databaseId as string) || await getDefaultDbId();
+    const dateFrom = req.query.dateFrom as string | undefined;
+    const dateTo = req.query.dateTo as string | undefined;
+    const bypass = req.query.refresh === "1";
+
+    const cacheKey = `${databaseId}|${dateFrom ?? ""}|${dateTo ?? ""}`;
+
+    if (!bypass) {
+      const hit = statsCache.get(cacheKey);
+      if (hit && Date.now() - hit.fetchedAt < STATS_TTL_MS) {
+        let complete = 0, inProgress = 0;
+        for (const t of hit.tasks) {
+          const sn: string = t.properties?.["STATUS"]?.status?.name ?? "";
+          if (COMPLETE_STATUSES.has(sn)) complete++;
+          else if (IN_PROGRESS_STATUSES.has(sn)) inProgress++;
+        }
+        const total = hit.tasks.length;
+        res.json({
+          stats: { total, complete, inProgress, todo: total - complete - inProgress, rate: total > 0 ? Math.round((complete / total) * 100) : 0 },
+          tasks: hit.tasks, cached: true, fetchedAt: new Date(hit.fetchedAt).toISOString(),
+        });
+        return;
+      }
+    }
+
+    // Build Notion date filter (only on "Due" property)
+    const filters: any[] = [];
+    if (dateFrom) filters.push({ property: "Due", date: { on_or_after: dateFrom } });
+    if (dateTo) filters.push({ property: "Due", date: { on_or_before: dateTo } });
+    const filterBody = filters.length === 0 ? undefined
+      : filters.length === 1 ? filters[0]
+      : { and: filters };
+
+    const headers = await notionHeaders();
+
+    // Paginate through ALL matching results (up to 10,000 tasks)
+    const allTasks: any[] = [];
+    let cursor: string | undefined;
+    let hasMore = true;
+
+    while (hasMore && allTasks.length < 10_000) {
+      const body: any = { page_size: 100, sorts: [{ property: "Due", direction: "ascending" }] };
+      if (cursor) body.start_cursor = cursor;
+      if (filterBody) body.filter = filterBody;
+
+      const resp = await fetch(`${NOTION_API}/databases/${databaseId}/query`, {
+        method: "POST", headers, body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        res.status(resp.status).json({ error: err });
+        return;
+      }
+      const pageData = await resp.json();
+      allTasks.push(...(pageData.results ?? []));
+      hasMore = pageData.has_more ?? false;
+      cursor = pageData.next_cursor ?? undefined;
+    }
+
+    statsCache.set(cacheKey, { tasks: allTasks, fetchedAt: Date.now() });
+    pruneStatsCache();
+
+    let complete = 0, inProgress = 0;
+    for (const t of allTasks) {
+      const sn: string = t.properties?.["STATUS"]?.status?.name ?? "";
+      if (COMPLETE_STATUSES.has(sn)) complete++;
+      else if (IN_PROGRESS_STATUSES.has(sn)) inProgress++;
+    }
+    const total = allTasks.length;
+    res.json({
+      stats: { total, complete, inProgress, todo: total - complete - inProgress, rate: total > 0 ? Math.round((complete / total) * 100) : 0 },
+      tasks: allTasks, cached: false, fetchedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error("[tasks/stats] error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/tasks/:id — get single task ──────────────────────────────────
 router.get("/:id", requireAuth, async (req, res) => {
   try {
     const resp = await fetch(`${NOTION_API}/pages/${req.params.id}`, {
-      headers: notionHeaders(),
+      headers: await notionHeaders(),
       signal: AbortSignal.timeout(45_000),
     });
 
@@ -157,7 +273,7 @@ router.get("/:id/blocks", requireAuth, async (req, res) => {
   try {
     const resp = await fetch(
       `${NOTION_API}/blocks/${req.params.id}/children?page_size=100`,
-      { headers: notionHeaders(), signal: AbortSignal.timeout(45_000) }
+      { headers: await notionHeaders(), signal: AbortSignal.timeout(45_000) }
     );
 
     if (!resp.ok) {
@@ -178,11 +294,11 @@ router.get("/:id/blocks", requireAuth, async (req, res) => {
 router.post("/", requireAuth, async (req, res) => {
   try {
     const { properties, databaseId } = req.body;
-    const dbId = databaseId || DEFAULT_DB_ID;
+    const dbId = databaseId || await getDefaultDbId();
 
     const resp = await fetch(`${NOTION_API}/pages`, {
       method: "POST",
-      headers: notionHeaders(),
+      headers: await notionHeaders(),
       body: JSON.stringify({
         parent: { database_id: dbId },
         properties,
@@ -211,7 +327,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
 
     const resp = await fetch(`${NOTION_API}/pages/${req.params.id}`, {
       method: "PATCH",
-      headers: notionHeaders(),
+      headers: await notionHeaders(),
       body: JSON.stringify({ properties }),
       signal: AbortSignal.timeout(45_000),
     });
@@ -235,7 +351,7 @@ router.delete("/:id", requireAuth, async (req, res) => {
   try {
     const resp = await fetch(`${NOTION_API}/pages/${req.params.id}`, {
       method: "PATCH",
-      headers: notionHeaders(),
+      headers: await notionHeaders(),
       body: JSON.stringify({ in_trash: true }),
       signal: AbortSignal.timeout(45_000),
     });
@@ -262,7 +378,7 @@ router.post("/:id/blocks", requireAuth, async (req, res) => {
       `${NOTION_API}/blocks/${req.params.id}/children`,
       {
         method: "PATCH",
-        headers: notionHeaders(),
+        headers: await notionHeaders(),
         body: JSON.stringify({ children }),
         signal: AbortSignal.timeout(45_000),
       }
