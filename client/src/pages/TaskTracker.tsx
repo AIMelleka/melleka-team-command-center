@@ -40,8 +40,7 @@ const PAGE_SIZE = 100;
 
 function isTaskDone(task: NotionTask): boolean {
   const st = getStatus(task.properties);
-  if (st && getStatusGroup(st.name) === 'Complete') return true;
-  return getCheckbox(task.properties);
+  return !!st && getStatusGroup(st.name) === 'Complete';
 }
 
 const PRESETS = [
