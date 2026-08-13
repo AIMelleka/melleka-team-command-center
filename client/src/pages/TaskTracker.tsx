@@ -8,6 +8,7 @@ import {
   getPriority,
   getDue,
   getCheckbox,
+  getStatusGroup,
   colorClass,
   fetchTaskStats,
   useTaskStats,
@@ -37,19 +38,9 @@ import {
 
 const PAGE_SIZE = 100;
 
-// Statuses that count as "done" — mirrors the client update logic
-const DONE_STATUSES = [
-  "done", "good to launch", "archived", "complete", "completed",
-  "finished", "approved", "launched", "published", "delivered",
-  "closed", "sent", "signed off", "ready to launch",
-];
-
 function isTaskDone(task: NotionTask): boolean {
   const st = getStatus(task.properties);
-  if (st) {
-    const lower = st.name.toLowerCase();
-    if (DONE_STATUSES.some(s => lower.includes(s))) return true;
-  }
+  if (st && getStatusGroup(st.name) === 'Complete') return true;
   return getCheckbox(task.properties);
 }
 
@@ -120,7 +111,7 @@ function StatCard({ label, value, icon, sub }: {
 export default function TaskTracker() {
   const queryClient = useQueryClient();
 
-  const [preset, setPreset] = useState('last-30');
+  const [preset, setPreset] = useState('this-month');
   const [isCustom, setIsCustom] = useState(false);
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');

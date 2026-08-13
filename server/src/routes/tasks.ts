@@ -37,15 +37,17 @@ function pruneStatsCache(): void {
 
 // Mirrors STATUS_GROUPS from client/src/hooks/useNotionTasks.ts
 const COMPLETE_STATUSES = new Set([
-  "1QA - Needed", "2QA - Needed", "REJECTED - QA", "NON-ESSENTIAL (DONE)",
-  "2QA - DONE (Tony)", "2QA - DONE (Lexie)", "2QA - DONE (Bryan)",
-  "2QA DONE (send to client)", "\u2705 Done (NO QA) \u2705",
+  "✅ Done (NO QA) ✅",
+  "QA - DONE (Lexie)", "QA - DONE (Tony)", "QA - DONE (Bryan)",
+  "QA - DONE (Emely)", "QA - DONE (David)", "QA - DONE (Gavin)",
+  "QA DONE (send to client)",
+  "NON-ESSENTIAL (DONE)", "Internal (DONE)",
 ]);
 const IN_PROGRESS_STATUSES = new Set([
-  "\u{1F465}TEAM IS WORKING ON IT \u{1F465}",
-  "READY \u{1F680}", "\u{1F6D1} ATTENTION \u{1F6D1}", "IN PROGRESS",
-  "\u23F1\uFE0F ON-GOING \u23F1\uFE0F", "\u26A0\uFE0F HELD UP \u26A0\uFE0F",
-  "\u{1F6E0}\uFE0F Working on it \u{1F6E0}\uFE0F",
+  "👥TEAM IS WORKING ON IT 👥",
+  "READY 🚀", "IN PROGRESS", "⏱️ ON-GOING ⏱️",
+  "⚠️ HELD UP ⚠️", "🛠️ Working on it 🛠️",
+  "1QA - Needed", "Internal (COUNT)", "🐂 BullShit Fires 🐂",
 ]);
 
 // ── GET /api/tasks — list tasks from Notion database ──────────────────────

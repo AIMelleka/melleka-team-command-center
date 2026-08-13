@@ -190,26 +190,29 @@ export function colorClass(color: string): string {
 // ── Status groups ─────────────────────────────────────────────────────────
 
 export const STATUS_GROUPS: Record<string, string[]> = {
-  "To-do": ["\u{1F44B} NEW \u{1F44B}"],
+  "To-do": ["👋 NEW 👋"],
   "In progress": [
-    "\u{1F465}TEAM IS WORKING ON IT \u{1F465}",
-    "READY \u{1F680}",
-    "\u{1F6D1} ATTENTION \u{1F6D1}",
+    "👥TEAM IS WORKING ON IT 👥",
+    "READY 🚀",
     "IN PROGRESS",
-    "\u23F1\uFE0F ON-GOING \u23F1\uFE0F",
-    "\u26A0\uFE0F HELD UP \u26A0\uFE0F",
-    "\u{1F6E0}\uFE0F Working on it \u{1F6E0}\uFE0F",
+    "⏱️ ON-GOING ⏱️",
+    "⚠️ HELD UP ⚠️",
+    "🛠️ Working on it 🛠️",
+    "1QA - Needed",
+    "Internal (COUNT)",
+    "🐂 BullShit Fires 🐂",
   ],
   Complete: [
-    "1QA - Needed",
-    "2QA - Needed",
-    "REJECTED - QA",
+    "✅ Done (NO QA) ✅",
+    "QA - DONE (Lexie)",
+    "QA - DONE (Tony)",
+    "QA - DONE (Bryan)",
+    "QA - DONE (Emely)",
+    "QA - DONE (David)",
+    "QA - DONE (Gavin)",
+    "QA DONE (send to client)",
     "NON-ESSENTIAL (DONE)",
-    "2QA - DONE (Tony)",
-    "2QA - DONE (Lexie)",
-    "2QA - DONE (Bryan)",
-    "2QA DONE (send to client)",
-    "\u2705 Done (NO QA) \u2705",
+    "Internal (DONE)",
   ],
 };
 
@@ -354,5 +357,33 @@ export function useDeleteTask() {
   return useMutation({
     mutationFn: (id: string) => deleteTask(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notion-tasks"] }),
+  });
+}
+
+// ── Task Stats (full pagination endpoint) ─────────────────────────────────
+
+export interface TaskStatsResult {
+  stats: { total: number; complete: number; inProgress: number; todo: number; rate: number };
+  tasks: NotionTask[];
+  cached: boolean;
+  fetchedAt: string;
+}
+
+export async function fetchTaskStats(dateFrom?: string, dateTo?: string, bypass?: boolean): Promise<TaskStatsResult> {
+  const params = new URLSearchParams();
+  if (dateFrom) params.set("dateFrom", dateFrom);
+  if (dateTo) params.set("dateTo", dateTo);
+  if (bypass) params.set("refresh", "1");
+  const resp = await fetch(`${API_BASE}/tasks/stats?${params}`, { headers: await authHeaders() });
+  if (!resp.ok) throw new Error(`Stats fetch failed: ${resp.status}`);
+  return resp.json();
+}
+
+export function useTaskStats(dateFrom?: string, dateTo?: string) {
+  return useQuery({
+    queryKey: ["notion-task-stats", dateFrom ?? "", dateTo ?? ""],
+    queryFn: () => fetchTaskStats(dateFrom, dateTo),
+    staleTime: 3 * 60_000,
+    retry: 1,
   });
 }
