@@ -4258,10 +4258,10 @@ export async function executeTool(
         const clientName = ((toolInput.client_name as string) || "").trim();
         const registry = await loadMatchingRegistry();
 
-        const notionApiKey = process.env.NOTION_API_KEY;
+        const notionApiKey = await getSecret("NOTION_API_KEY");
         if (!notionApiKey) return "Error: NOTION_API_KEY is not configured.";
 
-        const databaseId = (toolInput.database_id as string) || process.env.NOTION_TASK_DATABASE_ID || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
+        const databaseId = (toolInput.database_id as string) || await getSecret("NOTION_TASK_DATABASE_ID") || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
         const startDate = toolInput.start_date as string | undefined;
         const endDate = toolInput.end_date as string | undefined;
         const statusFilter = (toolInput.status_filter as string) || "completed";
@@ -4459,10 +4459,10 @@ export async function executeTool(
       }
 
       case "add_task_to_notion": {
-        const notionApiKey = process.env.NOTION_API_KEY;
+        const notionApiKey = await getSecret("NOTION_API_KEY");
         if (!notionApiKey) return "Error: NOTION_API_KEY is not configured.";
 
-        const databaseId = process.env.NOTION_TASK_DATABASE_ID || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
+        const databaseId = await getSecret("NOTION_TASK_DATABASE_ID") || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
         const ntHeaders = {
           Authorization: `Bearer ${notionApiKey}`,
           "Content-Type": "application/json",

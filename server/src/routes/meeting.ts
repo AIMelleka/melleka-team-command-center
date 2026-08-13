@@ -1,19 +1,24 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import Anthropic from "@anthropic-ai/sdk";
+import { getSecret } from "../services/secrets.js";
 
 const router = Router();
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
-const DEFAULT_DB_ID = process.env.NOTION_TASK_DATABASE_ID || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
 
-function notionHeaders() {
+async function notionHeaders(): Promise<Record<string, string>> {
+  const key = await getSecret("NOTION_API_KEY");
   return {
-    Authorization: `Bearer ${process.env.NOTION_API_KEY}`,
+    Authorization: `Bearer ${key}`,
     "Notion-Version": NOTION_VERSION,
     "Content-Type": "application/json",
   };
+}
+
+async function getDefaultDbId(): Promise<string> {
+  return (await getSecret("NOTION_TASK_DATABASE_ID")) || "9e7cd72f-e62c-4514-9456-5f51cbcfe981";
 }
 
 // ── POST /api/meeting/analyze — extract tasks from meeting transcript ──────
@@ -111,17 +116,21 @@ router.post("/push-to-notion", requireAuth, async (req, res) => {
       return;
     }
 
-    if (!process.env.NOTION_API_KEY) {
+    const notionKey = await getSecret("NOTION_API_KEY");
+    if (!notionKey) {
       res.status(500).json({ error: "NOTION_API_KEY not configured" });
       return;
     }
+
+    const headers = await notionHeaders();
+    const defaultDbId = await getDefaultDbId();
 
     // Fetch Notion workspace users to resolve names to IDs for people properties
     let notionUsers: Array<{ id: string; name: string }> = [];
     const needsUserLookup = tasks.some(t => t.assignee || t.manager);
     if (needsUserLookup) {
       try {
-        const usersResp = await fetch(`${NOTION_API}/users`, { headers: notionHeaders(), signal: AbortSignal.timeout(45_000) });
+        const usersResp = await fetch(`${NOTION_API}/users`, { headers, signal: AbortSignal.timeout(45_000) });
         if (usersResp.ok) {
           const usersData = await usersResp.json();
           notionUsers = (usersData.results || [])
@@ -186,9 +195,9 @@ router.post("/push-to-notion", requireAuth, async (req, res) => {
 
         const resp = await fetch(`${NOTION_API}/pages`, {
           method: "POST",
-          headers: notionHeaders(),
+          headers,
           body: JSON.stringify({
-            parent: { database_id: DEFAULT_DB_ID },
+            parent: { database_id: defaultDbId },
             properties,
           }),
           signal: AbortSignal.timeout(45_000),
