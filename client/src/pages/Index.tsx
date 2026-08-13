@@ -1218,22 +1218,56 @@ const Index = () => {
         </div>
       )}
 
-      <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <div className="px-2 pb-2">
-          {loadingHistory ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-            </div>
-          ) : filteredConversations.length === 0 ? (
-            <p className="text-xs text-muted-foreground text-center py-8">
-              {searchQuery ? 'No chats found' : 'No chats yet'}
-            </p>
-          ) : (
+      {/* Conversations list — DnD only on desktop, plain list on mobile */}
+      <div className="px-2 pb-2">
+        {loadingHistory ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : filteredConversations.length === 0 ? (
+          <p className="text-xs text-muted-foreground text-center py-8">
+            {searchQuery ? 'No chats found' : 'No chats yet'}
+          </p>
+        ) : isMobile ? (
+          <>
+            {/* Mobile: no DnD wrappers so touch scroll works */}
+            {folderedConversations.map(({ folder, conversations: folderConvos }) => (
+              <div key={folder.id} className="mb-1">
+                <div className="flex items-center gap-1 px-1 py-1 group min-h-[44px]">
+                  <button
+                    onClick={() => handleToggleFolder(folder.id)}
+                    className="flex items-center gap-1.5 flex-1 min-w-0 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {folder.is_collapsed ? <ChevronRight className="w-3 h-3 shrink-0" /> : <ChevronDown className="w-3 h-3 shrink-0" />}
+                    {folder.is_collapsed ? <Folder className="w-3 h-3 shrink-0" /> : <FolderOpen className="w-3 h-3 shrink-0" />}
+                    <span className="truncate">{folder.name}</span>
+                    {folderConvos.length > 0 && (
+                      <span className="text-[10px] text-muted-foreground/60 ml-auto shrink-0">{folderConvos.length}</span>
+                    )}
+                  </button>
+                </div>
+                {!folder.is_collapsed && (
+                  <div className="pl-2">
+                    {folderConvos.map(c => renderConversationItem(c))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {unfiledConversations.length > 0 && (
+              <>
+                {chatFolders.length > 0 && (
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60 px-2 pt-2 pb-1">Unfiled</p>
+                )}
+                {unfiledConversations.map(c => renderConversationItem(c))}
+              </>
+            )}
+          </>
+        ) : (
+          <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <>
               {/* Folders */}
               {folderedConversations.map(({ folder, conversations: folderConvos }) => (
                 <div key={folder.id} className="mb-1">
-                  {/* Folder header */}
                   <div className="flex items-center gap-1 px-1 py-1 group min-h-[44px]">
                     <button
                       onClick={() => handleToggleFolder(folder.id)}
@@ -1281,7 +1315,6 @@ const Index = () => {
                       </button>
                     </div>
                   </div>
-                  {/* Folder conversations (droppable zone) */}
                   {!folder.is_collapsed && (
                     <DroppableZone id={folder.id}>
                       {folderConvos.length > 0 ? (
@@ -1301,8 +1334,6 @@ const Index = () => {
                   )}
                 </div>
               ))}
-
-              {/* Unfiled conversations */}
               {unfiledConversations.length > 0 && (
                 <DroppableZone id="unfiled">
                   {chatFolders.length > 0 && (
@@ -1316,9 +1347,9 @@ const Index = () => {
                 </DroppableZone>
               )}
             </>
-          )}
-        </div>
-      </DndContext>
+          </DndContext>
+        )}
+      </div>
 
       {/* Footer: memory + projects + notifications */}
       <div className="p-3 border-t border-border space-y-2">
