@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Loader2, Lock, ArrowLeft, Mail, CheckCircle, KeyRound } from 'lucide-react';
-import GenieLamp from '@/components/icons/GenieLamp';
+import mellekaLogo from '@/assets/melleka-logo.png';
 import { supabase } from '@/integrations/supabase/client';
 
 type ResetStep = 'email' | 'code' | 'newPassword';
@@ -225,7 +225,7 @@ const Login = () => {
       <div className="min-h-screen min-h-[100dvh] bg-background flex flex-col items-center justify-center px-4 overflow-y-auto">
         <div className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-8">
-            <GenieLamp size={48} className="mb-4 animate-float" />
+            <img src={mellekaLogo} alt="Melleka" className="mb-4 h-12 w-auto" />
             <h1 className="text-2xl font-display font-bold genie-gradient-text text-center">
               Check Your Email
             </h1>
@@ -287,7 +287,7 @@ const Login = () => {
       <div className="min-h-screen min-h-[100dvh] bg-background flex flex-col items-center justify-center px-4 overflow-y-auto">
         <div className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-8">
-            <GenieLamp size={48} className="mb-4 animate-float" />
+            <img src={mellekaLogo} alt="Melleka" className="mb-4 h-12 w-auto" />
             <h1 className="text-2xl font-display font-bold genie-gradient-text text-center">
               Reset Password
             </h1>
