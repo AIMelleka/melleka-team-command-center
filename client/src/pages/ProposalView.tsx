@@ -802,6 +802,7 @@ const ProposalViewInner = () => {
   const [selectedPackage, setSelectedPackage] = useState<MarketingPackage | null>(null);
   const [selectedWebsitePackage, setSelectedWebsitePackage] = useState<WebsitePackage | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showReorderPanel, setShowReorderPanel] = useState(false);
   const [showAddSection, setShowAddSection] = useState(false);
@@ -2132,7 +2133,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
               </div>
               
               {/* Main Title - "Marketing Proposal for (Client Name)" */}
-              <h1 className="text-4xl md:text-6xl lg:text-7xl font-display font-bold mb-4 leading-tight" style={{
+              <h1 className="text-3xl md:text-6xl lg:text-7xl font-display font-bold mb-4 leading-tight" style={{
               color: textColor,
               textShadow: isLightBackground ? 'none' : `0 2px 40px color-mix(in srgb, ${primaryColor} 30%, transparent)`
             }}>
@@ -2636,7 +2637,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
               </AnimatedSection>
 
               <AnimatedSection delay={100}>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {proposalServices.map((service, i) => {
                 const ServiceIcon = service.icon;
                 return <div key={i} className="p-5 rounded-2xl transition-all duration-300 hover:scale-105 group" style={{
@@ -2837,7 +2838,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
 
               {/* Campaigns Grid */}
               {content.googleAds.campaigns && content.googleAds.campaigns.length > 0 && <AnimatedSection delay={200}>
-                  <div className="grid md:grid-cols-2 gap-6 mb-12">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
                     {content.googleAds.campaigns.map((campaign, i) => <div key={i} className="genie-card p-6 rounded-2xl">
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="text-xl font-display font-semibold" style={{
@@ -2925,7 +2926,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                 }
 
                 // Flat structure - original rendering
-                return <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                return <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
                           {Object.entries(results).map(([key, value]) => <div key={key} className="text-center">
                               <p className="text-2xl md:text-3xl font-bold" style={{
                       color: primaryColor
@@ -3006,7 +3007,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                       <CalloutBadge text="4-Stage Strategy" variant="highlight" />
                     </div>
                     <FloatingAnnotation text="🎯 Optimized for conversion" position="top-right" />
-                    <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                       {content.metaAds.funnelStages.map((stage, i) => <div key={i} className="genie-card p-5 rounded-xl relative overflow-hidden">
                           <div className="absolute top-0 left-0 w-full h-1" style={{
                     backgroundColor: primaryColor
@@ -3075,7 +3076,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                   color: secondaryColor
                 }}><EditableText value="SEO & Organic Growth Strategy" path="seo.eyebrow" as="span" /></span>
                   </div>
-                  <h2 className="text-4xl md:text-5xl font-display font-bold mb-4" style={{
+                  <h2 className="text-3xl md:text-5xl font-display font-bold mb-4" style={{
                 color: textColor
               }}>
                     Dominate Search Results for{' '}
@@ -3175,7 +3176,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
             return seoMetrics ? <>
                     {/* Metrics Cards - Premium Design */}
                     <AnimatedSection delay={100}>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-12">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-12">
                         {[{
                     label: 'Organic Keywords',
                     value: seoMetrics.keywords,
@@ -3309,7 +3310,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
 
                     {/* Competitor Landscape + Chart */}
                     {competitors && competitors.length > 0 && <AnimatedSection delay={200}>
-                        <div className="grid md:grid-cols-2 gap-6 mb-12">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
                           {/* Competitors List */}
                           <div className="p-8 rounded-3xl" style={{
                     background: cardBackground,
@@ -3649,7 +3650,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                           <EditableText value="Expected growth over 12 months with our SEO strategy" path="seo.projectedResultsDesc" as="span" />
                         </p>
                       </div>
-                      <div className="grid grid-cols-3 gap-6">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         {Object.entries(content.seo.expectedResults).map(([key, value], i) => <div key={key} className="text-center">
                             <p className="text-3xl md:text-4xl font-display font-bold mb-2" style={{
                       color: i === 0 ? primaryColor : i === 1 ? secondaryColor : accentColor
@@ -3986,7 +3987,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                 }}><EditableText value={content.socialMedia.communityManagement || ''} path="socialMedia.communityManagement" as="span" multiline /></p>
                       
                       {/* Stats row */}
-                      <div className="grid grid-cols-3 gap-6 mt-8 pt-8" style={{
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8 pt-8" style={{
                   borderTop: `1px solid ${borderColor}`
                 }}>
                         <div>
@@ -4090,7 +4091,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
             </AnimatedSection>
             
             <AnimatedSection delay={100}>
-              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {[
                   { icon: Star, title: 'Review Monitoring', desc: '24/7 alerts for new reviews across all platforms' },
                   { icon: MessageSquare, title: 'Response Management', desc: 'Professional responses within 24 hours' },
@@ -4242,7 +4243,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
 
                 {/* Annual Output & Content Pillars */}
                 <AnimatedSection delay={showInfluencer ? 400 : 300}>
-                  <div className="grid md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {content.ugc.annualOutput && (
                       <div className="relative p-8 rounded-3xl text-center overflow-hidden group" style={{
                         background: `linear-gradient(135deg, color-mix(in srgb, ${primaryColor} 15%, ${cardBackground}), color-mix(in srgb, ${secondaryColor} 10%, ${cardBackground}))`,
@@ -4303,7 +4304,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
             </AnimatedSection>
             
             <AnimatedSection delay={100}>
-              <div className="grid md:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="p-8 rounded-3xl" style={{ background: cardBackground, border: `1px solid ${borderColor}` }}>
                   <Monitor className="w-12 h-12 mb-4" style={{ color: primaryColor }} />
                   <h3 className="text-xl font-bold mb-4" style={{ color: textColor }}><EditableText value="What's Included" path="tvAds.includedTitle" as="span" /></h3>
@@ -4318,7 +4319,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                 </div>
                 <div className="p-8 rounded-3xl" style={{ background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})` }}>
                   <h3 className="text-xl font-bold mb-4 text-white"><EditableText value="Expected Reach" path="tvAds.expectedReachTitle" as="span" /></h3>
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     {[
                       { value: '500K+', label: 'Households' },
                       { value: '2-4x', label: 'Brand Recall' },
@@ -4478,7 +4479,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                       </span>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                     {displayPackage.highlights.map((highlight, i) => <div key={i} className="flex items-center gap-2 text-sm">
                         <div className="w-2 h-2 rounded-full" style={{
                     backgroundColor: secondaryColor
@@ -4515,7 +4516,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                       <h4 className="font-medium mb-4" style={{
                   color: textColor
                 }}><EditableText value="Services Included in This Package:" path="budget.servicesTitle" as="span" /></h4>
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                         {packageServices.channels?.included && <div className="flex items-center gap-2 text-sm">
                             <CheckCircle2 className="w-4 h-4 text-green-500" />
                             <span style={{
@@ -4664,7 +4665,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                       {[{
                     icon: CheckCircle2,
                     label: 'Unlimited Revisions',
@@ -4807,7 +4808,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
             <div className="inline-block mb-4">
               <CalloutBadge text="Take Action" variant="new" />
             </div>
-            <h2 className="text-4xl md:text-5xl font-display font-bold mb-6" style={{
+            <h2 className="text-3xl md:text-5xl font-display font-bold mb-6" style={{
             color: textColor,
             textShadow: !isLightBackground ? `0 0 40px ${primaryColor}30` : 'none'
           }}>
@@ -4820,7 +4821,7 @@ const [seoSearchDomain, setSeoSearchDomain] = useState('');
             </p>
 
             {/* Summary Stats - Neon Enhanced */}
-            {dynamicCtaStats.length > 0 && <div className="grid grid-cols-3 gap-6 max-w-3xl mx-auto mb-12 pt-10 overflow-visible">
+            {dynamicCtaStats.length > 0 && <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl mx-auto mb-12 pt-10 overflow-visible">
                 {dynamicCtaStats.map((stat, i) => <div key={i} className="relative group overflow-visible">
                     {i === 0 && <FloatingAnnotation text="Best Value" position="top-right" color={secondaryColor} />}
                     {/* Neon glow on dark backgrounds */}

@@ -59,9 +59,11 @@ import {
   SendHorizonal,
   Plus,
   CalendarDays,
+  Menu,
   type LucideIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import AccountMappingModal from '@/components/AccountMappingModal';
 import { AnimatedSection } from '@/components/AnimatedSection';
 import { AnimatedCounter } from '@/components/AnimatedCounter';
@@ -365,7 +367,7 @@ const ExecSummarySection = ({
             multiline
             className="text-[#374151] leading-relaxed text-lg"
           />
-          <div className="grid md:grid-cols-2 gap-5 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
             {/* Key Wins */}
             <div className="bg-emerald-50 rounded-2xl p-5 border border-emerald-100 space-y-3">
               <div className="flex items-center gap-2">
@@ -673,6 +675,8 @@ const DeckView = () => {
   const [showDateEditor, setShowDateEditor] = useState(false);
   const [dateStart, setDateStart] = useState<Date | undefined>();
   const [dateEnd, setDateEnd] = useState<Date | undefined>();
+  const [mobileSectionNavOpen, setMobileSectionNavOpen] = useState(false);
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
   
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
@@ -1843,6 +1847,47 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
       color: '#1a1a1a',
     } as React.CSSProperties}>
 
+      {/* Mobile Section Navigation Bar */}
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-[60] flex items-center justify-between h-14 px-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+        <span className="text-sm font-medium truncate">{deck?.client_name || 'Deck'}</span>
+        <button onClick={() => setMobileSectionNavOpen(true)} className="flex items-center gap-1.5 min-h-[44px] min-w-[44px] px-3 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 justify-center">
+          <Menu className="w-4 h-4" />
+          <span>Sections</span>
+        </button>
+      </div>
+
+      {/* Mobile Section Navigation Sheet */}
+      <Sheet open={mobileSectionNavOpen} onOpenChange={setMobileSectionNavOpen}>
+        <SheetContent side="right" className="w-72 overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="text-left">Sections</SheetTitle>
+          </SheetHeader>
+          <nav className="mt-4 flex flex-col gap-1">
+            {visibleNavItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setMobileSectionNavOpen(false);
+                    scrollToSection(item.id);
+                  }}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-left transition-colors",
+                    activeSection === item.id
+                      ? "bg-[#6C3FA0]/10 text-[#6C3FA0] font-medium"
+                      : "text-[#374151] hover:bg-gray-100"
+                  )}
+                >
+                  <Icon className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </SheetContent>
+      </Sheet>
+
       {/* Screenshot Lightbox */}
       {expandedScreenshot && (() => {
         const allImages: string[] = [];
@@ -1870,13 +1915,23 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
         const goNext = () => { if (hasNext) setExpandedScreenshot(unique[currentIdx + 1]); };
 
         return (
-          <div 
+          <div
             className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 cursor-zoom-out backdrop-blur-xl"
             onClick={() => setExpandedScreenshot(null)}
             onKeyDown={(e) => {
               if (e.key === 'ArrowLeft') { e.stopPropagation(); goPrev(); }
               if (e.key === 'ArrowRight') { e.stopPropagation(); goNext(); }
               if (e.key === 'Escape') setExpandedScreenshot(null);
+            }}
+            onTouchStart={(e) => setTouchStartX(e.touches[0].clientX)}
+            onTouchEnd={(e) => {
+              if (touchStartX !== null) {
+                const delta = e.changedTouches[0].clientX - touchStartX;
+                if (Math.abs(delta) > 50) {
+                  delta < 0 ? goNext() : goPrev();
+                }
+                setTouchStartX(null);
+              }
             }}
             tabIndex={0}
             ref={(el) => el?.focus()}
@@ -1889,7 +1944,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             {/* Navigation arrows */}
             {hasPrev && (
               <button
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-[#374151] hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-3 transition-all"
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-[#374151] hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-3 transition-all min-w-[56px] min-h-[56px] flex items-center justify-center"
                 onClick={(e) => { e.stopPropagation(); goPrev(); }}
               >
                 <ArrowLeft className="h-6 w-6" />
@@ -1897,7 +1952,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
             )}
             {hasNext && (
               <button
-                className="absolute right-16 top-1/2 -translate-y-1/2 text-[#374151] hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-3 transition-all"
+                className="absolute right-16 top-1/2 -translate-y-1/2 text-[#374151] hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-3 transition-all min-w-[56px] min-h-[56px] flex items-center justify-center"
                 onClick={(e) => { e.stopPropagation(); goNext(); }}
               >
                 <ArrowLeft className="h-6 w-6 rotate-180" />
@@ -1909,8 +1964,8 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                 {currentIdx + 1} / {unique.length}
               </span>
             )}
-            <button 
-              className="absolute top-6 right-6 text-[#374151] hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-3 transition-all"
+            <button
+              className="absolute top-6 right-6 text-[#374151] hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-3 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
               onClick={() => setExpandedScreenshot(null)}
             >
               <X className="h-6 w-6" />
@@ -1923,7 +1978,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
 
       {/* Admin Toolbar — floating bar */}
       {isAdminMode && (
-        <div className="fixed top-4 right-4 z-50 flex flex-col items-end gap-2">
+        <div className="fixed top-2 right-2 md:top-4 md:right-4 z-50 flex flex-col items-end gap-2">
           {/* Status badge */}
           <div className="flex items-center gap-2">
             <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold uppercase tracking-wide ${
@@ -1970,7 +2025,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   <PopoverContent className="w-auto p-4 bg-zinc-900 border-zinc-700" align="end" sideOffset={8}>
                     <div className="space-y-4">
                       <h4 className="text-sm font-semibold text-white">Ad Reporting Date Range</h4>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                           <label className="text-xs text-zinc-400 mb-1 block">Start Date</label>
                           <Calendar
@@ -2071,83 +2126,85 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
               {isRegenerating ? 'Regenerating…' : 'Regenerate AI'}
             </button>
 
-            {/* Approval workflow buttons */}
-            {(deck.status === 'draft' || deck.status === 'failed') && !isRegenerating && (
-              <>
-                <button
-                  onClick={handleSubmitForReview}
-                  disabled={isSubmittingForReview}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white disabled:opacity-50"
-                  style={{ backgroundColor: 'rgba(234,179,8,0.15)', borderColor: 'rgba(234,179,8,0.35)', color: '#fde047' }}
-                  title="Mark as ready for review"
-                >
-                  <SendHorizonal className="w-4 h-4" />
-                  {isSubmittingForReview ? 'Submitting…' : 'Submit for Review'}
-                </button>
-                <button
-                  onClick={handleApproveDeck}
-                  disabled={isApprovingDeck}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white disabled:opacity-50"
-                  style={{ backgroundColor: 'rgba(16,185,129,0.2)', borderColor: 'rgba(16,185,129,0.4)', color: '#6ee7b7' }}
-                  title="Publish deck directly to client"
-                >
-                  <CheckCheck className="w-4 h-4" />
-                  {isApprovingDeck ? 'Publishing…' : 'Publish'}
-                </button>
-              </>
-            )}
-            {deck.status === 'review' && (
-              <>
+            {/* Approval workflow buttons — hidden on mobile */}
+            <div className="hidden md:flex items-center gap-2">
+              {(deck.status === 'draft' || deck.status === 'failed') && !isRegenerating && (
+                <>
+                  <button
+                    onClick={handleSubmitForReview}
+                    disabled={isSubmittingForReview}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white disabled:opacity-50"
+                    style={{ backgroundColor: 'rgba(234,179,8,0.15)', borderColor: 'rgba(234,179,8,0.35)', color: '#fde047' }}
+                    title="Mark as ready for review"
+                  >
+                    <SendHorizonal className="w-4 h-4" />
+                    {isSubmittingForReview ? 'Submitting…' : 'Submit for Review'}
+                  </button>
+                  <button
+                    onClick={handleApproveDeck}
+                    disabled={isApprovingDeck}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white disabled:opacity-50"
+                    style={{ backgroundColor: 'rgba(16,185,129,0.2)', borderColor: 'rgba(16,185,129,0.4)', color: '#6ee7b7' }}
+                    title="Publish deck directly to client"
+                  >
+                    <CheckCheck className="w-4 h-4" />
+                    {isApprovingDeck ? 'Publishing…' : 'Publish'}
+                  </button>
+                </>
+              )}
+              {deck.status === 'review' && (
+                <>
+                  <button
+                    onClick={handleUnpublish}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white"
+                    style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.15)', color: brandTextSecondary }}
+                  >
+                    Back to Draft
+                  </button>
+                  <button
+                    onClick={handleApproveDeck}
+                    disabled={isApprovingDeck}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white disabled:opacity-50"
+                    style={{ backgroundColor: 'rgba(16,185,129,0.2)', borderColor: 'rgba(16,185,129,0.4)', color: '#6ee7b7' }}
+                    title="Approve and publish to client"
+                  >
+                    <CheckCheck className="w-4 h-4" />
+                    {isApprovingDeck ? 'Publishing…' : 'Approve & Publish'}
+                  </button>
+                </>
+              )}
+              {deck.status === 'published' && (
                 <button
                   onClick={handleUnpublish}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white"
-                  style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.15)', color: brandTextSecondary }}
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium border shadow-md transition-all hover:scale-105 bg-white"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)', color: brandTextSecondary }}
                 >
-                  Back to Draft
+                  Unpublish
                 </button>
-                <button
-                  onClick={handleApproveDeck}
-                  disabled={isApprovingDeck}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white disabled:opacity-50"
-                  style={{ backgroundColor: 'rgba(16,185,129,0.2)', borderColor: 'rgba(16,185,129,0.4)', color: '#6ee7b7' }}
-                  title="Approve and publish to client"
-                >
-                  <CheckCheck className="w-4 h-4" />
-                  {isApprovingDeck ? 'Publishing…' : 'Approve & Publish'}
-                </button>
-              </>
-            )}
-            {deck.status === 'published' && (
-              <button
-                onClick={handleUnpublish}
-                className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium border shadow-md transition-all hover:scale-105 bg-white"
-                style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)', color: brandTextSecondary }}
-              >
-                Unpublish
-              </button>
-            )}
+              )}
 
-            {/* Copy client link */}
-            <button
-              onClick={() => {
-                const clientUrl = `${import.meta.env.VITE_APP_URL || window.location.origin}/deck/${slug}/present`;
-                navigator.clipboard.writeText(clientUrl);
-                toast({ title: 'Client link copied!', description: clientUrl });
-              }}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white"
-              style={{ backgroundColor: `${brandPrimary}20`, borderColor: `${brandPrimary}40`, color: brandTextPrimary }}
-            >
-              <Share2 className="w-4 h-4" />
-              Copy Client Link
-            </button>
-            <button
-              onClick={() => window.open(`/deck/${slug}/present`, '_blank')}
-              className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white"
-              style={{ backgroundColor: `${brandPrimary}10`, borderColor: `${brandPrimary}30`, color: brandTextSecondary }}
-              title="Preview as client"
-            >
-              <ExternalLink className="w-4 h-4" />
-            </button>
+              {/* Copy client link */}
+              <button
+                onClick={() => {
+                  const clientUrl = `${import.meta.env.VITE_APP_URL || window.location.origin}/deck/${slug}/present`;
+                  navigator.clipboard.writeText(clientUrl);
+                  toast({ title: 'Client link copied!', description: clientUrl });
+                }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white"
+                style={{ backgroundColor: `${brandPrimary}20`, borderColor: `${brandPrimary}40`, color: brandTextPrimary }}
+              >
+                <Share2 className="w-4 h-4" />
+                Copy Client Link
+              </button>
+              <button
+                onClick={() => window.open(`/deck/${slug}/present`, '_blank')}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium border shadow-md transition-all hover:scale-105 bg-white"
+                style={{ backgroundColor: `${brandPrimary}10`, borderColor: `${brandPrimary}30`, color: brandTextSecondary }}
+                title="Preview as client"
+              >
+                <ExternalLink className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {/* Edit mode hint */}
@@ -2264,7 +2321,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {[
                   { label: 'Primary', key: 'primary' as const },
                   { label: 'Secondary', key: 'secondary' as const },
@@ -2339,7 +2396,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
 
 
       {/* Main Content */}
-      <main className="max-w-[960px] mx-auto px-4 sm:px-6 transition-all duration-300">
+      <main className="max-w-[960px] mx-auto px-4 sm:px-6 transition-all duration-300 pt-14 lg:pt-0">
         {/* Hero Section — Purple Gradient */}
         <section className="pt-8 pb-4">
           <div className="deck-ref-hero relative" style={{ background: `linear-gradient(135deg, ${brandPrimary} 0%, ${brandPrimary}dd 50%, ${brandPrimary}aa 100%)` }}>
@@ -2389,7 +2446,7 @@ const ExtraWorkedOnTasks = ({ sectionKey }: { sectionKey: string }) => {
 
               {/* Hero Stat Cards — 3-column grid */}
               {heroStats.length > 0 && (
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {heroStats.map((stat, i) => (
                     <div key={i} className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/15">
                       <div className="text-[#6b7280] text-xs font-semibold uppercase tracking-wider mb-1">{stat.label}</div>

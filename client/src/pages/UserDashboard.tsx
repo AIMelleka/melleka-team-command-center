@@ -79,7 +79,7 @@ const UserDashboard = () => {
                         const Icon = tool.icon;
                         return (
                           <Link key={tool.key} to={tool.route} className="block">
-                            <Card className="hover:border-primary/50 hover:shadow-lg transition-all cursor-pointer group h-full">
+                            <Card className="hover:border-primary/50 hover:shadow-lg transition-all cursor-pointer group h-full min-h-[88px]">
                               <CardHeader className="pb-2">
                                 <div className="flex items-center gap-3">
                                   <div className="p-2.5 rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">

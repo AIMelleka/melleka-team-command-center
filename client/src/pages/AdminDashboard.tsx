@@ -264,48 +264,48 @@ const AdminDashboard = () => {
       <main className="container mx-auto px-3 md:px-4 py-4 md:py-8">
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8">
-          <div className="bg-card border border-border rounded-lg p-4">
+          <div className="bg-card border border-border rounded-lg p-3 md:p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-genie-purple/10">
                 <Users className="h-5 w-5 text-genie-purple" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{users?.length ?? 0}</p>
+                <p className="text-xl md:text-2xl font-bold">{users?.length ?? 0}</p>
                 <p className="text-sm text-muted-foreground">Total Users</p>
               </div>
             </div>
           </div>
-          <div className="bg-card border border-border rounded-lg p-4">
+          <div className="bg-card border border-border rounded-lg p-3 md:p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-genie-gold/10">
                 <Shield className="h-5 w-5 text-genie-gold" />
               </div>
               <div>
-                <p className="text-2xl font-bold">
+                <p className="text-xl md:text-2xl font-bold">
                   {users?.filter((u) => u.is_admin).length ?? 0}
                 </p>
                 <p className="text-sm text-muted-foreground">Admins</p>
               </div>
             </div>
           </div>
-          <div className="bg-card border border-border rounded-lg p-4">
+          <div className="bg-card border border-border rounded-lg p-3 md:p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10">
                 <FileText className="h-5 w-5 text-blue-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{proposals?.length ?? 0}</p>
+                <p className="text-xl md:text-2xl font-bold">{proposals?.length ?? 0}</p>
                 <p className="text-sm text-muted-foreground">Proposals</p>
               </div>
             </div>
           </div>
-          <div className="bg-card border border-border rounded-lg p-4">
+          <div className="bg-card border border-border rounded-lg p-3 md:p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-green-500/10">
                 <Eye className="h-5 w-5 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">
+                <p className="text-xl md:text-2xl font-bold">
                   {proposals?.filter((p) => p.status === 'published').length ?? 0}
                 </p>
                 <p className="text-sm text-muted-foreground">Published</p>
@@ -420,8 +420,8 @@ const AdminDashboard = () => {
                     <TableRow>
                       <TableHead>Email</TableHead>
                       <TableHead>Role</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Last Sign In</TableHead>
+                      <TableHead className="hidden md:table-cell">Created</TableHead>
+                      <TableHead className="hidden md:table-cell">Last Sign In</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -446,10 +446,10 @@ const AdminDashboard = () => {
                               <Badge variant="secondary">User</Badge>
                             )}
                           </TableCell>
-                          <TableCell className="text-muted-foreground">
+                          <TableCell className="hidden md:table-cell text-muted-foreground">
                             {safeFormatDate(user.created_at, "MMM d, yyyy")}
                           </TableCell>
-                          <TableCell className="text-muted-foreground">
+                          <TableCell className="hidden md:table-cell text-muted-foreground">
                             {user.last_sign_in_at
                               ? safeFormatDate(user.last_sign_in_at, "MMM d, yyyy")
                               : 'Never'}
@@ -540,7 +540,7 @@ const AdminDashboard = () => {
               </Button>
             </div>
 
-            <div className="bg-card border border-border rounded-lg overflow-hidden">
+            <div className="bg-card border border-border rounded-lg overflow-x-auto">
               {proposalsLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-genie-purple" />
@@ -550,9 +550,9 @@ const AdminDashboard = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Title</TableHead>
-                      <TableHead>Client</TableHead>
+                      <TableHead className="hidden sm:table-cell">Client</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Updated</TableHead>
+                      <TableHead className="hidden md:table-cell">Updated</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -567,9 +567,9 @@ const AdminDashboard = () => {
                       filteredProposals?.map((proposal) => (
                         <TableRow key={proposal.id}>
                           <TableCell className="font-medium">{proposal.title}</TableCell>
-                          <TableCell>{proposal.client_name}</TableCell>
+                          <TableCell className="hidden sm:table-cell">{proposal.client_name}</TableCell>
                           <TableCell>{getStatusBadge(proposal.status)}</TableCell>
-                          <TableCell className="text-muted-foreground">
+                          <TableCell className="hidden md:table-cell text-muted-foreground">
                             {safeFormatDate(proposal.updated_at, "MMM d, yyyy")}
                           </TableCell>
                           <TableCell className="text-right">

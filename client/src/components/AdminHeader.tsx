@@ -122,7 +122,7 @@ const AdminHeader = memo(() => {
         {/* Logo */}
         <button
           onClick={() => navigate(isAdmin ? '/' : '/user')}
-          className="flex items-center gap-2 hover:opacity-80 transition-opacity shrink-0"
+          className="flex items-center gap-2 hover:opacity-80 transition-opacity shrink-0 min-h-[44px]"
         >
           <img src={teamPitLogo} alt="Melleka Genie" className="w-6 h-6 sm:w-7 sm:h-7" />
           <span className="font-display font-semibold text-sm hidden sm:inline text-foreground">
@@ -143,7 +143,7 @@ const AdminHeader = memo(() => {
           {isMobile ? (
             <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
               <SheetTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 px-2">
+                <Button variant="outline" size="sm" className="h-10 px-3 min-h-[44px]">
                   <Menu className="h-4 w-4" />
                 </Button>
               </SheetTrigger>
@@ -162,7 +162,7 @@ const AdminHeader = memo(() => {
                       <button
                         key={item.path}
                         onClick={() => handleNav(item.path)}
-                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm transition-colors ${
+                        className={`w-full flex items-center gap-3 px-3 py-3.5 rounded-lg text-sm transition-colors ${
                           isActive
                             ? 'bg-accent text-accent-foreground font-medium'
                             : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -183,7 +183,7 @@ const AdminHeader = memo(() => {
                           <button
                             key={item.path}
                             onClick={() => handleNav(item.path)}
-                            className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm transition-colors ${
+                            className={`w-full flex items-center gap-3 px-3 py-3.5 rounded-lg text-sm transition-colors ${
                               isActive
                                 ? 'bg-accent text-accent-foreground font-medium'
                                 : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -278,7 +278,7 @@ const AdminHeader = memo(() => {
 
           {/* Sign Out - desktop only */}
           {!isMobile && (
-            <Button variant="ghost" size="sm" onClick={handleSignOut} className="h-8 w-8 p-0">
+            <Button variant="ghost" size="sm" onClick={handleSignOut} className="h-10 w-10 p-0">
               <LogOut className="h-4 w-4" />
             </Button>
           )}

@@ -1050,7 +1050,7 @@ const Index = () => {
     <button
       key={c.id}
       onClick={() => { if (editing?.id !== c.id) selectConversation(c.id); }}
-      className={`w-full text-left px-3 py-2.5 rounded-lg text-sm group flex items-center gap-2 mb-0.5 transition-colors ${
+      className={`w-full text-left px-3 py-2.5 rounded-lg text-sm group flex items-center gap-2 mb-0.5 transition-colors min-h-[44px] ${
         activeConvoId === c.id
           ? 'bg-accent text-foreground'
           : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
@@ -1174,7 +1174,7 @@ const Index = () => {
   const sidebarContent = (
     <div className="h-full flex flex-col">
       <div className="p-3 flex items-center gap-2">
-        <Button variant="outline" size="sm" className="flex-1 justify-start gap-2" onClick={() => startNewChat()}>
+        <Button variant="outline" size="sm" className="flex-1 justify-start gap-2 min-h-[44px]" onClick={() => startNewChat()}>
           <Plus className="w-4 h-4" /> New Chat
         </Button>
         <Button variant="ghost" size="icon" className="h-8 w-8" title="New Folder" onClick={() => setCreatingFolder(true)}>
@@ -1232,7 +1232,7 @@ const Index = () => {
               {folderedConversations.map(({ folder, conversations: folderConvos }) => (
                 <div key={folder.id} className="mb-1">
                   {/* Folder header */}
-                  <div className="flex items-center gap-1 px-1 py-1 group">
+                  <div className="flex items-center gap-1 px-1 py-1 group min-h-[44px]">
                     <button
                       onClick={() => handleToggleFolder(folder.id)}
                       className="flex items-center gap-1.5 flex-1 min-w-0 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -1396,7 +1396,7 @@ const Index = () => {
           )}
 
           {/* Top bar: Agent Dashboard + Project badge + Voice toggle */}
-          <div className="flex items-center justify-between px-3 pt-2 gap-2">
+          <div className="flex items-center flex-wrap justify-between px-3 pt-2 gap-1.5">
             <Button
               variant="outline"
               size="sm"
@@ -1431,7 +1431,7 @@ const Index = () => {
                   <button
                     key={i}
                     onClick={() => sendMessage(prompt)}
-                    className="text-left p-3 rounded-xl bg-card border border-border hover:border-primary/40 hover:shadow-sm transition-all text-xs sm:text-sm text-muted-foreground hover:text-foreground"
+                    className="text-left p-3 rounded-xl bg-card border border-border hover:border-primary/40 hover:shadow-sm transition-all text-xs sm:text-sm text-muted-foreground hover:text-foreground min-h-[52px]"
                   >
                     {prompt}
                   </button>
@@ -1550,7 +1550,7 @@ const Index = () => {
                 <div className="relative">
                   <button
                     onClick={() => setShowModelPicker(!showModelPicker)}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors border border-border/50"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors border border-border/50"
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                     {{ 'claude-opus-4-6': 'Melleka Super Smart', 'claude-sonnet-4-6': 'Melleka F&S', 'claude-haiku-4-5-20251001': 'Melleka Fast' }[modelId] || 'Melleka Super Smart'}
@@ -1559,7 +1559,7 @@ const Index = () => {
                   {showModelPicker && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={() => setShowModelPicker(false)} />
-                      <div className="absolute right-0 bottom-full mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[180px]">
+                      <div className="absolute right-0 bottom-full mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[180px] max-w-[200px]">
                         {([
                           { id: 'claude-opus-4-6', label: 'Melleka Super Smart', desc: 'Most capable' },
                           { id: 'claude-sonnet-4-6', label: 'Melleka F&S', desc: 'Fast & smart' },
@@ -1568,7 +1568,7 @@ const Index = () => {
                           <button
                             key={m.id}
                             onClick={() => { setModelId(m.id); setShowModelPicker(false); }}
-                            className={`w-full text-left px-3 py-1.5 text-xs hover:bg-accent flex items-center justify-between gap-3 ${modelId === m.id ? 'text-primary font-medium' : 'text-foreground'}`}
+                            className={`w-full text-left px-3 py-2.5 text-xs hover:bg-accent flex items-center justify-between gap-3 ${modelId === m.id ? 'text-primary font-medium' : 'text-foreground'}`}
                           >
                             <span>{m.label}</span>
                             <span className="text-[10px] text-muted-foreground">{m.desc}</span>
@@ -1676,7 +1676,7 @@ const Index = () => {
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isStreaming}
-                    className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-40"
+                    className="shrink-0 w-11 h-11 min-w-[44px] min-h-[44px] rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-40"
                     title="Attach files"
                   >
                     <Paperclip className="w-4 h-4" />
@@ -1712,12 +1712,12 @@ const Index = () => {
                     onKeyDown={handleKeyDown}
                     placeholder={voiceChat.isListening ? "Listening..." : "Ask anything..."}
                     rows={1}
-                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none max-h-[200px]"
+                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none max-h-[200px] min-h-[44px]"
                   />
                   <button
                     onClick={isStreaming ? stopStreaming : () => sendMessage()}
                     disabled={!isStreaming && !canSend}
-                    className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                    className={`shrink-0 w-11 h-11 min-w-[44px] min-h-[44px] rounded-lg flex items-center justify-center transition-all ${
                       isStreaming
                         ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
                         : canSend

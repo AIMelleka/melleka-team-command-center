@@ -145,3 +145,11 @@ REASONING CRITERIA (for "pattern" changes):
 SISTER PROJECTS:
 - Turbo AI: /Users/aimelleka/MellekaMarketingMain/Main Melleka Turbo AI/
 - Anthony: /Users/aimelleka/Clients/AnthonysPersonalAssistant/
+
+## Mobile-First Rules (all new code)
+- Touch targets: min 44x44px on all interactive elements (min-h-[44px] min-w-[44px])
+- Text: minimum text-sm (14px) for body; text-xs only for timestamps/metadata
+- Grids: always start grid-cols-1, add sm:/md:/lg: variants
+- Sidebars on mobile: Sheet/drawer pattern only — never fixed panels
+- No fixed pixel widths on containers without mobile fallback
+- Dropdowns: verify they don't clip viewport edges
