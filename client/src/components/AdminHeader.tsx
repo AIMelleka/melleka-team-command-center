@@ -28,6 +28,7 @@ import {
   Film,
   CalendarCheck,
   ListChecks,
+  ChevronDown,
 } from 'lucide-react';
 import teamPitLogo from '@/assets/team-pit-logo.png';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -79,6 +80,7 @@ const AdminHeader = memo(() => {
   const { hasToolAccess } = useUserPermissions();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [otherToolsOpen, setOtherToolsOpen] = useState(false);
 
   const handleSignOut = useCallback(async () => {
     await signOut();
@@ -175,8 +177,14 @@ const AdminHeader = memo(() => {
                   })}
                   {visibleOtherItems.length > 0 && (
                     <>
-                      <p className="px-3 pt-4 pb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Other Tools</p>
-                      {visibleOtherItems.map((item) => {
+                      <button
+                        onClick={() => setOtherToolsOpen(o => !o)}
+                        className="w-full flex items-center justify-between px-3 pt-4 pb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                      >
+                        Other Tools
+                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${otherToolsOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {otherToolsOpen && visibleOtherItems.map((item) => {
                         const Icon = item.icon;
                         const isActive = location.pathname === item.path;
                         return (
@@ -241,8 +249,14 @@ const AdminHeader = memo(() => {
                     })}
                     {visibleOtherItems.length > 0 && (
                       <>
-                        <p className="px-3 pt-4 pb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Other Tools</p>
-                        {visibleOtherItems.map((item) => {
+                        <button
+                          onClick={() => setOtherToolsOpen(o => !o)}
+                          className="w-full flex items-center justify-between px-3 pt-4 pb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                        >
+                          Other Tools
+                          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${otherToolsOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        {otherToolsOpen && visibleOtherItems.map((item) => {
                           const Icon = item.icon;
                           const isActive = location.pathname === item.path;
                           return (
