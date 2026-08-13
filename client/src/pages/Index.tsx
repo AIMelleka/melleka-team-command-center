@@ -45,7 +45,8 @@ import { useModelPreference } from '@/hooks/useModelPreference';
 import {
   DndContext,
   closestCenter,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   useDroppable,
@@ -232,7 +233,8 @@ const Index = () => {
 
   // DnD sensor for folder drag-and-drop
   const dndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
   );
 
   // Backtick (`) hotkey: interrupt agent / toggle mic during voice mode
