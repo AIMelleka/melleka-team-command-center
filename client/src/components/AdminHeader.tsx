@@ -147,14 +147,14 @@ const AdminHeader = memo(() => {
                   <Menu className="h-4 w-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0">
-                <SheetHeader className="p-4 border-b border-border">
+              <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0 flex flex-col">
+                <SheetHeader className="p-4 border-b border-border shrink-0">
                   <SheetTitle className="flex items-center gap-2 text-base">
                     <img src={teamPitLogo} alt="Melleka Genie" className="w-6 h-6" />
                     Melleka Genie
                   </SheetTitle>
                 </SheetHeader>
-                <nav className="flex-1 overflow-y-auto p-2">
+                <nav className="flex-1 min-h-0 overflow-y-auto p-2">
                   {visibleMainItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = location.pathname === item.path;
