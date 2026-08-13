@@ -9,6 +9,7 @@ import {
   getStatus,
   getClient,
   getTeammate,
+  getAssign,
   getPriority,
   getDue,
   getStatusGroup,
@@ -205,7 +206,7 @@ export default function TaskTracker() {
 
   const teammateOptions = useMemo(() => {
     const seen = new Set<string>();
-    doneTasks.forEach(t => { const tm = getTeammate(t.properties); if (tm) seen.add(tm.name); });
+    doneTasks.forEach(t => { getAssign(t.properties).forEach(a => seen.add(a.name)); });
     return Array.from(seen).sort();
   }, [doneTasks]);
 
@@ -226,8 +227,8 @@ export default function TaskTracker() {
     return doneTasks.filter(t => {
       const p = t.properties;
       if (teammate !== 'All') {
-        const tm = getTeammate(p);
-        if (!tm || tm.name !== teammate) return false;
+        const assigns = getAssign(p);
+        if (!assigns.some(a => a.name === teammate)) return false;
       }
       if (manager !== 'All') {
         const mgrs = getManagers(p);
@@ -257,8 +258,9 @@ export default function TaskTracker() {
 
     for (const t of filtered) {
       const p = t.properties;
-      const tm = getTeammate(p)?.name;
-      if (tm) byTeammate[tm] = (byTeammate[tm] || 0) + 1;
+      getAssign(p).forEach(a => {
+        byTeammate[a.name] = (byTeammate[a.name] || 0) + 1;
+      });
 
       getManagers(p).forEach(m => {
         byManager[m.name] = (byManager[m.name] || 0) + 1;
@@ -487,7 +489,7 @@ export default function TaskTracker() {
                       const p = task.properties;
                       const st = getStatus(p);
                       const prio = getPriority(p);
-                      const tm = getTeammate(p);
+                      const assigns = getAssign(p);
                       const mgrs = getManagers(p);
                       const due = getDue(p);
                       const completedOn = getCompletedOn(p);
@@ -511,11 +513,13 @@ export default function TaskTracker() {
                             {getClient(p)}
                           </td>
                           <td className="px-3 py-2.5">
-                            {tm && (
-                              <span className={`inline-flex h-5 rounded px-1.5 text-xs items-center ${colorClass(tm.color)}`}>
-                                {tm.name}
-                              </span>
-                            )}
+                            <div className="flex flex-wrap gap-1">
+                              {assigns.map(a => (
+                                <span key={a.name} className="inline-flex h-5 rounded px-1.5 text-xs items-center bg-blue-500/10 text-blue-400">
+                                  {a.name}
+                                </span>
+                              ))}
+                            </div>
                           </td>
                           <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                             {mgrs.map(m => m.name).join(', ')}

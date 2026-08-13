@@ -56,9 +56,18 @@ export function getStatus(props: Record<string, any>): { name: string; color: st
 }
 
 export function getClient(props: Record<string, any>): string {
-  const rt = props["CLIENTS"]?.rich_text;
-  if (!rt?.length) return "";
-  return rt.map((t: any) => t.plain_text).join("");
+  const cp = props["CLIENTS"];
+  if (!cp) return "";
+  if (cp.type === "rich_text" || cp.rich_text) {
+    return (cp.rich_text || []).map((t: any) => t.plain_text).join("").trim();
+  }
+  if (cp.type === "multi_select" || cp.multi_select) {
+    return (cp.multi_select || []).map((x: any) => x.name).join(", ");
+  }
+  if (cp.type === "select" || cp.select) {
+    return (cp.select?.name || "").trim();
+  }
+  return "";
 }
 
 export function getPriority(props: Record<string, any>): { name: string; color: string } | null {
