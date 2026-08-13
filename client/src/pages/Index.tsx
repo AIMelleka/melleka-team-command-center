@@ -1174,7 +1174,7 @@ const Index = () => {
   // ── Sidebar content ────────────────────────────────
 
   const sidebarContent = (
-    <div className="flex flex-col min-h-0 h-full">
+    <div className="flex flex-col">
       <div className="p-3 pr-12 flex items-center gap-2">
         <Button variant="outline" size="sm" className="flex-1 justify-start gap-2 min-h-[44px]" onClick={() => startNewChat()}>
           <Plus className="w-4 h-4" /> New Chat
@@ -1219,7 +1219,7 @@ const Index = () => {
       )}
 
       <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2">
+        <div className="px-2 pb-2">
           {loadingHistory ? (
             <div className="flex justify-center py-8">
               <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
@@ -1372,7 +1372,7 @@ const Index = () => {
         {/* Mobile: Sheet sidebar */}
         {isMobile ? (
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-            <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0 flex flex-col overflow-hidden">
+            <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0 overflow-y-auto">
               <SheetHeader className="sr-only">
                 <SheetTitle>Chat History</SheetTitle>
               </SheetHeader>
