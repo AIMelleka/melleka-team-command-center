@@ -119,7 +119,7 @@ app.use("/api/chat", chatLimiter);
 // Slack Events API — must use raw body for signature verification, mounted BEFORE express.json()
 app.use("/api/slack/events", express.raw({ type: "application/json" }), slackEventsRouter);
 
-app.use(express.json({ limit: "Infinity" }));
+app.use(express.json({ limit: "500mb" }));
 
 // Health check — rich diagnostics for monitoring
 app.get("/health", (_req, res) => {
