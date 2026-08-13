@@ -117,6 +117,7 @@ export default function TaskTracker() {
   const [customTo, setCustomTo] = useState('');
 
   const [teammate, setTeammate] = useState('All');
+  const [status, setStatus] = useState('All');
   const [client, setClient] = useState('');
   const [search, setSearch] = useState('');
   const [tablePage, setTablePage] = useState(0);
@@ -141,6 +142,12 @@ export default function TaskTracker() {
     return Array.from(seen).sort();
   }, [doneTasks]);
 
+  const statusOptions = useMemo(() => {
+    const seen = new Set<string>();
+    doneTasks.forEach(t => { const st = getStatus(t.properties); if (st) seen.add(st.name); });
+    return Array.from(seen).sort();
+  }, [doneTasks]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return doneTasks.filter(t => {
@@ -148,6 +155,10 @@ export default function TaskTracker() {
       if (teammate !== 'All') {
         const tm = getTeammate(p);
         if (!tm || tm.name !== teammate) return false;
+      }
+      if (status !== 'All') {
+        const st = getStatus(p);
+        if (!st || st.name !== status) return false;
       }
       if (client) {
         if (!getClient(p).toLowerCase().includes(client.toLowerCase())) return false;
@@ -157,7 +168,7 @@ export default function TaskTracker() {
       }
       return true;
     });
-  }, [doneTasks, teammate, client, search]);
+  }, [doneTasks, teammate, status, client, search]);
 
   // Stats: total done, top teammate, top client
   const stats = useMemo(() => {
@@ -197,9 +208,10 @@ export default function TaskTracker() {
     setTablePage(0);
   };
 
-  const hasFilters = teammate !== 'All' || client || search;
+  const hasFilters = teammate !== 'All' || status !== 'All' || client || search;
   const clearFilters = () => {
     setTeammate('All');
+    setStatus('All');
     setClient('');
     setSearch('');
     setTablePage(0);
@@ -297,7 +309,7 @@ export default function TaskTracker() {
 
         {/* Filters */}
         <div className="bg-card border rounded-lg p-4 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <p className="text-xs text-muted-foreground mb-1">Client</p>
               <Input
@@ -314,6 +326,16 @@ export default function TaskTracker() {
                 <SelectContent>
                   <SelectItem value="All">All</SelectItem>
                   {teammateOptions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Done Type</p>
+              <Select value={status} onValueChange={v => { setStatus(v); setTablePage(0); }}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All</SelectItem>
+                  {statusOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
