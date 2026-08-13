@@ -416,7 +416,7 @@ const Login = () => {
             Sign In
           </h1>
           <p className="text-muted-foreground mt-2 text-sm">
-            Sign in to access the Content Hub
+            Sign in to access Melleka Genie
           </p>
         </div>
 

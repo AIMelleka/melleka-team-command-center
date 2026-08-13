@@ -249,7 +249,7 @@ router.post("/connect", requireAuth, async (req: AuthRequest, res) => {
     const parsedKey = privateKey.replace(/\\n/g, "\n");
 
     // Generate JWT URL
-    const redirect = req.body.redirect || process.env.CLIENT_URL || "https://teams.melleka.com";
+    const redirect = req.body.redirect || process.env.CLIENT_URL || "https://genie.melleka.com";
     const jwtResult = await ayrFetch("POST", "/profiles/generateJWT", {
       domain,
       privateKey: parsedKey,

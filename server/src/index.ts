@@ -51,7 +51,7 @@ app.set("trust proxy", 1);
 
 // CORS — manual middleware (replaces cors package for reliable origin reflection)
 const allowedOrigins = new Set(
-  (process.env.CLIENT_ORIGIN ?? "https://teams.melleka.com").split(",").map((o) => o.trim())
+  (process.env.CLIENT_ORIGIN ?? "https://teams.melleka.com,https://genie.melleka.com").split(",").map((o) => o.trim())
 );
 
 app.use((req, res, next) => {
@@ -287,7 +287,7 @@ async function cleanStaleTasks(): Promise<void> {
 }
 
 const server = app.listen(Number(PORT), "0.0.0.0", () => {
-  console.log(`Melleka Teams server running on http://0.0.0.0:${PORT}`);
+  console.log(`Melleka Genie server running on http://0.0.0.0:${PORT}`);
   startScheduler().catch(console.error);
   warmCaches().catch(console.error);
   validateCriticalTokens().catch(console.error);

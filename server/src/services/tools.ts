@@ -1208,7 +1208,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       "Returns a deckId and slug immediately — the deck generates in the background. " +
       "Use this instead of manually inserting into the decks table. " +
       "After calling this, poll the deck status using supabase_query on the 'decks' table filtering by the returned deckId. " +
-      "When status is 'published' or 'needs_review', the deck is ready at https://teams.melleka.com/deck/{slug}.",
+      "When status is 'published' or 'needs_review', the deck is ready at https://genie.melleka.com/deck/{slug}.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -3451,7 +3451,7 @@ export async function executeTool(
             `- Deck ID: ${result.deckId}\n` +
             `- Slug: ${result.slug}\n` +
             `- Status: generating (background)\n` +
-            `- View URL (when ready): https://teams.melleka.com/deck/${result.slug}\n\n` +
+            `- View URL (when ready): https://genie.melleka.com/deck/${result.slug}\n\n` +
             `The deck is building in the background. Poll the status with:\n` +
             `supabase_query({ table: "decks", select: "status, content->progress, content->progressMessage, content->error", filters: [{ column: "id", op: "eq", value: "${result.deckId}" }] })\n\n` +
             `When status is "published" or "needs_review", the deck is ready.`

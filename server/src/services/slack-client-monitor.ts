@@ -169,11 +169,12 @@ async function getMonitoredChannels(): Promise<Set<string>> {
 }
 
 // ─── Post alert to #office_soldiers ──────────────────────────────────────────
+// Returns the Slack message ts so callers can store it for thread-based resolution.
 async function postAlert(
   channelId: string,
   channelName: string,
   threshold: typeof THRESHOLDS[number]
-): Promise<void> {
+): Promise<string | null> {
   const token = await getBotToken();
   const soldiersId = await getOfficeSoldiersId();
 
@@ -188,10 +189,12 @@ async function postAlert(
     body: JSON.stringify({ channel: soldiersId, text }),
   });
 
-  const result = await resp.json() as { ok: boolean; error?: string };
+  const result = await resp.json() as { ok: boolean; error?: string; ts?: string };
   if (!result.ok) {
     console.error(`[slack-monitor] Failed to post alert: ${result.error}`);
+    return null;
   }
+  return result.ts ?? null;
 }
 
 // ─── Verify if a team member has actually replied in a channel ────────────────
@@ -274,24 +277,25 @@ async function checkAndFireAlerts(): Promise<void> {
     for (const threshold of THRESHOLDS) {
       if (elapsedMinutes >= threshold.minutes && !fired.includes(threshold.key as ThresholdKey)) {
         try {
-          await postAlert(
-            alert.channel_id,
-            alert.channel_name,
-            threshold
-          );
+          const watcherMsgTs = await postAlert(alert.channel_id, alert.channel_name, threshold);
 
           const newFired = [...fired, threshold.key];
+          // Append the posted message ts so we can resolve by thread_ts later (no Slack API needed)
+          const existingTs: string[] = alert.watcher_message_timestamps || [];
+          const tsUpdate = watcherMsgTs
+            ? { watcher_message_timestamps: [...existingTs, watcherMsgTs] }
+            : {};
 
           if (threshold.key === "24hr") {
             // Close the alert cycle after the final ping
             await supabase
               .from("client_response_alerts")
-              .update({ alerts_fired: newFired, resolved: true, resolved_at: now.toISOString() })
+              .update({ alerts_fired: newFired, resolved: true, resolved_at: now.toISOString(), ...tsUpdate })
               .eq("id", alert.id);
           } else {
             await supabase
               .from("client_response_alerts")
-              .update({ alerts_fired: newFired })
+              .update({ alerts_fired: newFired, ...tsUpdate })
               .eq("id", alert.id);
           }
         } catch (err) {
@@ -307,7 +311,28 @@ async function checkAndFireAlerts(): Promise<void> {
 // Emely (or anyone) can reply in the thread of an alert message to close it.
 async function resolveAlertFromWatcherThread(token: string, watcherChannelId: string, threadTs: string): Promise<void> {
   try {
-    // Fetch the root message of this thread — it's the bot's alert message
+    const resolvedAt = new Date().toISOString();
+
+    // Primary: look up the alert by stored watcher message timestamp — no Slack API needed.
+    // watcher_message_timestamps stores the ts of every alert message this bot posted.
+    const { data: alertRow } = await supabase
+      .from("client_response_alerts")
+      .select("id, channel_id, channel_name")
+      .contains("watcher_message_timestamps", [threadTs])
+      .eq("resolved", false)
+      .maybeSingle();
+
+    if (alertRow) {
+      await supabase
+        .from("client_response_alerts")
+        .update({ resolved: true, resolved_at: resolvedAt })
+        .eq("id", alertRow.id);
+      console.log(`[slack-monitor] Alert resolved for #${alertRow.channel_name} via watcher thread reply (DB lookup)`);
+      return;
+    }
+
+    // Fallback: read root message from Slack API to extract the client channel ID.
+    // Handles alerts created before watcher_message_timestamps was added.
     const resp = await fetch(
       `https://slack.com/api/conversations.replies?channel=${watcherChannelId}&ts=${threadTs}&limit=1`,
       { headers: { Authorization: `Bearer ${token}` } }
@@ -316,21 +341,18 @@ async function resolveAlertFromWatcherThread(token: string, watcherChannelId: st
     if (!data.ok || !data.messages?.[0]) return;
 
     const rootText = data.messages[0].text || "";
-
-    // Alert text format: "... - <#C1234567>" or "<#C1234567|channel-name>"
     const match = rootText.match(/<#(C[A-Z0-9]+)/);
     if (!match) return;
 
     const clientChannelId = match[1];
-
     const { error } = await supabase
       .from("client_response_alerts")
-      .update({ resolved: true, resolved_at: new Date().toISOString() })
+      .update({ resolved: true, resolved_at: resolvedAt })
       .eq("channel_id", clientChannelId)
       .eq("resolved", false);
 
     if (!error) {
-      console.log(`[slack-monitor] Alert resolved for #${clientChannelId} via watcher thread reply`);
+      console.log(`[slack-monitor] Alert resolved for #${clientChannelId} via watcher thread reply (Slack API fallback)`);
     }
   } catch (err) {
     console.error("[slack-monitor] resolveAlertFromWatcherThread error:", err);
@@ -576,7 +598,7 @@ export async function postDailyClientScores(): Promise<void> {
       "",
       ...lines,
       "",
-      `<https://team.melleka.com/daily-reports|View full daily reports on team.melleka.com>`,
+      `<https://genie.melleka.com/daily-reports|View full daily reports on genie.melleka.com>`,
     ].join("\n");
 
     const resp = await fetch("https://slack.com/api/chat.postMessage", {

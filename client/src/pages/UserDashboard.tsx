@@ -26,7 +26,7 @@ const UserDashboard = () => {
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src={mellekaLogo} alt="Melleka" className="h-8 w-auto" />
-            <span className="text-lg font-semibold text-foreground">Content Hub</span>
+            <span className="text-lg font-semibold text-foreground">Melleka Genie</span>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-sm text-muted-foreground hidden sm:inline">
@@ -46,7 +46,7 @@ const UserDashboard = () => {
           <div className="text-center mb-12">
             <GenieLamp size={48} className="mx-auto mb-4 animate-float" />
             <h1 className="text-3xl font-display font-bold mb-2">
-              Welcome to the Content Hub
+              Welcome to Melleka Genie
             </h1>
             <p className="text-muted-foreground">
               Your tools for creating and managing content

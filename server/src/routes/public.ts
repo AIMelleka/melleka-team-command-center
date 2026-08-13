@@ -128,7 +128,7 @@ router.get("/og/proposals/:slug", async (req, res) => {
     ? summary.slice(0, 200)
     : `Custom marketing strategy prepared for ${clientName} by Melleka Marketing.`;
 
-  const origin = req.query.origin as string || "https://teams.melleka.com";
+  const origin = req.query.origin as string || "https://genie.melleka.com";
   const pageUrl = `${origin}/proposal/${slug}`;
   const ogImageUrl = `${req.protocol}://${req.get("host")}/api/public/og-image/proposals/${slug}`;
 
@@ -170,7 +170,7 @@ router.get("/og/decks/:slug", async (req, res) => {
   const title = data?.title || `${clientName} — Performance Report`;
   const description = `Performance report for ${clientName} by Melleka Marketing.`;
 
-  const origin = req.query.origin as string || "https://teams.melleka.com";
+  const origin = req.query.origin as string || "https://genie.melleka.com";
   const pageUrl = `${origin}/deck/${slug}`;
   const ogImageUrl = `${req.protocol}://${req.get("host")}/api/public/og-image/decks/${slug}`;
 

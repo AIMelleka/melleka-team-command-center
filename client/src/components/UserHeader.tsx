@@ -17,7 +17,7 @@ const UserHeader = () => {
         <div className="flex items-center gap-4">
           <Link to="/user" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
             <img src={mellekaLogo} alt="Melleka" className="h-8 w-auto" />
-            <span className="text-lg font-semibold text-foreground">Content Hub</span>
+            <span className="text-lg font-semibold text-foreground">Melleka Genie</span>
           </Link>
           <Link to="/user">
             <Button variant="ghost" size="sm">

@@ -1420,8 +1420,8 @@ const Index = () => {
 
           {isEmptyChat ? (
             <div className="flex-1 flex flex-col items-center justify-center px-4">
-              <img src={teamPitLogo} alt="The Team Pit" className="w-12 h-12 md:w-16 md:h-16 mb-4 drop-shadow-lg" />
-              <h1 className="text-xl md:text-3xl font-display font-bold text-foreground mb-1">The Team Pit</h1>
+              <img src={teamPitLogo} alt="Melleka Genie" className="w-12 h-12 md:w-16 md:h-16 mb-4 drop-shadow-lg" />
+              <h1 className="text-xl md:text-3xl font-display font-bold text-foreground mb-1">Melleka Genie</h1>
               <p className="text-muted-foreground text-xs md:text-sm mb-6 md:mb-8 text-center max-w-md">
                 Your AI-powered team assistant with live access to all client data, Google Ads, Meta, and 20+ tools.
               </p>

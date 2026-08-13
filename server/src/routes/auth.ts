@@ -60,8 +60,8 @@ async function sendOtpEmail(email: string): Promise<{ error?: string }> {
   if ("error" in config) return config;
   return sendViaResend(
     config.resendKey, config.fromEmail, email,
-    "Your Melleka Teams sign-in code",
-    otpEmailHtml(linkData.properties.email_otp, "Sign in to Melleka Teams", "Enter this 6-digit code to complete your sign in. It expires in 1 hour.")
+    "Your Melleka Genie sign-in code",
+    otpEmailHtml(linkData.properties.email_otp, "Sign in to Melleka Genie", "Enter this 6-digit code to complete your sign in. It expires in 1 hour.")
   );
 }
 
@@ -78,7 +78,7 @@ async function sendResetEmail(email: string): Promise<{ error?: string }> {
   if ("error" in config) return config;
   return sendViaResend(
     config.resendKey, config.fromEmail, email,
-    "Reset your Melleka Teams password",
+    "Reset your Melleka Genie password",
     otpEmailHtml(linkData.properties.email_otp, "Reset your password", "Enter this 6-digit code to reset your password. It expires in 1 hour.")
   );
 }
