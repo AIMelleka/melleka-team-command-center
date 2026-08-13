@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Loader2, Lock, ArrowLeft, Mail, CheckCircle, KeyRound } from 'lucide-react';
-import mellekaLogo from '@/assets/melleka-logo.png';
+import mellekaLogo from '@/assets/melleka-logo-dark.png';
 import { supabase } from '@/integrations/supabase/client';
 
 type ResetStep = 'email' | 'code' | 'newPassword';
