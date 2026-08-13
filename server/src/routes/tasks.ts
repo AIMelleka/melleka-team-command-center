@@ -191,10 +191,14 @@ router.get("/stats", requireAuth, async (req, res) => {
       }
     }
 
-    // Build Notion date filter (only on "Due" property)
+    // Filter by last_edited_time so completed tasks are captured even if Due date differs
     const filters: any[] = [];
-    if (dateFrom) filters.push({ property: "Due", date: { on_or_after: dateFrom } });
-    if (dateTo) filters.push({ property: "Due", date: { on_or_before: dateTo } });
+    if (dateFrom) filters.push({ timestamp: "last_edited_time", last_edited_time: { on_or_after: dateFrom } });
+    if (dateTo) {
+      const endPlusOne = new Date(dateTo);
+      endPlusOne.setDate(endPlusOne.getDate() + 1);
+      filters.push({ timestamp: "last_edited_time", last_edited_time: { before: endPlusOne.toISOString().split("T")[0] } });
+    }
     const filterBody = filters.length === 0 ? undefined
       : filters.length === 1 ? filters[0]
       : { and: filters };
@@ -207,7 +211,7 @@ router.get("/stats", requireAuth, async (req, res) => {
     let hasMore = true;
 
     while (hasMore && allTasks.length < 10_000) {
-      const body: any = { page_size: 100, sorts: [{ property: "Due", direction: "ascending" }] };
+      const body: any = { page_size: 100, sorts: [{ timestamp: "last_edited_time", direction: "descending" }] };
       if (cursor) body.start_cursor = cursor;
       if (filterBody) body.filter = filterBody;
 

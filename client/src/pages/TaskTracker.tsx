@@ -8,7 +8,6 @@ import {
   getPriority,
   getDue,
   getCheckbox,
-  getStatusGroup,
   colorClass,
   fetchTaskStats,
   useTaskStats,
@@ -28,16 +27,31 @@ import {
 import {
   RefreshCw,
   CheckCircle2,
-  Clock,
-  ListTodo,
-  TrendingUp,
   ExternalLink,
   X,
   ChevronLeft,
   ChevronRight,
+  Users,
+  Building2,
 } from 'lucide-react';
 
 const PAGE_SIZE = 100;
+
+// Statuses that count as "done" — mirrors the client update logic
+const DONE_STATUSES = [
+  "done", "good to launch", "archived", "complete", "completed",
+  "finished", "approved", "launched", "published", "delivered",
+  "closed", "sent", "signed off", "ready to launch",
+];
+
+function isTaskDone(task: NotionTask): boolean {
+  const st = getStatus(task.properties);
+  if (st) {
+    const lower = st.name.toLowerCase();
+    if (DONE_STATUSES.some(s => lower.includes(s))) return true;
+  }
+  return getCheckbox(task.properties);
+}
 
 const PRESETS = [
   { label: 'Today', key: 'today' },
@@ -81,27 +95,19 @@ function getPresetDates(preset: string): { from: string; to: string } | null {
     }
     case 'last-30': return { from: fmt(addDays(now, -30)), to: today };
     case 'last-90': return { from: fmt(addDays(now, -90)), to: today };
-    default: return null; // all-time
+    default: return null;
   }
 }
 
-function StatCard({ label, value, icon, sub, highlight }: {
+function StatCard({ label, value, icon, sub }: {
   label: string;
   value: string | number;
   icon: React.ReactNode;
   sub?: string;
-  highlight?: 'green' | 'blue' | 'purple' | 'orange';
 }) {
-  const colors = {
-    green: 'text-emerald-500',
-    blue: 'text-blue-500',
-    purple: 'text-purple-500',
-    orange: 'text-orange-500',
-  };
-  const iconColor = highlight ? colors[highlight] : 'text-muted-foreground';
   return (
     <div className="bg-card border rounded-lg p-4 space-y-2">
-      <div className={`w-8 h-8 flex items-center justify-center ${iconColor}`}>{icon}</div>
+      <div className="w-8 h-8 flex items-center justify-center text-emerald-500">{icon}</div>
       <div>
         <p className="text-2xl font-bold">{value}</p>
         <p className="text-xs text-muted-foreground">{label}</p>
@@ -120,7 +126,6 @@ export default function TaskTracker() {
   const [customTo, setCustomTo] = useState('');
 
   const [teammate, setTeammate] = useState('All');
-  const [priority, setPriority] = useState('All');
   const [client, setClient] = useState('');
   const [search, setSearch] = useState('');
   const [tablePage, setTablePage] = useState(0);
@@ -132,31 +137,26 @@ export default function TaskTracker() {
   }, [preset, isCustom, customFrom, customTo]);
 
   const { data, isLoading, isError } = useTaskStats(dateFrom, dateTo);
-  const allTasks: NotionTask[] = data?.tasks ?? [];
+
+  // Only show completed/done tasks
+  const doneTasks: NotionTask[] = useMemo(() =>
+    (data?.tasks ?? []).filter(isTaskDone),
+    [data]
+  );
 
   const teammateOptions = useMemo(() => {
     const seen = new Set<string>();
-    allTasks.forEach(t => { const tm = getTeammate(t.properties); if (tm) seen.add(tm.name); });
+    doneTasks.forEach(t => { const tm = getTeammate(t.properties); if (tm) seen.add(tm.name); });
     return Array.from(seen).sort();
-  }, [allTasks]);
-
-  const priorityOptions = useMemo(() => {
-    const seen = new Set<string>();
-    allTasks.forEach(t => { const pr = getPriority(t.properties); if (pr) seen.add(pr.name); });
-    return Array.from(seen).sort();
-  }, [allTasks]);
+  }, [doneTasks]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return allTasks.filter(t => {
+    return doneTasks.filter(t => {
       const p = t.properties;
       if (teammate !== 'All') {
         const tm = getTeammate(p);
         if (!tm || tm.name !== teammate) return false;
-      }
-      if (priority !== 'All') {
-        const pr = getPriority(p);
-        if (!pr || pr.name !== priority) return false;
       }
       if (client) {
         if (!getClient(p).toLowerCase().includes(client.toLowerCase())) return false;
@@ -166,21 +166,30 @@ export default function TaskTracker() {
       }
       return true;
     });
-  }, [allTasks, teammate, priority, client, search]);
+  }, [doneTasks, teammate, client, search]);
 
+  // Stats: total done, top teammate, top client
   const stats = useMemo(() => {
-    const total = filtered.length;
-    const complete = filtered.filter(t => {
-      const st = getStatus(t.properties);
-      return st && getStatusGroup(st.name) === 'Complete';
-    }).length;
-    const inProgress = filtered.filter(t => {
-      const st = getStatus(t.properties);
-      return st && getStatusGroup(st.name) === 'In progress';
-    }).length;
-    const todo = total - complete - inProgress;
-    const rate = total > 0 ? Math.round((complete / total) * 100) : 0;
-    return { total, complete, inProgress, todo, rate };
+    const byTeammate: Record<string, number> = {};
+    const byClient: Record<string, number> = {};
+
+    for (const t of filtered) {
+      const tm = getTeammate(t.properties)?.name;
+      if (tm) byTeammate[tm] = (byTeammate[tm] || 0) + 1;
+      const cl = getClient(t.properties);
+      if (cl) byClient[cl] = (byClient[cl] || 0) + 1;
+    }
+
+    const topTeammate = Object.entries(byTeammate).sort((a, b) => b[1] - a[1])[0];
+    const topClient = Object.entries(byClient).sort((a, b) => b[1] - a[1])[0];
+
+    return {
+      total: filtered.length,
+      topTeammate: topTeammate ? { name: topTeammate[0], count: topTeammate[1] } : null,
+      topClient: topClient ? { name: topClient[0], count: topClient[1] } : null,
+      teammateCount: Object.keys(byTeammate).length,
+      clientCount: Object.keys(byClient).length,
+    };
   }, [filtered]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -197,16 +206,13 @@ export default function TaskTracker() {
     setTablePage(0);
   };
 
-  const hasFilters = teammate !== 'All' || priority !== 'All' || client || search;
+  const hasFilters = teammate !== 'All' || client || search;
   const clearFilters = () => {
     setTeammate('All');
-    setPriority('All');
     setClient('');
     setSearch('');
     setTablePage(0);
   };
-
-  const isAllTime = !isCustom && preset === 'all-time';
 
   return (
     <div className="min-h-screen bg-background">
@@ -225,7 +231,7 @@ export default function TaskTracker() {
                 ? `Cached · ${new Date(data.fetchedAt).toLocaleTimeString()}`
                 : data?.fetchedAt
                 ? `Updated ${new Date(data.fetchedAt).toLocaleTimeString()}`
-                : 'Notion'}
+                : 'Completed tasks only'}
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading} className="min-h-[44px] sm:min-h-0">
@@ -277,42 +283,30 @@ export default function TaskTracker() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <StatCard
-            label="Total Tasks"
+            label="Tasks Completed"
             value={isLoading ? '...' : stats.total}
-            icon={<ListTodo className="h-5 w-5" />}
-          />
-          <StatCard
-            label="Completed"
-            value={isLoading ? '...' : stats.complete}
             icon={<CheckCircle2 className="h-5 w-5" />}
-            highlight="green"
+            sub={stats.total > 0 ? `across ${stats.clientCount} client${stats.clientCount !== 1 ? 's' : ''}` : undefined}
           />
           <StatCard
-            label="In Progress"
-            value={isLoading ? '...' : stats.inProgress}
-            icon={<Clock className="h-5 w-5" />}
-            highlight="blue"
+            label="Top Teammate"
+            value={isLoading ? '...' : stats.topTeammate ? stats.topTeammate.count : 0}
+            icon={<Users className="h-5 w-5" />}
+            sub={stats.topTeammate?.name}
           />
           <StatCard
-            label="To-do"
-            value={isLoading ? '...' : stats.todo}
-            icon={<ListTodo className="h-5 w-5" />}
-            highlight="orange"
-          />
-          <StatCard
-            label="Completion Rate"
-            value={isLoading ? '...' : `${stats.rate}%`}
-            icon={<TrendingUp className="h-5 w-5" />}
-            highlight="purple"
-            sub={stats.total > 0 ? `${stats.complete} of ${stats.total}` : undefined}
+            label="Top Client"
+            value={isLoading ? '...' : stats.topClient ? stats.topClient.count : 0}
+            icon={<Building2 className="h-5 w-5" />}
+            sub={stats.topClient?.name}
           />
         </div>
 
         {/* Filters */}
         <div className="bg-card border rounded-lg p-4 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <p className="text-xs text-muted-foreground mb-1">Client</p>
               <Input
@@ -329,16 +323,6 @@ export default function TaskTracker() {
                 <SelectContent>
                   <SelectItem value="All">All</SelectItem>
                   {teammateOptions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Priority</p>
-              <Select value={priority} onValueChange={v => { setPriority(v); setTablePage(0); }}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All</SelectItem>
-                  {priorityOptions.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -364,21 +348,14 @@ export default function TaskTracker() {
         {/* Task Table */}
         <div className="bg-card border rounded-lg overflow-hidden">
           <div className="px-4 py-3 border-b flex items-center justify-between">
-            <span className="text-sm font-medium">Tasks</span>
+            <span className="text-sm font-medium">Completed Tasks</span>
             <Badge variant="secondary">{filtered.length}</Badge>
           </div>
 
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
               <RefreshCw className="h-6 w-6 animate-spin" />
-              <div className="text-center">
-                <p className="text-sm">Fetching tasks from Notion...</p>
-                {isAllTime && (
-                  <p className="text-xs text-muted-foreground/60 mt-1">
-                    All-time queries may take a moment
-                  </p>
-                )}
-              </div>
+              <p className="text-sm">Fetching completed tasks from Notion...</p>
             </div>
           ) : isError ? (
             <div className="py-16 text-center space-y-1">
@@ -387,7 +364,7 @@ export default function TaskTracker() {
             </div>
           ) : filtered.length === 0 ? (
             <div className="py-16 text-center text-muted-foreground text-sm">
-              No tasks match your filters
+              No completed tasks found for this period
             </div>
           ) : (
             <>
@@ -395,9 +372,8 @@ export default function TaskTracker() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/30">
-                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground w-10"></th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Task</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Status</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Done Type</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Client</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Teammate</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Priority</th>
@@ -411,24 +387,14 @@ export default function TaskTracker() {
                       const prio = getPriority(p);
                       const tm = getTeammate(p);
                       const due = getDue(p);
-                      const done = getCheckbox(p);
                       return (
                         <tr key={task.id} className="hover:bg-muted/20 transition-colors">
-                          <td className="px-3 py-2.5">
-                            <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${done ? 'bg-primary' : 'border-2 border-muted-foreground/30'}`}>
-                              {done && (
-                                <svg width="10" height="10" viewBox="0 0 14 14" fill="none">
-                                  <path d="M3 7L6 10L11 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              )}
-                            </div>
-                          </td>
                           <td className="px-3 py-2.5 max-w-[260px]">
                             <a
                               href={task.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className={`flex items-center gap-1.5 group hover:underline ${done ? 'line-through text-muted-foreground' : 'text-foreground'}`}
+                              className="flex items-center gap-1.5 group hover:underline text-foreground"
                             >
                               <span className="truncate">{getTitle(p) || 'Untitled'}</span>
                               <ExternalLink className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-50 transition-opacity" />
@@ -436,7 +402,7 @@ export default function TaskTracker() {
                           </td>
                           <td className="px-3 py-2.5">
                             {status && (
-                              <span className={`inline-flex items-center h-5 rounded px-1.5 text-xs whitespace-nowrap max-w-[160px] truncate ${colorClass(status.color)}`}>
+                              <span className={`inline-flex items-center h-5 rounded px-1.5 text-xs whitespace-nowrap ${colorClass(status.color)}`}>
                                 {status.name}
                               </span>
                             )}
