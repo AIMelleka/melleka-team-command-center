@@ -45,7 +45,7 @@ const Login = () => {
       });
       toast.success('Welcome back!');
       setTimeout(() => {
-        navigate(isAdminUser ? '/client-health' : '/user', { replace: true });
+        navigate(isAdminUser ? '/' : '/user', { replace: true });
       }, 100);
     }
   };
