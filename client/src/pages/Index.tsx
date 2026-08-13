@@ -1172,8 +1172,8 @@ const Index = () => {
   // ── Sidebar content ────────────────────────────────
 
   const sidebarContent = (
-    <div className="h-full flex flex-col">
-      <div className="p-3 flex items-center gap-2">
+    <div className="flex-1 flex flex-col overflow-hidden h-full">
+      <div className="p-3 pr-12 flex items-center gap-2">
         <Button variant="outline" size="sm" className="flex-1 justify-start gap-2 min-h-[44px]" onClick={() => startNewChat()}>
           <Plus className="w-4 h-4" /> New Chat
         </Button>
@@ -1370,7 +1370,7 @@ const Index = () => {
         {/* Mobile: Sheet sidebar */}
         {isMobile ? (
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-            <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0">
+            <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0 flex flex-col overflow-hidden">
               <SheetHeader className="sr-only">
                 <SheetTitle>Chat History</SheetTitle>
               </SheetHeader>
