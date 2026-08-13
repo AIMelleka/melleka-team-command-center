@@ -50,14 +50,22 @@ const Login = () => {
     }
   };
 
+  const API_BASE = import.meta.env.PROD
+    ? (import.meta.env.VITE_API_URL || 'https://api.teams.melleka.com/api')
+    : '/api';
+
   const sendOtp = useCallback(async (targetEmail: string) => {
-    const { error } = await supabase.auth.signInWithOtp({
-      email: targetEmail,
-      options: { shouldCreateUser: false },
+    const res = await fetch(`${API_BASE}/auth/resend-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: targetEmail }),
     });
-    if (error) throw error;
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to send code');
+    }
     setResendCooldown(60);
-  }, []);
+  }, [API_BASE]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,29 +73,25 @@ const Login = () => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Step 1: Validate credentials
-    const { error } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password,
-    });
-
-    if (error) {
-      toast.error('Login failed', { description: error.message });
-      setIsLoading(false);
-      return;
-    }
-
-    // Step 2: Credentials valid — sign out and send email OTP
-    await supabase.auth.signOut();
-
     try {
-      await sendOtp(normalizedEmail);
-    } catch (otpError: any) {
-      toast.error('Failed to send verification code', { description: otpError.message });
+      const res = await fetch(`${API_BASE}/auth/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail, password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error('Login failed', { description: data.error || 'Invalid email or password' });
+        setIsLoading(false);
+        return;
+      }
+    } catch (err: any) {
+      toast.error('Login failed', { description: err.message });
       setIsLoading(false);
       return;
     }
 
+    setResendCooldown(60);
     setVerifyEmail(normalizedEmail);
     setShowEmailVerify(true);
     setIsLoading(false);
