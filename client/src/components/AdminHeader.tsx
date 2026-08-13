@@ -40,7 +40,7 @@ import {
 } from '@/components/ui/sheet';
 import { useState } from 'react';
 
-const navItems: { path: string; label: string; icon: typeof Home }[] = [
+const mainNavItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/', label: 'Home', icon: Home },
   { path: '/super-agent-dashboard', label: 'Agent Dashboard', icon: Bot },
   { path: '/daily-reports', label: 'Daily Reports', icon: BarChart3 },
@@ -49,21 +49,26 @@ const navItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/seo-writer', label: 'SEO Writer', icon: Search },
   { path: '/creative-studio', label: 'Creative Studio', icon: Palette },
   { path: '/video-generator', label: 'Great Video Gen', icon: Video },
-  { path: '/social-media', label: 'Social Media', icon: Share2 },
-  { path: '/qa-bot', label: 'QA Bot', icon: Bot },
-  { path: '/email-writer', label: 'Email Writer', icon: Mail },
   { path: '/weekly-updates', label: 'Weekly Updates', icon: CalendarCheck },
   { path: '/auto-client-updates', label: 'Auto Client Updates', icon: Mail },
-  { path: '/meeting-queen', label: 'Meeting Queen', icon: Crown },
-  { path: '/onboarding-bot', label: 'Onboarding Bot', icon: ClipboardList },
   { path: '/cron-jobs', label: 'Cron Jobs', icon: Timer },
-  { path: '/commercial-maker', label: 'Commercial Maker', icon: Film },
   { path: '/websites', label: 'Website Builder', icon: Globe },
-  { path: '/employees', label: 'My Employees', icon: Users },
   { path: '/client-settings', label: 'Clients', icon: Building2 },
   { path: '/admin', label: 'Admin Settings', icon: Settings },
   { path: '/super-agent-settings', label: 'Super Agent Settings', icon: Bot },
 ];
+
+const otherNavItems: { path: string; label: string; icon: typeof Home }[] = [
+  { path: '/email-writer', label: 'Email Writer', icon: Mail },
+  { path: '/social-media', label: 'Social Media', icon: Share2 },
+  { path: '/qa-bot', label: 'QA Bot', icon: Bot },
+  { path: '/meeting-queen', label: 'Meeting Queen', icon: Crown },
+  { path: '/onboarding-bot', label: 'Onboarding Bot', icon: ClipboardList },
+  { path: '/commercial-maker', label: 'Commercial Maker', icon: Film },
+  { path: '/employees', label: 'My Employees', icon: Users },
+];
+
+const navItems = [...mainNavItems, ...otherNavItems];
 
 const AdminHeader = memo(() => {
   const navigate = useNavigate();
@@ -84,14 +89,25 @@ const AdminHeader = memo(() => {
   }, [navigate]);
 
   // Filter nav items based on permissions for non-admin users
-  const visibleNavItems = useMemo(() => {
-    if (isAdmin) return navItems;
-    return navItems.filter(item => {
+  const visibleMainItems = useMemo(() => {
+    if (isAdmin) return mainNavItems;
+    return mainNavItems.filter(item => {
       const toolKey = routeToToolKey(item.path);
-      if (!toolKey) return false; // Admin-only pages not in catalog (e.g. /admin, /super-agent-settings)
+      if (!toolKey) return false;
       return hasToolAccess(toolKey);
     });
   }, [isAdmin, hasToolAccess]);
+
+  const visibleOtherItems = useMemo(() => {
+    if (isAdmin) return otherNavItems;
+    return otherNavItems.filter(item => {
+      const toolKey = routeToToolKey(item.path);
+      if (!toolKey) return false;
+      return hasToolAccess(toolKey);
+    });
+  }, [isAdmin, hasToolAccess]);
+
+  const visibleNavItems = useMemo(() => [...visibleMainItems, ...visibleOtherItems], [visibleMainItems, visibleOtherItems]);
 
   // Don't render if user has no visible nav items (and isn't admin)
   if (!isAdmin && visibleNavItems.length === 0) return null;
@@ -137,7 +153,7 @@ const AdminHeader = memo(() => {
                   </SheetTitle>
                 </SheetHeader>
                 <nav className="flex-1 overflow-y-auto p-2">
-                  {visibleNavItems.map((item) => {
+                  {visibleMainItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = location.pathname === item.path;
                     return (
@@ -152,10 +168,32 @@ const AdminHeader = memo(() => {
                       >
                         <Icon className="h-4 w-4 shrink-0" />
                         {item.label}
-
                       </button>
                     );
                   })}
+                  {visibleOtherItems.length > 0 && (
+                    <>
+                      <p className="px-3 pt-4 pb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Other Tools</p>
+                      {visibleOtherItems.map((item) => {
+                        const Icon = item.icon;
+                        const isActive = location.pathname === item.path;
+                        return (
+                          <button
+                            key={item.path}
+                            onClick={() => handleNav(item.path)}
+                            className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm transition-colors ${
+                              isActive
+                                ? 'bg-accent text-accent-foreground font-medium'
+                                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                            }`}
+                          >
+                            <Icon className="h-4 w-4 shrink-0" />
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </>
+                  )}
                 </nav>
                 <div className="p-4 border-t border-border space-y-2">
                   <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
@@ -181,7 +219,7 @@ const AdminHeader = memo(() => {
                     <SheetTitle>All Tools</SheetTitle>
                   </SheetHeader>
                   <nav className="overflow-y-auto p-2">
-                    {visibleNavItems.map((item) => {
+                    {visibleMainItems.map((item) => {
                       const Icon = item.icon;
                       const isActive = location.pathname === item.path;
                       return (
@@ -196,10 +234,32 @@ const AdminHeader = memo(() => {
                         >
                           <Icon className="h-4 w-4 shrink-0" />
                           {item.label}
-
                         </button>
                       );
                     })}
+                    {visibleOtherItems.length > 0 && (
+                      <>
+                        <p className="px-3 pt-4 pb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Other Tools</p>
+                        {visibleOtherItems.map((item) => {
+                          const Icon = item.icon;
+                          const isActive = location.pathname === item.path;
+                          return (
+                            <button
+                              key={item.path}
+                              onClick={() => handleNav(item.path)}
+                              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                                isActive
+                                  ? 'bg-accent text-accent-foreground font-medium'
+                                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                              }`}
+                            >
+                              <Icon className="h-4 w-4 shrink-0" />
+                              {item.label}
+                            </button>
+                          );
+                        })}
+                      </>
+                    )}
                   </nav>
                 </SheetContent>
               </Sheet>
