@@ -148,12 +148,20 @@ const Login = () => {
     }
 
     setResetLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(
-      resetEmail.trim().toLowerCase()
-    );
-
-    if (error) {
-      toast.error('Failed to send reset code', { description: error.message });
+    try {
+      const res = await fetch(`${API_BASE}/auth/send-reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resetEmail.trim().toLowerCase() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error('Failed to send reset code', { description: data.error || 'Please try again' });
+        setResetLoading(false);
+        return;
+      }
+    } catch (err: any) {
+      toast.error('Failed to send reset code', { description: err.message });
       setResetLoading(false);
       return;
     }
