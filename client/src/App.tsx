@@ -56,6 +56,7 @@ const EmployeeDetail = lazy(() => import("./pages/EmployeeDetail"));
 const EvaluationForm = lazy(() => import("./pages/EvaluationForm"));
 const WeeklyClientUpdates = lazy(() => import("./pages/WeeklyClientUpdates"));
 const AutoClientUpdates = lazy(() => import("./pages/AutoClientUpdates"));
+const TaskTracker = lazy(() => import("./pages/TaskTracker"));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
@@ -118,6 +119,7 @@ const KEEP_ALIVE_ROUTES: { path: string; element: React.ReactNode; requireAdmin?
   { path: "/evaluate", element: <EvaluationForm />, requireAdmin: true },
   { path: "/weekly-updates", element: <WeeklyClientUpdates />, requireAdmin: true },
   { path: "/auto-client-updates", element: <AutoClientUpdates />, requireAdmin: true },
+  { path: "/task-tracker", element: <TaskTracker />, requireAdmin: true },
   { path: "/user", element: <UserDashboard />, requireAdmin: false },
   { path: "/login", element: <Login />, requireAdmin: false },
 ];

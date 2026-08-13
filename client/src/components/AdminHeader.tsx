@@ -27,6 +27,7 @@ import {
   Video,
   Film,
   CalendarCheck,
+  ListChecks,
 } from 'lucide-react';
 import teamPitLogo from '@/assets/team-pit-logo.png';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -49,6 +50,7 @@ const mainNavItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/seo-writer', label: 'SEO Writer', icon: Search },
   { path: '/creative-studio', label: 'Creative Studio', icon: Palette },
   { path: '/video-generator', label: 'Great Video Gen', icon: Video },
+  { path: '/task-tracker', label: 'Task Tracker', icon: ListChecks },
   { path: '/weekly-updates', label: 'Weekly Updates', icon: CalendarCheck },
   { path: '/auto-client-updates', label: 'Auto Client Updates', icon: Mail },
   { path: '/cron-jobs', label: 'Cron Jobs', icon: Timer },
@@ -122,9 +124,9 @@ const AdminHeader = memo(() => {
           onClick={() => navigate(isAdmin ? '/' : '/user')}
           className="flex items-center gap-2 hover:opacity-80 transition-opacity shrink-0"
         >
-          <img src={teamPitLogo} alt="The Team Pit" className="w-6 h-6 sm:w-7 sm:h-7" />
+          <img src={teamPitLogo} alt="Melleka Genie" className="w-6 h-6 sm:w-7 sm:h-7" />
           <span className="font-display font-semibold text-sm hidden sm:inline text-foreground">
-            The Team Pit
+            Melleka Genie
           </span>
         </button>
 
@@ -148,8 +150,8 @@ const AdminHeader = memo(() => {
               <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0">
                 <SheetHeader className="p-4 border-b border-border">
                   <SheetTitle className="flex items-center gap-2 text-base">
-                    <img src={teamPitLogo} alt="The Team Pit" className="w-6 h-6" />
-                    The Team Pit
+                    <img src={teamPitLogo} alt="Melleka Genie" className="w-6 h-6" />
+                    Melleka Genie
                   </SheetTitle>
                 </SheetHeader>
                 <nav className="flex-1 overflow-y-auto p-2">
