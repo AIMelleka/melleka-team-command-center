@@ -399,7 +399,7 @@ const Login = () => {
     <div className="min-h-screen min-h-[100dvh] bg-background flex flex-col items-center justify-center px-4 overflow-y-auto">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <GenieLamp size={48} className="mb-4 animate-float" />
+          <img src={mellekaLogo} alt="Melleka" className="mb-4 h-12 w-auto" />
           <h1 className="text-2xl font-display font-bold genie-gradient-text text-center">
             Sign In
           </h1>
