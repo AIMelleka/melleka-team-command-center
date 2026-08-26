@@ -44,18 +44,12 @@ import { useState } from 'react';
 
 const mainNavItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/', label: 'Home', icon: Home },
-  { path: '/super-agent-dashboard', label: 'Agent Dashboard', icon: Bot },
   { path: '/daily-reports', label: 'Daily Reports', icon: BarChart3 },
   { path: '/proposal-builder', label: 'Proposal Builder', icon: FileText },
-  { path: '/deck-builder', label: 'Deck Builder', icon: Presentation },
   { path: '/seo-writer', label: 'SEO Writer', icon: Search },
   { path: '/creative-studio', label: 'Creative Studio', icon: Palette },
   { path: '/video-generator', label: 'Great Video Gen', icon: Video },
   { path: '/task-tracker', label: 'Task Tracker', icon: ListChecks },
-  { path: '/weekly-updates', label: 'Weekly Updates', icon: CalendarCheck },
-  { path: '/auto-client-updates', label: 'Auto Client Updates', icon: Mail },
-  { path: '/cron-jobs', label: 'Cron Jobs', icon: Timer },
-  { path: '/websites', label: 'Website Builder', icon: Globe },
   { path: '/client-settings', label: 'Clients', icon: Building2 },
   { path: '/admin', label: 'Admin Settings', icon: Settings },
   { path: '/super-agent-settings', label: 'Super Agent Settings', icon: Bot },
@@ -69,6 +63,12 @@ const otherNavItems: { path: string; label: string; icon: typeof Home }[] = [
   { path: '/onboarding-bot', label: 'Onboarding Bot', icon: ClipboardList },
   { path: '/commercial-maker', label: 'Commercial Maker', icon: Film },
   { path: '/employees', label: 'My Employees', icon: Users },
+  { path: '/super-agent-dashboard', label: 'Agent Dashboard', icon: Bot },
+  { path: '/deck-builder', label: 'Deck Builder', icon: Presentation },
+  { path: '/weekly-updates', label: 'Weekly Updates', icon: CalendarCheck },
+  { path: '/auto-client-updates', label: 'Auto Client Updates', icon: Mail },
+  { path: '/cron-jobs', label: 'Cron Jobs', icon: Timer },
+  { path: '/websites', label: 'Website Builder', icon: Globe },
 ];
 
 const navItems = [...mainNavItems, ...otherNavItems];
