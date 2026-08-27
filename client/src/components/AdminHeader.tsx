@@ -224,11 +224,11 @@ const AdminHeader = memo(() => {
                     Tools
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="right" className="w-[320px] p-0">
-                  <SheetHeader className="p-4 border-b border-border">
+                <SheetContent side="right" className="w-[320px] p-0 flex flex-col">
+                  <SheetHeader className="p-4 border-b border-border shrink-0">
                     <SheetTitle>All Tools</SheetTitle>
                   </SheetHeader>
-                  <nav className="overflow-y-auto p-2">
+                  <nav className="flex-1 min-h-0 overflow-y-auto p-2">
                     {visibleMainItems.map((item) => {
                       const Icon = item.icon;
                       const isActive = location.pathname === item.path;

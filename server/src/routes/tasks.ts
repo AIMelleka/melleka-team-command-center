@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { getSecret } from "../services/secrets.js";
+import { getCompleteStatusSet, getInProgressStatusSet } from "../services/notion-status-groups.js";
 
 const router = Router();
 
@@ -35,20 +36,25 @@ function pruneStatsCache(): void {
   if (oldestKey) statsCache.delete(oldestKey);
 }
 
-// Mirrors STATUS_GROUPS from client/src/hooks/useNotionTasks.ts
-const COMPLETE_STATUSES = new Set([
-  "✅ Done (NO QA) ✅",
-  "QA - DONE (Lexie)", "QA - DONE (Tony)", "QA - DONE (Bryan)",
-  "QA - DONE (Emely)", "QA - DONE (David)", "QA - DONE (Gavin)",
-  "QA DONE (send to client)",
-  "NON-ESSENTIAL (DONE)", "Internal (DONE)",
-]);
-const IN_PROGRESS_STATUSES = new Set([
-  "👥TEAM IS WORKING ON IT 👥",
-  "READY 🚀", "IN PROGRESS", "⏱️ ON-GOING ⏱️",
-  "⚠️ HELD UP ⚠️", "🛠️ Working on it 🛠️",
-  "1QA - Needed", "Internal (COUNT)", "🐂 BullShit Fires 🐂",
-]);
+// Status sets are fetched dynamically from Notion — see services/notion-status-groups.ts
+
+/**
+ * A "Complete" task only counts for a given date range if its "Completed on"
+ * date falls within [dateFrom, dateTo]. If the field is absent we fall back to
+ * trusting last_edited_time (the fetch filter already narrowed the window).
+ */
+function getCompletedDate(task: any): string | undefined {
+  return task.properties?.["Completed Date"]?.date?.start
+    ?? task.properties?.["Completed on"]?.date?.start;
+}
+
+function completedOnInRange(task: any, dateFrom?: string, dateTo?: string): boolean {
+  const completedOn = getCompletedDate(task);
+  if (!completedOn) return true; // no date set — accept it
+  if (dateFrom && completedOn < dateFrom) return false;
+  if (dateTo && completedOn > dateTo) return false;
+  return true;
+}
 
 // ── GET /api/tasks — list tasks from Notion database ──────────────────────
 router.get("/", requireAuth, async (_req, res) => {
@@ -172,8 +178,14 @@ router.get("/stats", requireAuth, async (req, res) => {
     const dateFrom = req.query.dateFrom as string | undefined;
     const dateTo = req.query.dateTo as string | undefined;
     const bypass = req.query.refresh === "1";
+    const useLastEdited = req.query.lastEdited === "1";
 
-    const cacheKey = `${databaseId}|${dateFrom ?? ""}|${dateTo ?? ""}`;
+    const cacheKey = `${databaseId}|${dateFrom ?? ""}|${dateTo ?? ""}|${useLastEdited ? "le" : "cd"}`;
+
+    const [COMPLETE_STATUSES, IN_PROGRESS_STATUSES] = await Promise.all([
+      getCompleteStatusSet(),
+      getInProgressStatusSet(),
+    ]);
 
     if (!bypass) {
       const hit = statsCache.get(cacheKey);
@@ -181,7 +193,7 @@ router.get("/stats", requireAuth, async (req, res) => {
         let complete = 0, inProgress = 0;
         for (const t of hit.tasks) {
           const sn: string = t.properties?.["STATUS"]?.status?.name ?? "";
-          if (COMPLETE_STATUSES.has(sn)) complete++;
+          if (COMPLETE_STATUSES.has(sn) && completedOnInRange(t, dateFrom, dateTo)) complete++;
           else if (IN_PROGRESS_STATUSES.has(sn)) inProgress++;
         }
         const total = hit.tasks.length;
@@ -193,13 +205,15 @@ router.get("/stats", requireAuth, async (req, res) => {
       }
     }
 
-    // Filter by last_edited_time so completed tasks are captured even if Due date differs
+    // Always filter by last_edited_time so we don't miss tasks regardless of
+    // what the "Completed Date" / "Completed on" property is named in Notion.
+    // Client-side useIsTaskDoneInRange does the precise completedOn + status filter.
     const filters: any[] = [];
-    if (dateFrom) filters.push({ timestamp: "last_edited_time", last_edited_time: { on_or_after: dateFrom } });
-    if (dateTo) {
-      const endPlusOne = new Date(dateTo);
-      endPlusOne.setDate(endPlusOne.getDate() + 1);
-      filters.push({ timestamp: "last_edited_time", last_edited_time: { before: endPlusOne.toISOString().split("T")[0] } });
+    if (dateFrom || dateTo) {
+      const tsFilter: any = {};
+      if (dateFrom) tsFilter.on_or_after = dateFrom;
+      if (dateTo) tsFilter.on_or_before = dateTo;
+      filters.push({ timestamp: "last_edited_time", last_edited_time: tsFilter });
     }
     const filterBody = filters.length === 0 ? undefined
       : filters.length === 1 ? filters[0]
@@ -238,7 +252,7 @@ router.get("/stats", requireAuth, async (req, res) => {
     let complete = 0, inProgress = 0;
     for (const t of allTasks) {
       const sn: string = t.properties?.["STATUS"]?.status?.name ?? "";
-      if (COMPLETE_STATUSES.has(sn)) complete++;
+      if (COMPLETE_STATUSES.has(sn) && completedOnInRange(t, dateFrom, dateTo)) complete++;
       else if (IN_PROGRESS_STATUSES.has(sn)) inProgress++;
     }
     const total = allTasks.length;
