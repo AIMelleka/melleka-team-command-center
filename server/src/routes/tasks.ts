@@ -205,15 +205,32 @@ router.get("/stats", requireAuth, async (req, res) => {
       }
     }
 
-    // Always filter by last_edited_time so we don't miss tasks regardless of
-    // what the "Completed Date" / "Completed on" property is named in Notion.
-    // Client-side useIsTaskDoneInRange does the precise completedOn + status filter.
+    // Filter by "Completed Date" or "Completed on" (OR both property names so
+    // either naming convention in Notion works). Falls back to no date filter for All Time.
     const filters: any[] = [];
     if (dateFrom || dateTo) {
-      const tsFilter: any = {};
-      if (dateFrom) tsFilter.on_or_after = dateFrom;
-      if (dateTo) tsFilter.on_or_before = dateTo;
-      filters.push({ timestamp: "last_edited_time", last_edited_time: tsFilter });
+      if (useLastEdited) {
+        const tsFilter: any = {};
+        if (dateFrom) tsFilter.on_or_after = dateFrom;
+        if (dateTo) tsFilter.on_or_before = dateTo;
+        filters.push({ timestamp: "last_edited_time", last_edited_time: tsFilter });
+      } else {
+        const rangeFilters: any[] = [];
+        if (dateFrom) {
+          rangeFilters.push({ or: [
+            { property: "Completed Date", date: { on_or_after: dateFrom } },
+            { property: "Completed on", date: { on_or_after: dateFrom } },
+          ]});
+        }
+        if (dateTo) {
+          rangeFilters.push({ or: [
+            { property: "Completed Date", date: { on_or_before: dateTo } },
+            { property: "Completed on", date: { on_or_before: dateTo } },
+          ]});
+        }
+        if (rangeFilters.length === 1) filters.push(rangeFilters[0]);
+        else if (rangeFilters.length > 1) filters.push({ and: rangeFilters });
+      }
     }
     const filterBody = filters.length === 0 ? undefined
       : filters.length === 1 ? filters[0]
