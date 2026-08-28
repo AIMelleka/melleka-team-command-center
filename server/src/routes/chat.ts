@@ -161,13 +161,15 @@ router.post("/", requireAuth, upload.array("files"), async (req: AuthRequest, re
     try { res.write(": keepalive\n\n"); } catch { /* connection gone */ }
   }, 1000);
 
-  // Track if client disconnected so we still save the response.
-  // The AbortController lets us signal the agentic loop to stop between iterations.
+  // Track if client disconnected so we still save the response and suppress
+  // the final "done" write. We intentionally do NOT abort the agentic loop
+  // on disconnect — background tasks (super agent, research loops) should run
+  // to completion even if the browser tab closes. Events are buffered by
+  // pushEvent() and the client can reconnect via /reconnect/:conversationId.
   let clientDisconnected = false;
-  const abortController = new AbortController();
+  const abortController = new AbortController(); // reserved for future timeout-based abort
   res.on("close", () => {
     clientDisconnected = true;
-    abortController.abort();
   });
 
   let convId = conversationId;

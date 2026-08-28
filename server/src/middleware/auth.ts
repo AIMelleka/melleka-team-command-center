@@ -12,6 +12,7 @@ const supabaseAuth = createClient(
 
 export interface AuthRequest extends Request {
   memberName?: string;
+  userId?: string;
   anthropicApiKey?: string;
 }
 
@@ -42,6 +43,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     const email = user.email ?? "";
     const memberName = (email.split("@")[0] || "unknown").toLowerCase();
     req.memberName = memberName;
+    req.userId = user.id;
 
     // Ensure team member record exists (fire-and-forget)
     Promise.resolve(supabase.from("team_members").upsert({ name: memberName }, { onConflict: "name" })).catch(() => {});

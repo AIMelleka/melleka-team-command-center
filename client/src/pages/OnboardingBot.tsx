@@ -18,24 +18,11 @@ async function authHeaders(): Promise<Record<string, string>> {
   };
 }
 
-const TEMPLATES_KEY = 'onboarding-bot-templates';
-const LAST_TEMPLATE_KEY = 'onboarding-bot-last-template';
-
 interface SavedTemplate {
   id: string;
   name: string;
   prompt: string;
   savedAt: string;
-}
-
-function loadTemplates(): SavedTemplate[] {
-  try {
-    return JSON.parse(localStorage.getItem(TEMPLATES_KEY) || '[]');
-  } catch { return []; }
-}
-
-function persistTemplates(templates: SavedTemplate[]) {
-  localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
 }
 
 interface OnboardingTask {
@@ -68,23 +55,18 @@ export default function OnboardingBot() {
     Promise.all([
       supabase.from('managed_clients').select('client_name').eq('is_active', true).order('client_name'),
       supabase.from('team_members').select('name').order('name'),
-    ]).then(([clientsRes, membersRes]) => {
+      authHeaders().then(h => fetch(`${API_BASE}/onboarding-templates`, { headers: h }).then(r => r.ok ? r.json() : [])),
+    ]).then(([clientsRes, membersRes, serverTemplates]) => {
       setClients((clientsRes.data || []).map((c: any) => c.client_name));
       setTeamMembers((membersRes.data || []).map((m: any) => m.name));
-    });
-
-    const saved = loadTemplates();
-    setTemplates(saved);
-
-    // Auto-load last used template
-    const lastId = localStorage.getItem(LAST_TEMPLATE_KEY);
-    if (lastId) {
-      const last = saved.find(t => t.id === lastId);
-      if (last) {
-        setPrompt(last.prompt);
-        setSelectedTemplateId(last.id);
+      const saved: SavedTemplate[] = Array.isArray(serverTemplates) ? serverTemplates : [];
+      setTemplates(saved);
+      // Auto-load first template if none selected
+      if (saved.length > 0 && !prompt) {
+        setPrompt(saved[0].prompt);
+        setSelectedTemplateId(saved[0].id);
       }
-    }
+    });
   }, []);
 
   const loadTemplate = (id: string) => {
@@ -92,48 +74,53 @@ export default function OnboardingBot() {
     if (!tpl) return;
     setPrompt(tpl.prompt);
     setSelectedTemplateId(tpl.id);
-    localStorage.setItem(LAST_TEMPLATE_KEY, tpl.id);
     toast.success(`Loaded "${tpl.name}"`);
   };
 
-  const saveTemplate = (overrideName?: string) => {
+  const saveTemplate = async (overrideName?: string) => {
     const name = (overrideName ?? templateName).trim();
     if (!name) { toast.error('Enter a template name'); return; }
     if (!prompt.trim()) { toast.error('Write some instructions before saving'); return; }
 
     const existing = templates.find(t => t.id === selectedTemplateId);
-    let updated: SavedTemplate[];
 
-    if (existing && !showSaveAs) {
-      updated = templates.map(t => t.id === existing.id ? {
-        ...t, name, prompt: prompt.trim(), savedAt: new Date().toISOString(),
-      } : t);
-      toast.success(`Updated "${name}"`);
-    } else {
-      const newTpl: SavedTemplate = {
-        id: crypto.randomUUID(), name, prompt: prompt.trim(), savedAt: new Date().toISOString(),
-      };
-      updated = [...templates, newTpl];
-      setSelectedTemplateId(newTpl.id);
-      localStorage.setItem(LAST_TEMPLATE_KEY, newTpl.id);
-      toast.success(`Saved "${name}"`);
+    try {
+      const headers = await authHeaders();
+      if (existing && !showSaveAs) {
+        const resp = await fetch(`${API_BASE}/onboarding-templates/${existing.id}`, {
+          method: 'PUT', headers, body: JSON.stringify({ name, prompt: prompt.trim() }),
+        });
+        if (!resp.ok) throw new Error('Save failed');
+        const updated = await resp.json() as SavedTemplate;
+        setTemplates(prev => prev.map(t => t.id === existing.id ? updated : t));
+        toast.success(`Updated "${name}"`);
+      } else {
+        const resp = await fetch(`${API_BASE}/onboarding-templates`, {
+          method: 'POST', headers, body: JSON.stringify({ name, prompt: prompt.trim() }),
+        });
+        if (!resp.ok) throw new Error('Save failed');
+        const newTpl = await resp.json() as SavedTemplate;
+        setTemplates(prev => [...prev, newTpl]);
+        setSelectedTemplateId(newTpl.id);
+        toast.success(`Saved "${name}"`);
+      }
+    } catch {
+      toast.error('Failed to save template');
     }
-
-    persistTemplates(updated);
-    setTemplates(updated);
     setShowSaveAs(false);
   };
 
-  const deleteTemplate = (id: string) => {
+  const deleteTemplate = async (id: string) => {
     const tpl = templates.find(t => t.id === id);
-    const updated = templates.filter(t => t.id !== id);
-    persistTemplates(updated);
-    setTemplates(updated);
-    if (selectedTemplateId === id) {
-      setSelectedTemplateId('');
-      localStorage.removeItem(LAST_TEMPLATE_KEY);
+    try {
+      const headers = await authHeaders();
+      await fetch(`${API_BASE}/onboarding-templates/${id}`, { method: 'DELETE', headers });
+      setTemplates(prev => prev.filter(t => t.id !== id));
+      if (selectedTemplateId === id) setSelectedTemplateId('');
+      if (tpl) toast.success(`Deleted "${tpl.name}"`);
+    } catch {
+      toast.error('Failed to delete template');
     }
-    if (tpl) toast.success(`Deleted "${tpl.name}"`);
   };
 
   const generateTasks = async () => {

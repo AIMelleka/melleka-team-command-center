@@ -6,6 +6,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
@@ -16,6 +17,7 @@ const AUTH_CACHE_KEY = 'melleka_auth_cache';
 
 interface CachedAuth {
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   userId: string;
   ts: number;
 }
@@ -68,6 +70,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(canQuickStart ? syncSession!.user : null);
   const [session, setSession] = useState<Session | null>(canQuickStart ? syncSession!.session : null);
   const [isAdmin, setIsAdmin] = useState(cached?.isAdmin ?? false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(cached?.isSuperAdmin ?? false);
   const [isLoading, setIsLoading] = useState(!canQuickStart);
 
   // Track last confirmed admin status so we don't silently downgrade on transient failures
@@ -123,12 +126,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (checkInFlightRef.current) return checkInFlightRef.current;
 
     const promise = (async () => {
-      const adminStatus = await checkAdminAccess(currentUser);
+      const [adminStatus, superAdminStatus] = await Promise.all([
+        checkAdminAccess(currentUser),
+        supabase.rpc('has_role', { _user_id: currentUser.id, _role: 'super_admin' })
+          .then(({ data }) => data === true)
+          .catch(() => false),
+      ]);
       if (isMounted()) {
         setIsAdmin(adminStatus);
+        setIsSuperAdmin(superAdminStatus);
         adminStatusRef.current = adminStatus;
         writeAuthCache({
           isAdmin: adminStatus,
+          isSuperAdmin: superAdminStatus,
           userId: currentUser.id,
         });
       }
@@ -184,6 +194,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             // If we have a valid cache for this user, skip the blocking spinner
             if (cached && cached.userId === session.user.id) {
               setIsAdmin(cached.isAdmin);
+              setIsSuperAdmin(cached.isSuperAdmin ?? false);
               adminStatusRef.current = cached.isAdmin;
               setIsLoading(false);
               initialAuthResolvedRef.current = true;
@@ -208,6 +219,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           }, 0);
         } else {
           setIsAdmin(false);
+          setIsSuperAdmin(false);
           adminStatusRef.current = false;
           clearAuthCache();
           setIsLoading(false);
@@ -226,6 +238,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // If we have a valid cache for this user, render immediately and verify in background
         if (cached && cached.userId === session.user.id) {
           setIsAdmin(cached.isAdmin);
+          setIsSuperAdmin(cached.isSuperAdmin ?? false);
           adminStatusRef.current = cached.isAdmin;
           setIsLoading(false);
           initialAuthResolvedRef.current = true;
@@ -273,11 +286,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     clearAuthCache();
     await supabase.auth.signOut();
     setIsAdmin(false);
+    setIsSuperAdmin(false);
   }, []);
 
   const value = useMemo(() => ({
-    user, session, isAdmin, isLoading, signIn, signOut
-  }), [user, session, isAdmin, isLoading, signIn, signOut]);
+    user, session, isAdmin, isSuperAdmin, isLoading, signIn, signOut
+  }), [user, session, isAdmin, isSuperAdmin, isLoading, signIn, signOut]);
 
   return (
     <AuthContext.Provider value={value}>

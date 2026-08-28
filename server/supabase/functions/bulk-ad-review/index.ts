@@ -125,6 +125,82 @@ serve(async (req) => {
   );
 });
 
+// ── Verified Platform Builder ─────────────────────────────────────────────────
+// PPC platforms that Supermetrics can fetch. Non-PPC mappings (GHL, facebook_page,
+// instagram_account, ga4, klaviyo) are excluded from scoring entirely.
+const PPC_PLATFORM_LABELS: Record<string, string> = {
+  google_ads: 'Google Ads',
+  meta_ads: 'Meta Ads',
+  bing_ads: 'Microsoft Ads',
+  linkedin_ads: 'LinkedIn Ads',
+  tiktok_ads: 'TikTok Ads',
+};
+
+// Compute trend by comparing first vs second half of the daily data period.
+function computeTrendFromDaily(dailyData: any[]): 'up' | 'down' | 'stable' {
+  if (!dailyData || dailyData.length < 4) return 'stable';
+  const mid = Math.floor(dailyData.length / 2);
+  const first = dailyData.slice(0, mid);
+  const second = dailyData.slice(mid);
+  const metric = (d: any): number => (d.leads || 0) + (d.purchases || 0) || (d.conversions || 0);
+  const avgFirst = first.reduce((s: number, d: any) => s + metric(d), 0) / first.length;
+  const avgSecond = second.reduce((s: number, d: any) => s + metric(d), 0) / second.length;
+  const spendFirst = first.reduce((s: number, d: any) => s + (d.spend || 0), 0) / first.length;
+  const spendSecond = second.reduce((s: number, d: any) => s + (d.spend || 0), 0) / second.length;
+  const baseline = avgFirst > 0 ? avgFirst : spendFirst;
+  const current = avgFirst > 0 ? avgSecond : spendSecond;
+  if (baseline <= 0) return 'stable';
+  const ratio = current / baseline;
+  if (ratio >= 1.10) return 'up';
+  if (ratio <= 0.90) return 'down';
+  return 'stable';
+}
+
+// Build a platforms array with exact numbers from Supermetrics structured data.
+// These bypass AI interpretation — numbers are API-accurate.
+function buildVerifiedPlatforms(smPlatforms: Record<string, any>): any[] {
+  const result: any[] = [];
+  for (const [key, pd] of Object.entries(smPlatforms)) {
+    const label = PPC_PLATFORM_LABELS[key];
+    if (!label) continue;
+    const s: Record<string, number> = (pd as any).summary || {};
+    if (!s._cost || s._cost <= 0) continue;
+
+    const spend = s._cost;
+    const impressions = s._impressions || 0;
+    const clicks = s._clicks || 0;
+    const leads = s._leads || 0;
+    const purchases = s._purchases || 0;
+    const conversions = s._conversions || 0;
+    const cpl = s._cpl > 0 ? s._cpl : (leads > 0 ? spend / leads : 0);
+    const cpa = s._cpa > 0 ? s._cpa : (conversions > 0 ? spend / conversions : 0);
+    const costPerPurchase = s._costPerPurchase > 0 ? s._costPerPurchase : (purchases > 0 ? spend / purchases : 0);
+    const trend = computeTrendFromDaily((pd as any).dailyData || []);
+
+    const entry: Record<string, any> = {
+      name: label,
+      spend: `$${spend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      impressions: impressions.toLocaleString('en-US', { maximumFractionDigits: 0 }),
+      clicks: clicks.toLocaleString('en-US', { maximumFractionDigits: 0 }),
+      conversions: conversions.toFixed(0),
+      trend,
+    };
+    if (leads > 0) entry.leads = leads.toFixed(0);
+    if (purchases > 0) entry.purchases = purchases.toFixed(0);
+    if (s._cpc > 0) entry.cpc = `$${s._cpc.toFixed(2)}`;
+    else if (clicks > 0) entry.cpc = `$${(spend / clicks).toFixed(2)}`;
+    if (s._ctr > 0) entry.ctr = `${s._ctr.toFixed(2)}%`;
+    else if (impressions > 0) entry.ctr = `${((clicks / impressions) * 100).toFixed(2)}%`;
+    if (s._cpm > 0) entry.cpm = `$${s._cpm.toFixed(2)}`;
+    if (cpl > 0) entry.costPerLead = `$${cpl.toFixed(2)}`;
+    if (cpa > 0) entry.costPerConversion = `$${cpa.toFixed(2)}`;
+    if (costPerPurchase > 0) entry.costPerPurchase = `$${costPerPurchase.toFixed(2)}`;
+    if (s._conversion_rate > 0) entry.conversionRate = `${s._conversion_rate.toFixed(2)}%`;
+    result.push(entry);
+  }
+  return result;
+}
+
 // Process a single client: fetch data, run AI analysis, store report
 async function processOneClient(
   supabase: any, supabaseUrl: string, serviceKey: string, clientName: string,
@@ -149,7 +225,7 @@ async function processOneClient(
   // Get client info + goals
   const { data: mcData } = await supabase
     .from('managed_clients')
-    .select('industry, domain, target_cpa, target_cpl, target_roas, monthly_budget, monthly_lead_target, monthly_conversion_target, client_notes, report_focus, targeting_context, primary_conversion_goal')
+    .select('industry, domain, target_cpa, target_cpl, target_roas, monthly_budget, monthly_lead_target, monthly_conversion_target, client_notes, report_focus, targeting_context, primary_conversion_goal, secondary_conversion_goal, secondary_target_cpa, secondary_target_cpl, secondary_monthly_target, tertiary_conversion_goal, tertiary_target_cpa, tertiary_target_cpl, tertiary_monthly_target, platform_settings')
     .eq('client_name', clientName)
     .single();
   const industry = mcData?.industry || null;
@@ -158,7 +234,8 @@ async function processOneClient(
   const clientGoals = (mcData && (
     mcData.target_cpa || mcData.target_cpl || mcData.target_roas ||
     mcData.monthly_budget || mcData.monthly_lead_target || mcData.monthly_conversion_target ||
-    mcData.client_notes || mcData.report_focus || mcData.targeting_context || mcData.primary_conversion_goal
+    mcData.client_notes || mcData.report_focus || mcData.targeting_context || mcData.primary_conversion_goal ||
+    mcData.secondary_conversion_goal || mcData.tertiary_conversion_goal || mcData.platform_settings
   )) ? {
     target_cpa: mcData.target_cpa ?? null,
     target_cpl: mcData.target_cpl ?? null,
@@ -170,7 +247,19 @@ async function processOneClient(
     report_focus: mcData.report_focus ?? null,
     targeting_context: mcData.targeting_context ?? null,
     primary_conversion_goal: mcData.primary_conversion_goal ?? null,
+    secondary_conversion_goal: mcData.secondary_conversion_goal ?? null,
+    secondary_target_cpa: mcData.secondary_target_cpa ?? null,
+    secondary_target_cpl: mcData.secondary_target_cpl ?? null,
+    secondary_monthly_target: mcData.secondary_monthly_target ?? null,
+    tertiary_conversion_goal: mcData.tertiary_conversion_goal ?? null,
+    tertiary_target_cpa: mcData.tertiary_target_cpa ?? null,
+    tertiary_target_cpl: mcData.tertiary_target_cpl ?? null,
+    tertiary_monthly_target: mcData.tertiary_monthly_target ?? null,
+    platform_settings: mcData.platform_settings ?? null,
   } : undefined;
+
+  // Verified platform metrics built directly from Supermetrics structured data
+  let verifiedPlatforms: any[] = [];
 
   // Date range: last 14 days
   const today = new Date();
@@ -194,40 +283,53 @@ async function processOneClient(
         const pd = platformData as any;
         const s = pd.summary || {};
         supermetricsContext += `## ${pd.label || platform}\nAccount: ${pd.accountName || 'N/A'}\n`;
-        if (s.spend > 0) supermetricsContext += `Spend: $${s.spend?.toLocaleString(undefined, { maximumFractionDigits: 2 })}\n`;
-        if (s.impressions > 0) supermetricsContext += `Impressions: ${s.impressions?.toLocaleString()}\n`;
-        if (s.clicks > 0) supermetricsContext += `Clicks: ${s.clicks?.toLocaleString()}\n`;
-        if (s.conversions > 0) supermetricsContext += `Conversions: ${s.conversions?.toLocaleString()}\n`;
-        if (s.calls > 0) supermetricsContext += `Calls: ${s.calls?.toLocaleString()}\n`;
-        if (s.ctr > 0) supermetricsContext += `CTR: ${(s.ctr * 100).toFixed(2)}%\n`;
-        if (s.cpc > 0) supermetricsContext += `CPC: $${s.cpc?.toFixed(2)}\n`;
-        if (s.cpa > 0) supermetricsContext += `CPA: $${s.cpa?.toFixed(2)}\n`;
-        if (s.roas > 0) supermetricsContext += `ROAS: ${s.roas?.toFixed(2)}x\n`;
+        // Summary keys use underscore prefix (_cost, _impressions, etc.) from fetch-supermetrics buildSummary
+        if (s._cost > 0) supermetricsContext += `Spend: $${s._cost?.toLocaleString(undefined, { maximumFractionDigits: 2 })}\n`;
+        if (s._impressions > 0) supermetricsContext += `Impressions: ${s._impressions?.toLocaleString()}\n`;
+        if (s._clicks > 0) supermetricsContext += `Clicks: ${s._clicks?.toLocaleString()}\n`;
+        if (s._conversions > 0) supermetricsContext += `Conversions: ${s._conversions?.toLocaleString()}\n`;
+        if (s._leads > 0) supermetricsContext += `Leads: ${s._leads?.toLocaleString()}\n`;
+        if (s._purchases > 0) supermetricsContext += `Purchases: ${s._purchases?.toLocaleString()}\n`;
+        if (s._phoneCalls > 0) supermetricsContext += `Calls: ${s._phoneCalls?.toLocaleString()}\n`;
+        if (s._ctr > 0) supermetricsContext += `CTR: ${s._ctr?.toFixed(2)}%\n`;
+        if (s._cpc > 0) supermetricsContext += `CPC: $${s._cpc?.toFixed(2)}\n`;
+        if (s._cpa > 0) supermetricsContext += `CPA: $${s._cpa?.toFixed(2)}\n`;
+        if (s._cpl > 0) supermetricsContext += `CPL: $${s._cpl?.toFixed(2)}\n`;
+        if (s._costPerPurchase > 0) supermetricsContext += `Cost Per Purchase: $${s._costPerPurchase?.toFixed(2)}\n`;
         if (pd.campaigns?.length > 0) {
           supermetricsContext += `\nTop Campaigns:\n`;
           for (const c of pd.campaigns.slice(0, 10)) {
-            supermetricsContext += `  - ${c.name}: $${c.spend?.toLocaleString(undefined, { maximumFractionDigits: 0 })} spend, ${c.conversions} conv, CPA $${c.cpa?.toFixed(2)}\n`;
+            const leadsPart = c.leads > 0 ? `, ${c.leads} leads` : '';
+            const purchasesPart = c.purchases > 0 ? `, ${c.purchases} purchases` : '';
+            supermetricsContext += `  - ${c.name}: $${c.spend?.toLocaleString(undefined, { maximumFractionDigits: 0 })} spend, ${c.conversions} conv${leadsPart}${purchasesPart}, CPA $${c.cpa?.toFixed(2)}\n`;
           }
         }
-        if (pd.creatives?.length > 0) {
+        if (pd.topContent?.length > 0) {
           supermetricsContext += `\nTop Creatives:\n`;
-          for (const cr of pd.creatives.slice(0, 10)) {
-            supermetricsContext += `  - ${cr.name || cr.adName}: ${cr.impressions || 0} imp, ${cr.clicks || 0} clicks, $${cr.spend?.toFixed(2) || '0'} spend\n`;
+          for (const cr of pd.topContent.slice(0, 10)) {
+            supermetricsContext += `  - ${cr.adName || cr.name}: ${cr.impressions || 0} imp, ${cr.clicks || 0} clicks, $${cr.cost?.toFixed(2) || '0'} spend\n`;
           }
         }
         if (pd.keywords?.length > 0) {
           supermetricsContext += `\nTop Keywords:\n`;
           for (const kw of pd.keywords.slice(0, 15)) {
-            supermetricsContext += `  - ${kw.keyword || kw.name}: ${kw.impressions || 0} imp, ${kw.clicks || 0} clicks, ${kw.conversions || 0} conv\n`;
+            const kwCpa = kw.cpa > 0 ? `, CPA $${kw.cpa?.toFixed(2)}` : '';
+            supermetricsContext += `  - ${kw.keyword || kw.name}: ${kw.impressions || 0} imp, ${kw.clicks || 0} clicks, ${kw.conversions || 0} conv${kwCpa}\n`;
           }
         }
-        if (pd.daily?.length > 0) {
+        if (pd.dailyData?.length > 0) {
           supermetricsContext += `\nDaily Trend (last 7 days):\n`;
-          for (const d of pd.daily.slice(-7)) {
-            supermetricsContext += `  ${d.date}: $${d.spend?.toFixed(0) || '0'} spend, ${d.clicks || 0} clicks, ${d.conversions || 0} conv\n`;
+          for (const d of pd.dailyData.slice(-7)) {
+            const dailyLeads = d.leads > 0 ? `, ${d.leads} leads` : '';
+            supermetricsContext += `  ${d.date}: $${d.spend?.toFixed(0) || '0'} spend, ${d.clicks || 0} clicks, ${d.conversions || 0} conv${dailyLeads}\n`;
           }
         }
         supermetricsContext += '\n';
+      }
+      // Build verified platform metrics directly from Supermetrics structured data (API-accurate)
+      verifiedPlatforms = buildVerifiedPlatforms(smData.platforms as Record<string, any>);
+      if (verifiedPlatforms.length > 0) {
+        push(`[BULK-AD-REVIEW] Verified metrics: ${verifiedPlatforms.map((p: any) => p.name).join(', ')}`);
       }
     }
   } catch (e) {
@@ -286,6 +388,7 @@ async function processOneClient(
       type: 'sheets', clientName,
       dateRange: { start: dateStart, end: dateEnd },
       sheetsData: supermetricsContext,
+      verifiedPlatformMetrics: verifiedPlatforms.length > 0 ? verifiedPlatforms : undefined,
       previousReview: previousReview || undefined,
       benchmarkData: industry ? { industry } : undefined,
       clientGoals: clientGoals || undefined,
@@ -302,8 +405,26 @@ async function processOneClient(
     return { ok: false, message: `AI review failed (${reviewRes.status})` };
   }
 
-  // Store report
+  // Override AI-extracted platform metrics with verified Supermetrics data.
+  // Fix: run regardless of whether analysis.platforms is null (was skipped before).
   const analysis = reviewData.analysis;
+  if (verifiedPlatforms.length > 0) {
+    const normalize = (name: string): string => name.toLowerCase().replace(/[^a-z]/g, '');
+    const aiMap = new Map<string, any>(
+      ((analysis.platforms || []) as any[]).map((p: any) => [normalize(p.name || ''), p])
+    );
+    // Preserve AI qualitative assessments; override all numeric metrics with Supermetrics data
+    const AI_QUALITATIVE = ['health', 'vsBenchmark', 'cplVsBenchmark', 'cpaVsBenchmark', 'qualityScore'];
+    analysis.platforms = verifiedPlatforms.map((vp: any) => {
+      const aiP = aiMap.get(normalize(vp.name)) || {};
+      const qualitative: Record<string, any> = {};
+      for (const field of AI_QUALITATIVE) {
+        if (aiP[field] !== undefined) qualitative[field] = aiP[field];
+      }
+      return { ...qualitative, ...vp };
+    });
+    push(`[BULK-AD-REVIEW] Applied verified Supermetrics metrics to ${verifiedPlatforms.length} platform(s)`);
+  }
   const { error: insertError } = await supabase.from('ad_review_history').insert({
     client_name: clientName,
     review_date: dateEnd,
@@ -311,6 +432,8 @@ async function processOneClient(
     date_range_end: dateEnd,
     summary: analysis.summary || '',
     platforms: analysis.platforms || [],
+    // Store verified Supermetrics data separately — scoring uses this exclusively
+    verified_platforms: verifiedPlatforms,
     insights: analysis.insights || [],
     recommendations: analysis.recommendations || [],
     week_over_week: analysis.weekOverWeek || [],

@@ -115,6 +115,7 @@ export function ClientDetailView({
           goals={goals ?? null}
           kpis={kpis}
           onSave={async (g) => onGoalsChange?.(report.clientName, g)}
+          industryBenchmarks={industryBenchmarks}
         />
       </div>
 

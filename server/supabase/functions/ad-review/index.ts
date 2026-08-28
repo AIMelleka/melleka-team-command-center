@@ -34,6 +34,16 @@ interface ClientGoalsData {
   report_focus?: string | null;
   targeting_context?: string | null;
   primary_conversion_goal?: string | null;
+  secondary_conversion_goal?: string | null;
+  secondary_target_cpa?: number | null;
+  secondary_target_cpl?: number | null;
+  secondary_monthly_target?: number | null;
+  tertiary_conversion_goal?: string | null;
+  tertiary_target_cpa?: number | null;
+  tertiary_target_cpl?: number | null;
+  tertiary_monthly_target?: number | null;
+  platform_settings?: Record<string, { priority: string; focus_metric: string; target_value?: number | null; monthly_target?: number | null }> | null;
+  active_platforms?: string[] | null;
 }
 
 interface AnalysisRequest {
@@ -52,6 +62,7 @@ interface AnalysisRequest {
   previousReview?: any;
   clientGoals?: ClientGoalsData;
   aiMemory?: string; // Persistent AI memory context for this client
+  verifiedPlatformMetrics?: any[]; // Pre-verified numbers from Supermetrics API — ground truth
 }
 
 serve(async (req) => {
@@ -85,6 +96,7 @@ serve(async (req) => {
       previousReview,
       clientGoals,
       aiMemory,
+      verifiedPlatformMetrics,
     }: AnalysisRequest = await req.json();
 
     const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
@@ -126,15 +138,29 @@ ${[
   clientGoals.target_roas ? `Target ROAS: ${clientGoals.target_roas}x` : '',
 ].filter(Boolean).join(' | ')}
 ${[
-  clientGoals.monthly_budget ? `Monthly Budget: $${clientGoals.monthly_budget.toLocaleString()}` : '',
   clientGoals.monthly_lead_target ? `Monthly Lead Target: ${clientGoals.monthly_lead_target}` : '',
   clientGoals.monthly_conversion_target ? `Monthly Conversion Target: ${clientGoals.monthly_conversion_target}` : '',
 ].filter(Boolean).join(' | ')}
+${clientGoals.secondary_conversion_goal ? `Secondary Goal: ${clientGoals.secondary_conversion_goal}${[
+  clientGoals.secondary_target_cpa ? ` | Target CPA: $${clientGoals.secondary_target_cpa}` : '',
+  clientGoals.secondary_target_cpl ? ` | Target CPL: $${clientGoals.secondary_target_cpl}` : '',
+  clientGoals.secondary_monthly_target ? ` | Monthly Target: ${clientGoals.secondary_monthly_target}` : '',
+].join('')}` : ''}
+${clientGoals.tertiary_conversion_goal ? `Tertiary Goal: ${clientGoals.tertiary_conversion_goal}${[
+  clientGoals.tertiary_target_cpa ? ` | Target CPA: $${clientGoals.tertiary_target_cpa}` : '',
+  clientGoals.tertiary_target_cpl ? ` | Target CPL: $${clientGoals.tertiary_target_cpl}` : '',
+  clientGoals.tertiary_monthly_target ? ` | Monthly Target: ${clientGoals.tertiary_monthly_target}` : '',
+].join('')}` : ''}
+${clientGoals.platform_settings && Object.keys(clientGoals.platform_settings).length > 0 ? `\nPLATFORM PRIORITIES:\n${Object.entries(clientGoals.platform_settings).map(([k, s]) => {
+  if (s.priority === 'off') return `- ${k}: OFF — exclude from primary scoring`;
+  const targetPart = s.target_value ? ` | ${s.focus_metric.toUpperCase()} target: $${s.target_value}` : '';
+  return `- ${k}: ${s.priority.toUpperCase()}${targetPart}`;
+}).join('\n')}` : ''}
 ${clientGoals.report_focus ? `\nREPORT FOCUS (CRITICAL - shape your entire analysis around this):\n${clientGoals.report_focus}` : ''}
 ${clientGoals.targeting_context ? `\nCAMPAIGN CONTEXT:\n${clientGoals.targeting_context}` : ''}
 ${clientGoals.client_notes ? `\nADDITIONAL NOTES:\n${clientGoals.client_notes}` : ''}
 
-Use these goals as the PRIMARY benchmark for ALL performance evaluation. Reference them explicitly in your summary, insights, and recommendations. The report_focus overrides default analysis priorities.\n`
+Use these goals as the PRIMARY benchmark for ALL performance evaluation. Reference them explicitly in your summary, insights, and recommendations. The report_focus overrides default analysis priorities. For platforms marked OFF, do not include them in scoring or primary recommendations.\n`
       : '';
 
     // Build comprehensive system prompt for deep reasoning - PAID ADS ONLY
@@ -393,13 +419,13 @@ WRITING STYLE FOR INSIGHTS:
 
 ## DATA SOURCE HIERARCHY
 When multiple data sources are provided, use this priority order:
-1. **SUPERMETRICS LIVE DATA** — This is the MOST AUTHORITATIVE source. Real API data directly from Google Ads and Meta Ads. Always use these numbers for spend, clicks, impressions, conversions, CPA, CPC, CTR.
-2. **LOOKER STUDIO** — Visual dashboard, useful for cross-referencing but may lag behind. Use to supplement Supermetrics.
-3. **GOOGLE SHEETS** — Manual ad update log. Use for context on campaign changes made.
-4. **GA4** — Conversion attribution data. Use to verify conversion counts.
-5. **SEMRUSH** — Competitive intelligence and keyword intelligence. Use for context only.
+1. **VERIFIED SUPERMETRICS DATA** — ABSOLUTE GROUND TRUTH. Numbers fetched directly from Google Ads, Meta Ads, Bing, LinkedIn APIs. When present in the "VERIFIED SUPERMETRICS DATA" section, use these EXACT values for ALL spend, clicks, impressions, conversions, CPL, and CPA. Never override them with data from other sources.
+2. **LOOKER STUDIO** — Visual dashboard. Useful for cross-referencing campaign structure but may lag behind real-time data.
+3. **GOOGLE SHEETS / SUPERMETRICS TEXT** — Raw text export from Supermetrics. Useful for campaign names, keywords, and daily breakdown context.
+4. **GA4** — Conversion attribution. Use to verify conversion counts when verified data is absent.
+5. **SEMRUSH** — Competitive intelligence ONLY. Never use for ad spend, conversion counts, or CPL/CPA.
 
-If Supermetrics data is present in the GOOGLE SHEETS section (marked "SUPERMETRICS LIVE AD DATA"), ALWAYS treat those numbers as ground truth.`;
+CRITICAL: If VERIFIED SUPERMETRICS DATA is present, it is 100% accurate API data. Do not reinterpret, round, or recalculate these numbers. Use them exactly as provided.`;
 
     let userContent: any[] = [];
     let dataContext = `Client: ${clientName}\nDate Range: ${dateRange?.start} to ${dateRange?.end}\n\n`;
@@ -467,7 +493,31 @@ If Supermetrics data is present in the GOOGLE SHEETS section (marked "SUPERMETRI
       dataContext += '\n';
     }
 
-    // SECONDARY: Google Sheets data
+    // HIGHEST PRIORITY: Verified Supermetrics data (API-level accuracy, not AI-interpreted)
+    if (verifiedPlatformMetrics && verifiedPlatformMetrics.length > 0) {
+      dataContext += `=== VERIFIED SUPERMETRICS DATA (AUTHORITATIVE — USE THESE EXACT NUMBERS) ===\n`;
+      dataContext += `These metrics are fetched DIRECTLY from ad platform APIs via Supermetrics. `;
+      dataContext += `Use these EXACT values for spend, impressions, clicks, conversions, CPL, CPA — do NOT reinterpret or modify them:\n\n`;
+      for (const p of verifiedPlatformMetrics) {
+        dataContext += `${p.name}:\n`;
+        dataContext += `  Spend: ${p.spend || 'N/A'}\n`;
+        dataContext += `  Impressions: ${p.impressions || 'N/A'}\n`;
+        dataContext += `  Clicks: ${p.clicks || 'N/A'}\n`;
+        dataContext += `  Conversions: ${p.conversions || 'N/A'}\n`;
+        if (p.leads) dataContext += `  Leads: ${p.leads}\n`;
+        if (p.purchases) dataContext += `  Purchases: ${p.purchases}\n`;
+        if (p.cpc) dataContext += `  CPC: ${p.cpc}\n`;
+        if (p.ctr) dataContext += `  CTR: ${p.ctr}\n`;
+        if (p.cpm) dataContext += `  CPM: ${p.cpm}\n`;
+        if (p.costPerLead) dataContext += `  CPL: ${p.costPerLead}\n`;
+        if (p.costPerConversion) dataContext += `  CPA: ${p.costPerConversion}\n`;
+        if (p.costPerPurchase) dataContext += `  Cost Per Purchase: ${p.costPerPurchase}\n`;
+        if (p.conversionRate) dataContext += `  Conversion Rate: ${p.conversionRate}\n`;
+        dataContext += `  Trend (computed from daily data): ${p.trend}\n\n`;
+      }
+    }
+
+    // SECONDARY: Supermetrics text — campaign names, keywords, daily breakdown context
     if (sheetsData) {
       dataContext += `=== GOOGLE SHEETS AD DATA ===\n${sheetsData}\n\n`;
     }

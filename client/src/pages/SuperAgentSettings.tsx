@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import AdminHeader from '@/components/AdminHeader';
+import SettingsTabs from '@/components/SettingsTabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -669,6 +670,7 @@ export default function SuperAgentSettings() {
   return (
     <div className="min-h-screen bg-background">
       <AdminHeader />
+      <SettingsTabs />
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
         {/* Header */}
         <div>

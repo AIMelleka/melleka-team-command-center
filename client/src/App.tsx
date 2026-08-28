@@ -57,6 +57,15 @@ const EvaluationForm = lazy(() => import("./pages/EvaluationForm"));
 const WeeklyClientUpdates = lazy(() => import("./pages/WeeklyClientUpdates"));
 const AutoClientUpdates = lazy(() => import("./pages/AutoClientUpdates"));
 const TaskTracker = lazy(() => import("./pages/TaskTracker"));
+const TheGuide = lazy(() => import("./pages/TheGuide"));
+const GuideSection = lazy(() => import("./pages/GuideSection"));
+const SalesGuide = lazy(() => import("./pages/SalesGuide"));
+const TaskWeightsSettings = lazy(() => import("./pages/TaskWeightsSettings"));
+const MyTaskTracker = lazy(() => import("./pages/MyTaskTracker"));
+const TeamBonus = lazy(() => import("./pages/TeamBonus"));
+const TaskBonusAdmin = lazy(() => import("./pages/TaskBonusAdmin"));
+const TaskSettingsPage = lazy(() => import("./pages/TaskSettingsPage"));
+const SopGuide = lazy(() => import("./pages/SopGuide"));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
@@ -85,7 +94,8 @@ const queryClient = new QueryClient({
 // These pages stay mounted (hidden) when you navigate away, so state is preserved
 // and there's no loading spinner when you come back.
 const KEEP_ALIVE_ROUTES: { path: string; element: React.ReactNode; requireAdmin?: boolean }[] = [
-  { path: "/", element: <Index />, requireAdmin: true },
+  { path: "/", element: <TheGuide />, requireAdmin: false },
+  { path: "/chat", element: <Index />, requireAdmin: true },
   { path: "/admin", element: <AdminDashboard />, requireAdmin: true },
   { path: "/seo-writer", element: <SeoWriter />, requireAdmin: true },
   { path: "/creative-studio", element: <CreativeStudio />, requireAdmin: true },
@@ -120,6 +130,13 @@ const KEEP_ALIVE_ROUTES: { path: string; element: React.ReactNode; requireAdmin?
   { path: "/weekly-updates", element: <WeeklyClientUpdates />, requireAdmin: true },
   { path: "/auto-client-updates", element: <AutoClientUpdates />, requireAdmin: true },
   { path: "/task-tracker", element: <TaskTracker />, requireAdmin: true },
+  { path: "/admin/task-weights", element: <TaskWeightsSettings />, requireAdmin: true },
+  { path: "/admin/task-bonus", element: <TaskBonusAdmin />, requireAdmin: true },
+  { path: "/admin/task-settings", element: <TaskSettingsPage />, requireAdmin: true },
+  { path: "/sales-guide", element: <SalesGuide />, requireAdmin: false },
+  { path: "/sop", element: <SopGuide />, requireAdmin: false },
+  { path: "/my-tasks", element: <MyTaskTracker />, requireAdmin: false },
+  { path: "/team-bonus", element: <TeamBonus />, requireAdmin: true },
   { path: "/user", element: <UserDashboard />, requireAdmin: false },
   { path: "/login", element: <Login />, requireAdmin: false },
 ];
@@ -131,6 +148,7 @@ const MAX_ALIVE = 10;
 const REDIRECTS: Record<string, string> = {
   "/ad-generator": "/creative-studio?tab=ad",
   "/image-generator": "/creative-studio?tab=image",
+  "/guide": "/",
 };
 
 function KeepAliveRouter() {
@@ -199,6 +217,9 @@ function KeepAliveRouter() {
       {!matchedKA && !redirectTo && (
         <Suspense fallback={<PageLoader />}>
           <Routes>
+            <Route path="/guide/:section" element={
+              <ProtectedRoute requireAdmin={false}><SafePage><GuideSection /></SafePage></ProtectedRoute>
+            } />
             <Route path="/employees/:id" element={
               <ProtectedRoute requireAdmin><SafePage><EmployeeDetail /></SafePage></ProtectedRoute>
             } />

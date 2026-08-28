@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { LogOut, Home } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import mellekaLogo from '@/assets/melleka-logo.png';
 
 const UserHeader = () => {
@@ -18,12 +18,6 @@ const UserHeader = () => {
           <Link to="/user" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
             <img src={mellekaLogo} alt="Melleka" className="h-8 w-auto" />
             <span className="text-lg font-semibold text-foreground">Melleka Genie</span>
-          </Link>
-          <Link to="/user">
-            <Button variant="ghost" size="sm">
-              <Home className="h-4 w-4 mr-2" />
-              Dashboard
-            </Button>
           </Link>
         </div>
         <div className="flex items-center gap-4">

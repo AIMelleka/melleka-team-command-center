@@ -138,7 +138,7 @@ export function getFiles(props: Record<string, any>): { name: string; url: strin
 }
 
 export function getCompletedOn(props: Record<string, any>): string | null {
-  return props["Completed on"]?.date?.start || null;
+  return props["Completed Date"]?.date?.start || props["Completed on"]?.date?.start || null;
 }
 
 export function getCreatedTime(props: Record<string, any>): string {
@@ -378,11 +378,12 @@ export interface TaskStatsResult {
   fetchedAt: string;
 }
 
-export async function fetchTaskStats(dateFrom?: string, dateTo?: string, bypass?: boolean): Promise<TaskStatsResult> {
+export async function fetchTaskStats(dateFrom?: string, dateTo?: string, bypass?: boolean, lastEdited?: boolean): Promise<TaskStatsResult> {
   const params = new URLSearchParams();
   if (dateFrom) params.set("dateFrom", dateFrom);
   if (dateTo) params.set("dateTo", dateTo);
   if (bypass) params.set("refresh", "1");
+  if (lastEdited) params.set("lastEdited", "1");
   const resp = await fetch(`${API_BASE}/tasks/stats?${params}`, { headers: await authHeaders() });
   if (!resp.ok) throw new Error(`Stats fetch failed: ${resp.status}`);
   return resp.json();

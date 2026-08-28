@@ -52,10 +52,8 @@ export function ReportDatePicker({ dateSelection, availableDates, onDateChange, 
       return;
     }
     setShowCustom(false);
-    // Calculate range from the most recent available date
-    const latestDate = availableDates[0];
-    if (!latestDate) return;
-    const end = new Date(latestDate + 'T12:00:00');
+    // Always use today as the end date so "Last 7 Days" means the actual last 7 days
+    const end = new Date();
     const daysMap: Record<string, number> = { last_7: 7, last_14: 14, last_30: 30 };
     const days = daysMap[preset] || 7;
     const start = new Date(end);

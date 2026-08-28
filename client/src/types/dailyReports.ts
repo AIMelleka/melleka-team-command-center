@@ -193,6 +193,8 @@ export interface ClientDailyReport {
   industry: string | null;
   summary: string | null;
   platforms: Platform[];
+  /** Verified Supermetrics data — used exclusively for scoring to guarantee accuracy. */
+  verifiedPlatforms?: Platform[];
   cplCpaAnalysis: CplCpaAnalysis | null;
   insights: Insight[];
   recommendations: Recommendation[];

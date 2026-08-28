@@ -10,6 +10,13 @@
  * benchmarks exactly as they do in the frontend.
  */
 
+export interface PlatformSetting {
+  priority: 'primary' | 'secondary' | 'off';
+  focus_metric: 'cpa' | 'cpl' | 'roas' | 'cpm' | 'ctr';
+  target_value?: number | null;
+  monthly_target?: number | null;
+}
+
 export interface ClientGoals {
   target_cpl?: number | null;
   target_cpa?: number | null;
@@ -17,6 +24,17 @@ export interface ClientGoals {
   monthly_budget?: number | null;
   monthly_lead_target?: number | null;
   monthly_conversion_target?: number | null;
+  secondary_conversion_goal?: string | null;
+  secondary_target_cpa?: number | null;
+  secondary_target_cpl?: number | null;
+  secondary_monthly_target?: number | null;
+  tertiary_conversion_goal?: string | null;
+  tertiary_target_cpa?: number | null;
+  tertiary_target_cpl?: number | null;
+  tertiary_monthly_target?: number | null;
+  platform_settings?: Record<string, PlatformSetting> | null;
+  // Derived from client_account_mappings — only score platforms the client uses
+  active_platforms?: string[] | null;
 }
 
 export interface Platform {
@@ -50,6 +68,36 @@ function parseCurrency(val: string | number | undefined | null): number {
   if (val == null) return 0;
   if (typeof val === "number") return val;
   return parseFloat((val as string).replace(/[^0-9.-]/g, "") || "0");
+}
+
+// ── Platform normalization — mirrors scoring.ts ──────────────────────────────
+function normalizePlatformKey(name: string): string {
+  const l = name.toLowerCase();
+  if (l.includes("google")) return "google_ads";
+  if (l.includes("meta") || l.includes("facebook") || l.includes("fb ")) return "meta_ads";
+  if (l.includes("reddit")) return "reddit_ads";
+  if (l.includes("tiktok")) return "tiktok_ads";
+  if (l.includes("bing") || l.includes("microsoft")) return "bing_ads";
+  if (l.includes("linkedin")) return "linkedin_ads";
+  if (l.includes("vibe")) return "vibe_tv_ads";
+  return l.replace(/\s+/g, "_");
+}
+
+function filterScoringPlatforms(platforms: Platform[], goals?: ClientGoals | null): Platform[] {
+  const active = goals?.active_platforms;
+  const settings = goals?.platform_settings;
+  let filtered = platforms;
+  if (active && active.length > 0) {
+    filtered = filtered.filter(p => p.name && active.includes(normalizePlatformKey(String(p.name))));
+  }
+  if (settings && Object.keys(settings).length > 0) {
+    filtered = filtered.filter(p => {
+      if (!p.name) return true;
+      const s = settings[normalizePlatformKey(String(p.name))];
+      return !s || s.priority !== 'off';
+    });
+  }
+  return filtered;
 }
 
 // ── KPI Aggregation — identical to scoring.ts ─────────────────────────────────
@@ -159,9 +207,64 @@ function paceToScore(pace: number): number {
   return 15;
 }
 
-function scoreTrendDirection(platforms: Platform[]): number {
+function scoreCostEfficiencyPerPlatform(platforms: Platform[], goals: ClientGoals | null | undefined): number {
+  const settings = goals?.platform_settings;
+  if (!settings || Object.keys(settings).length === 0) {
+    return scoreCostEfficiency(aggregateKpis(platforms), goals);
+  }
+
+  let weightedSum = 0, totalWeight = 0;
+  for (const p of platforms) {
+    if (!p.name) continue;
+    const key = normalizePlatformKey(String(p.name));
+    const setting = settings[key];
+    if (!setting || setting.priority === 'off') continue;
+
+    const weight = setting.priority === 'primary' ? 0.7 : 0.3;
+    const kpis = aggregateKpis([p]);
+    let score: number;
+
+    if (setting.target_value && setting.target_value > 0) {
+      const tv = setting.target_value;
+      if (setting.focus_metric === 'cpl' && kpis.cpl > 0) {
+        score = goalRatioToScore(kpis.cpl / tv);
+      } else if (setting.focus_metric === 'cpa' && kpis.conversions > 0) {
+        score = goalRatioToScore(kpis.cpa / tv);
+      } else if (setting.focus_metric === 'roas' && kpis.roas > 0) {
+        score = goalRatioToScore(tv / kpis.roas);
+      } else {
+        score = 60;
+      }
+    } else {
+      score = scoreCostEfficiency(kpis, goals);
+    }
+
+    weightedSum += score * weight;
+    totalWeight += weight;
+  }
+
+  return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : scoreCostEfficiency(aggregateKpis(platforms), goals);
+}
+
+function scoreTrendDirection(platforms: Platform[], goals?: ClientGoals | null): number {
   if (!platforms || platforms.length === 0) return -1;
   const trendMap: Record<string, number> = { up: 85, stable: 60, down: 30 };
+  const settings = goals?.platform_settings;
+
+  if (settings && Object.keys(settings).length > 0) {
+    let weightedSum = 0, totalWeight = 0;
+    for (const p of platforms) {
+      if (!p.name) continue;
+      const key = normalizePlatformKey(String(p.name));
+      const s = settings[key];
+      if (s?.priority === 'off') continue;
+      const weight = s?.priority === 'secondary' ? 0.3 : 0.7;
+      weightedSum += (trendMap[p.trend ?? 'stable'] ?? 60) * weight;
+      totalWeight += weight;
+    }
+    return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : -1;
+  }
+
   let total = 0, count = 0;
   for (const p of platforms) {
     total += trendMap[p.trend ?? "stable"] ?? 60;
@@ -183,7 +286,9 @@ export function computeReportScore(
   platforms: Platform[],
   goals?: ClientGoals | null,
 ): ReportScore {
-  const kpis = aggregateKpis(platforms);
+  // Only score platforms the client actually uses (respects active_platforms + priority 'off')
+  const scoringPlatforms = filterScoringPlatforms(platforms, goals);
+  const kpis = aggregateKpis(scoringPlatforms);
   const usedGoals = !!(
     goals?.target_cpa ||
     goals?.target_cpl ||
@@ -192,9 +297,9 @@ export function computeReportScore(
   );
 
   const signals = {
-    costEfficiency: scoreCostEfficiency(kpis, goals),
+    costEfficiency: scoreCostEfficiencyPerPlatform(scoringPlatforms, goals),
     volumePacing: scoreVolumePacing(kpis, goals),
-    trendDirection: scoreTrendDirection(platforms),
+    trendDirection: scoreTrendDirection(scoringPlatforms, goals),
   };
 
   let weightedSum = 0, totalWeight = 0;

@@ -85,6 +85,7 @@ type EditingState = { id: string; title: string } | null;
 // ── Constants ────────────────────────────────────────
 
 const tools = [
+  { label: 'The Guide', route: '/' },
   { label: 'Proposal Builder', route: '/proposal-builder' },
   { label: 'SEO Writer', route: '/seo-writer' },
   { label: 'Creative Studio', route: '/creative-studio' },

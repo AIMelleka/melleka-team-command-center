@@ -582,7 +582,7 @@ Clients connect their own Google Ads / Meta Ads accounts via OAuth 2.0. Melleka'
 All command center tables live in the default Supabase project. You have full read/write access.
 
 ### Client Management
-- **managed_clients** - Master client list: client_name, domain, ga4_property_id, industry, is_active, tier (premium/advanced/basic), primary_conversion_goal, tracked_conversion_types[], multi_account_enabled, site_audit_url
+- **managed_clients** - Master client list: client_name, domain, ga4_property_id, industry, is_active, tier (premium/advanced/basic), primary_conversion_goal, tracked_conversion_types[], multi_account_enabled, site_audit_url, excluded_platforms[] (platform keys to never pull for this client — e.g. ["meta_ads"]. Set via supabase_query UPDATE. fetch_client_ad_performance respects this automatically.)
 - **client_profiles** - Branding: client_name, domain, logo_url, brand_colors (JSON), social_accounts (JSON)
 - **client_account_mappings** - Links clients to ad accounts: client_name, platform (google_ads/meta_ads/bing_ads/tiktok_ads/linkedin_ads), account_id, account_name
 - **client_health_history** - Historical health scores: client_name, health_score, config_completeness, ad_health, seo_health, seo_errors, days_since_ad_review, score_breakdown (JSON), missing_configs[]
@@ -1749,24 +1749,45 @@ async function runChat(
         let result: string;
         let toolError: string | undefined;
         const toolStart = Date.now();
-        try {
-          result = await executeTool(block.name, parsedInput, memberName);
-        } catch (toolErr: any) {
-          // Tool execution crashed - give Claude the error so it can adapt
-          result = `ERROR: Tool "${block.name}" failed: ${toolErr.message}`;
-          toolError = toolErr.message;
-          console.error(`[runChat] ${memberName} | tool ${block.name} threw:`, toolErr.message);
+
+        // Rate-limited external API calls are automatically retried (up to 2 retries)
+        // so Claude always receives real data rather than falling back to stale context.
+        const MAX_RATE_LIMIT_RETRIES = 2;
+        let rateLimitAttempt = 0;
+        while (true) {
+          toolError = undefined;
+          try {
+            result = await executeTool(block.name, parsedInput, memberName);
+          } catch (toolErr: any) {
+            result = `ERROR: Tool "${block.name}" failed: ${toolErr.message}`;
+            toolError = toolErr.message;
+            console.error(`[runChat] ${memberName} | tool ${block.name} threw:`, toolErr.message);
+            break; // don't retry hard crashes
+          }
+          const isRateLimited = /rate.limit|429|too many requests|quota.*exceeded/i.test(result);
+          if (isRateLimited && rateLimitAttempt < MAX_RATE_LIMIT_RETRIES) {
+            rateLimitAttempt++;
+            consecutiveErrors++;
+            const backoffMs = rateLimitAttempt * 15000; // 15s, 30s
+            console.log(`[runChat] ${memberName} | rate limit on ${block.name}, retry ${rateLimitAttempt}/${MAX_RATE_LIMIT_RETRIES} in ${backoffMs}ms`);
+            await new Promise(r => setTimeout(r, backoffMs));
+            continue;
+          }
+          break;
         }
         const toolMs = Date.now() - toolStart;
 
-        // Rate limit / timeout backoff - slow down when hitting external API limits
-        const isRateLimit = /rate.limit|429|too many requests|quota.*exceeded/i.test(result);
-        const isTimeout = /timed out|timeout|ETIMEDOUT|ECONNRESET/i.test(result);
-        if (isRateLimit || isTimeout) {
+        // Backoff for timeouts (rate limits already handled above)
+        const isRateLimit = /rate.limit|429|too many requests|quota.*exceeded/i.test(result!);
+        const isTimeout = /timed out|timeout|ETIMEDOUT|ECONNRESET/i.test(result!);
+        if (isTimeout) {
           consecutiveErrors++;
-          const backoffMs = Math.min(consecutiveErrors * 5000, 30000); // 5s, 10s, 15s... up to 30s
-          console.log(`[runChat] ${memberName} | ${isRateLimit ? "rate limit" : "timeout"} on ${block.name}, backing off ${backoffMs}ms (consecutive: ${consecutiveErrors})`);
+          const backoffMs = Math.min(consecutiveErrors * 5000, 30000);
+          console.log(`[runChat] ${memberName} | timeout on ${block.name}, backing off ${backoffMs}ms (consecutive: ${consecutiveErrors})`);
           await new Promise(r => setTimeout(r, backoffMs));
+        } else if (isRateLimit) {
+          // All retries exhausted — log final state but don't wait more
+          console.log(`[runChat] ${memberName} | rate limit on ${block.name} exhausted retries, passing error to Claude`);
         } else if (!toolError) {
           consecutiveErrors = 0; // reset on success
         }

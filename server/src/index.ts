@@ -37,6 +37,13 @@ import weeklyUpdatesRouter from "./routes/weekly-updates.js";
 import autoClientUpdatesRouter from "./routes/auto-client-updates.js";
 import analyticsRouter from "./routes/analytics.js";
 import crmRouter from "./routes/crm.js";
+import taskWeightsRouter from "./routes/task-weights.js";
+import taskBonusRouter from "./routes/task-bonus.js";
+import taskSettingsRouter from "./routes/task-settings.js";
+import marketingNewsRouter from "./routes/marketing-news.js";
+import onboardingTemplatesRouter from "./routes/onboarding-templates.js";
+import guideRouter from "./routes/guide.js";
+import achievementsRouter from "./routes/achievements.js";
 import { getActiveSseConnections } from "./routes/chat.js";
 import { warmCaches } from "./services/claude.js";
 import { supabase } from "./services/supabase.js";
@@ -192,6 +199,13 @@ app.use("/api/weekly-updates", weeklyUpdatesRouter);
 app.use("/api/auto-client-updates", autoClientUpdatesRouter);
 app.use("/api/analytics", analyticsRouter);
 app.use("/api/crm", crmRouter);
+app.use("/api/task-weights", taskWeightsRouter);
+app.use("/api/task-bonus", taskBonusRouter);
+app.use("/api/task-settings", taskSettingsRouter);
+app.use("/api/marketing-news", marketingNewsRouter);
+app.use("/api/onboarding-templates", onboardingTemplatesRouter);
+app.use("/api/guide", guideRouter);
+app.use("/api/achievements", achievementsRouter);
 
 // ── Global error safety net (MUST be after all routes) ───────────────────
 // Catches ANY unhandled error thrown by middleware or route handlers so one

@@ -28,6 +28,7 @@ import {
 import { fetchCronJobs, deleteCronJob, type CronJob } from "@/lib/chatApi";
 import { useToast } from "@/hooks/use-toast";
 import AdminHeader from "@/components/AdminHeader";
+import SettingsTabs from "@/components/SettingsTabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -519,6 +520,7 @@ export default function SuperAgentDashboard() {
   return (
     <div className="min-h-screen bg-background">
       <AdminHeader />
+      <SettingsTabs />
       <main className="container mx-auto px-4 py-6 pb-20 sm:pb-6 max-w-7xl">
         {/* Page Title */}
         <div className="flex items-center gap-3 mb-6">

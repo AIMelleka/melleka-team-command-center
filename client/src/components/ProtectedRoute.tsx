@@ -13,7 +13,7 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute = ({ children, requireAdmin = false, routePath }: ProtectedRouteProps) => {
-  const { user, isAdmin, isLoading } = useAuth();
+  const { user, isAdmin, isSuperAdmin, isLoading } = useAuth();
   const { hasToolAccess, isLoading: permLoading } = useUserPermissions();
   const navigate = useNavigate();
   const location = useLocation();
@@ -84,8 +84,8 @@ const ProtectedRoute = ({ children, requireAdmin = false, routePath }: Protected
   // Mark that we've successfully rendered children
   hasRenderedChildrenRef.current = true;
 
-  // Admins always have full access
-  if (isAdmin) {
+  // Admins and super admins always have full access
+  if (isAdmin || isSuperAdmin) {
     return <>{children}</>;
   }
 

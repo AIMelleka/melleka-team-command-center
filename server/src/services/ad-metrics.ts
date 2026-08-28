@@ -1691,6 +1691,7 @@ interface AdPerformanceResult {
 
 export async function fetchClientAdPerformance(
   clientName: string, startDate: string, endDate: string,
+  excludedPlatforms?: string[],
 ): Promise<AdPerformanceResult> {
   const errors: string[] = [];
 
@@ -1700,7 +1701,7 @@ export async function fetchClientAdPerformance(
 
   const { data: allClients, error: clientErr } = await supabase
     .from("managed_clients")
-    .select("client_name")
+    .select("client_name, excluded_platforms")
     .eq("is_active", true);
 
   if (clientErr) {
@@ -1749,6 +1750,23 @@ export async function fetchClientAdPerformance(
     console.log(`[ad-metrics] Resolved "${clientName}" -> ${resolvedNames.join(", ")}`);
   }
 
+  // Merge DB-level excluded_platforms with any caller-supplied exclusions
+  const dbExclusions: string[] = [];
+  if (allClients && resolvedNames.length > 0) {
+    for (const c of allClients) {
+      if (resolvedNames.includes(c.client_name) && Array.isArray((c as any).excluded_platforms)) {
+        dbExclusions.push(...(c as any).excluded_platforms);
+      }
+    }
+  }
+  const effectiveExclusions = new Set([
+    ...(excludedPlatforms || []).map(p => p.toLowerCase()),
+    ...dbExclusions.map(p => p.toLowerCase()),
+  ]);
+  if (effectiveExclusions.size > 0) {
+    console.log(`[ad-metrics] Excluding platforms for "${clientName}": ${[...effectiveExclusions].join(", ")}`);
+  }
+
   // 2. Look up linked accounts using resolved names (or fall back to raw clientName)
   let effectiveMappings: Array<{ platform: string; account_id: string; account_name: string | null }> = [];
 
@@ -1787,11 +1805,12 @@ export async function fetchClientAdPerformance(
     return { client_name: clientName, date_range: { start: startDate, end: endDate }, errors };
   }
 
-  // Group by platform
+  // Group by platform, skipping any excluded ones
   const accountsByPlatform: Record<string, string[]> = {};
   for (const m of effectiveMappings) {
     const platform = m.platform as string;
     if (!DATA_SOURCES[platform]) continue;
+    if (effectiveExclusions.has(platform.toLowerCase())) continue;
     if (!accountsByPlatform[platform]) accountsByPlatform[platform] = [];
     accountsByPlatform[platform].push(m.account_id as string);
   }

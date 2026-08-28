@@ -19,6 +19,9 @@ function normalizeReport(row: any): ClientDailyReport {
     platforms: Array.isArray(row.platforms) && row.platforms.length > 0
       ? row.platforms
       : fullAnalysis.platforms || [],
+    verifiedPlatforms: Array.isArray(row.verified_platforms) && row.verified_platforms.length > 0
+      ? row.verified_platforms
+      : undefined,
     cplCpaAnalysis: fullAnalysis.cplCpaAnalysis || null,
     insights: Array.isArray(row.insights) && row.insights.length > 0
       ? row.insights
@@ -81,8 +84,8 @@ function aggregateClientReports(clientReports: ClientDailyReport[]): ClientDaily
   };
 }
 
-function computeRangeFromPreset(preset: DatePreset, latestDate: string): { start: string; end: string } {
-  const end = new Date(latestDate + 'T12:00:00');
+function computeRangeFromPreset(preset: DatePreset): { start: string; end: string } {
+  const end = new Date(); // always today so "Last 7 Days" means actual last 7 days
   const daysMap: Record<DatePreset, number> = { last_7: 7, last_14: 14, last_30: 30, custom: 0 };
   const days = daysMap[preset] || 7;
   const start = subDays(end, days - 1);
@@ -222,13 +225,13 @@ export function useDailyReports() {
 
   // Convenience setter for mode
   const handleSetMode = useCallback((mode: DateMode) => {
-    if (mode === 'range' && availableDates.length > 0) {
-      const { start, end } = computeRangeFromPreset('last_7', availableDates[0]);
+    if (mode === 'range') {
+      const { start, end } = computeRangeFromPreset('last_7');
       setDateSelection(prev => ({ ...prev, mode, startDate: start, endDate: end, preset: 'last_7' }));
     } else {
       setDateSelection(prev => ({ ...prev, mode }));
     }
-  }, [availableDates]);
+  }, []);
 
   const clientCount = reports.length;
   const rangeDayCount = isRangeMode && dateSelection.startDate && dateSelection.endDate

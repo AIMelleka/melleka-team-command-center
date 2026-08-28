@@ -2528,13 +2528,18 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "fetch_client_ad_performance",
     description:
-      "Fetch ad performance metrics directly from Meta Marketing API and Google Ads API for a client. Returns spend, clicks, impressions, conversions (classified as leads/purchases/calls), CTR, CPC, CPA, CPM, CPL — per platform and per campaign. All calculations are done server-side. Use this instead of google_ads_query or meta_ads_manage for performance data in client updates.",
+      "Fetch ad performance metrics directly from Meta Marketing API and Google Ads API for a client. Returns spend, clicks, impressions, conversions (classified as leads/purchases/calls), CTR, CPC, CPA, CPM, CPL — per platform and per campaign. All calculations are done server-side. Use this instead of google_ads_query or meta_ads_manage for performance data in client updates. Platforms listed in managed_clients.excluded_platforms are automatically skipped. Pass excluded_platforms to override on a per-call basis.",
     input_schema: {
       type: "object" as const,
       properties: {
         client_name: { type: "string", description: "Client name (as it appears in managed_clients)." },
         start_date: { type: "string", description: "Start date in YYYY-MM-DD format." },
         end_date: { type: "string", description: "End date in YYYY-MM-DD format." },
+        excluded_platforms: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional. Platform keys to skip for this call (e.g. [\"meta_ads\"]). Merged with any DB-level exclusions on the client.",
+        },
       },
       required: ["client_name", "start_date", "end_date"],
     },
@@ -7000,7 +7005,10 @@ export async function executeTool(
         if (!clientName || !startDate || !endDate) {
           return "Error: client_name, start_date, and end_date are all required.";
         }
-        const adResult = await fetchClientAdPerformance(clientName, startDate, endDate);
+        const excludedPlatforms = Array.isArray(toolInput.excluded_platforms)
+          ? (toolInput.excluded_platforms as string[])
+          : undefined;
+        const adResult = await fetchClientAdPerformance(clientName, startDate, endDate, excludedPlatforms);
         return JSON.stringify(adResult, null, 2);
       }
 
